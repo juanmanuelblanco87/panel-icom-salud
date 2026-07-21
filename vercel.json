@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/oppen-stock.js": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/icom_panel_unificado.html" }
+  ]
+}
