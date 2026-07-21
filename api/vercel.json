@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/oppen-stock.js": {
+      "maxDuration": 30
+    }
+  }
+}
