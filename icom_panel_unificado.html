@@ -365,6 +365,10 @@
 
         <div class="erp-card">
           <h2>Por Marca</h2>
+          <div class="erp-toolbar">
+            <input type="text" id="erpMarcaSearch" placeholder="Buscar por marca..." oninput="erpRenderMarcaTable()">
+            <span class="erp-count" id="erpMarcaCount"></span>
+          </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
               <thead><tr><th>Marca</th><th class="num">Unidades</th><th class="num">Total Neto</th></tr></thead>
@@ -1095,12 +1099,24 @@ async function erpRenderMacroTable(){
   ).join('');
 }
 
+// Normaliza un nombre de marca crudo para poder AGRUPAR variantes que son la
+// misma marca escrita distinto (ej. "MUGI" vs "Mugi" vs "  Mugi  "). Esto es
+// solo para decidir si dos strings son "la misma marca" — el texto a MOSTRAR
+// se elige aparte (la variante más frecuente dentro del grupo, ver más abajo).
+// Límite real: esto NO une variantes que se escriben distinto de verdad
+// (typos, abreviaturas, "Mugi S.A." vs "Mugi") — para esos casos hace falta
+// un alias manual curado a mano (pendiente, ver conversación con el usuario).
+function erpNormalizeMarcaKey(raw){
+  return String(raw||'').trim().replace(/\s+/g,' ').toLowerCase();
+}
+
 // Misma lógica que erpRenderMacroTable, pero agrupando por marca en vez de
 // macro categoría: combina getSkuMarcaMap() (BASE_SKUS.m, pedido por RPC a
 // Seguimiento) + el campo "marca" de la Base de Productos local como
 // respaldo si la RPC falla o no tiene el SKU.
 async function erpRenderMarcaTable(){
   const body = document.getElementById('erpMarcaBody');
+  const countSpan = document.getElementById('erpMarcaCount');
   const {bySku} = erpGetFilteredData();
   if(!ERP_VIEW_DATA || !bySku){
     body.innerHTML = '<tr><td colspan="3" class="pm-empty">Sin datos.</td></tr>';
@@ -1119,21 +1135,37 @@ async function erpRenderMarcaTable(){
   if(PM_DATA && PM_DATA.rows){
     PM_DATA.rows.forEach(r=>{ if(r.sku && r.marca && !skuToMarca[r.sku]) skuToMarca[r.sku] = r.marca; });
   }
-  const byMarca = {};
+
+  // Agrupamos por una key normalizada (trim + espacios colapsados + minúscula)
+  // para que "MUGI" y "Mugi" caigan en el MISMO grupo automáticamente, en vez
+  // de aparecer como dos marcas distintas. Elegimos como texto a MOSTRAR la
+  // variante MÁS FRECUENTE dentro del grupo (a igualdad, la más larga/prolija).
+  const byMarca = {}; // key normalizada -> {unidades, totalNeto, labelCounts:{label:count}}
   Object.entries(bySku).forEach(([sku, v])=>{
-    const marca = skuToMarca[sku] || 'Sin marca';
-    if(!byMarca[marca]) byMarca[marca] = {unidades:0, totalNeto:0};
-    byMarca[marca].unidades += v.unidades;
-    byMarca[marca].totalNeto += v.totalNeto;
+    const rawMarca = skuToMarca[sku] || 'Sin marca';
+    const key = erpNormalizeMarcaKey(rawMarca);
+    if(!byMarca[key]) byMarca[key] = {unidades:0, totalNeto:0, labelCounts:{}};
+    byMarca[key].unidades += v.unidades;
+    byMarca[key].totalNeto += v.totalNeto;
+    byMarca[key].labelCounts[rawMarca] = (byMarca[key].labelCounts[rawMarca]||0) + 1;
   });
 
-  const rows = Object.entries(byMarca).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  let rows = Object.values(byMarca).map(v=>{
+    const labels = Object.entries(v.labelCounts).sort((a,b)=> b[1]-a[1] || b[0].length-a[0].length);
+    return {marca: labels[0][0], unidades: v.unidades, totalNeto: v.totalNeto};
+  });
+
+  const q = (document.getElementById('erpMarcaSearch').value||'').trim().toLowerCase();
+  if(q) rows = rows.filter(r=> r.marca.toLowerCase().includes(q));
+
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  if(countSpan) countSpan.textContent = rows.length + ' marcas';
   if(!rows.length){
-    body.innerHTML = '<tr><td colspan="3" class="pm-empty">Sin facturas este día.</td></tr>';
+    body.innerHTML = '<tr><td colspan="3" class="pm-empty">'+(q ? 'Sin marcas que coincidan con la búsqueda.' : 'Sin facturas este día.')+'</td></tr>';
     return;
   }
-  body.innerHTML = rows.map(([marca, v])=>
-    '<tr><td>'+marca+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td></tr>'
+  body.innerHTML = rows.map(v=>
+    '<tr><td>'+v.marca+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td></tr>'
   ).join('');
 }
 
