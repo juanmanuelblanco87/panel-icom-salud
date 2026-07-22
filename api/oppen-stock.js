@@ -18,9 +18,16 @@
 //     ICOM-CEN   → Central
 //     ICOM-JCP   → JCP
 //     PRO-SALUD  → ProSalud
-//   Depósitos compartidos de venta online:
-//     DEPO-CEN   → Tienda Online + Mercado Libre (pool central compartido)
-//     MLFULL     → Mercado Libre (depósito Full propio, bajo volumen)
+//   Depósitos compartidos de venta online — OJO: DEPO-CEN es un único pool
+//   físico que alimenta TANTO a Tienda Online COMO a la porción de Mercado
+//   Libre que no sale del depósito Full propio. Reportarlo bajo dos nombres
+//   de canal distintos ("Tienda Online" Y "Mercado Libre") duplicaba su
+//   valor cada vez que alguien sumaba $$ por canal (confirmado por el
+//   usuario viendo el desglose de un SKU: la suma de "unidades por almacén"
+//   no coincidía con el "Total disponible" real). Por eso ahora se reporta
+//   UNA sola vez, como canal "Canal Online":
+//     DEPO-CEN   → Canal Online (pool central compartido, se reporta 1 sola vez)
+//     MLFULL     → Mercado Libre Full (depósito Full propio, bajo volumen, SIN overlap con Canal Online)
 //   Canal propio:
 //     SANUS      → Sanus
 //   Excluidos del disponible para vender (no son stock vendible):
@@ -119,7 +126,7 @@ const DEPO_CANAL_MAP = {
   'ICOM-JCP': 'JCP',
   'PRO-SALUD': 'ProSalud',
   'SANUS': 'Sanus',
-  'MLFULL': 'Mercado Libre', // depósito Full propio de Mercado Libre (bajo volumen, ~21 registros vistos)
+  'MLFULL': 'Mercado Libre Full', // depósito Full propio de Mercado Libre (bajo volumen, ~21 registros vistos) — SIN overlap con Canal Online
 };
 // Depósitos que NO son stock disponible para vender: mercadería en tránsito,
 // alquileres, muestras (varias con nombres de ciudad/sucursal que en
@@ -131,7 +138,13 @@ const EXCLUDED_DEPOS = new Set([
 ]);
 // DEPO-CEN es compartido: alimenta Tienda Online completo, y la porción de
 // Mercado Libre que no sale del depósito Full (MLFULL, ya mapeado arriba).
+// Se reporta como un único canal ("Canal Online") — el cliente YA NO tiene
+// que repartirlo/duplicarlo entre dos canales de venta (ver comentario
+// arriba); si algún consumidor necesita saber "cuánto puede vender el canal
+// Mercado Libre en total" (Full + pool compartido), lo reconstruye sumando
+// 'Mercado Libre Full' + 'Canal Online' él mismo.
 const DEPO_CEN = 'DEPO-CEN';
+const DEPO_CEN_CANAL = 'Canal Online';
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -158,9 +171,7 @@ module.exports = async function handler(req, res) {
       const excluded = EXCLUDED_DEPOS.has(depo);
       let canal = null;
       if (!excluded) {
-        canal = DEPO_CANAL_MAP[depo] || (depo === DEPO_CEN ? '__DEPO_CEN__' : null);
-        // '__DEPO_CEN__' es un marcador especial: el cliente lo reparte entre
-        // 'Tienda Online' y 'Mercado Libre' (un solo depósito, dos canales).
+        canal = DEPO_CANAL_MAP[depo] || (depo === DEPO_CEN ? DEPO_CEN_CANAL : null);
       }
       rows.push({ sku, qty, excluded, canal, depo });
     }
