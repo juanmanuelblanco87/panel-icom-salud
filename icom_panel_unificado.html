@@ -76,6 +76,23 @@
     text-transform:uppercase;color:rgba(255,255,255,.35);white-space:nowrap;
   }
   #sidebar.collapsed .sb-section-label{display:none}
+
+  /* Grupo de Apps, anidado visualmente debajo de la unidad de negocio
+     activa (ver #appsGroup en el HTML y switchChannel() más abajo, que
+     reubica este mismo bloque debajo de la unidad que se clickee). Juan
+     Manuel, 24/07/2026: "Las Apps que se despliegan deben aparecer debajo
+     de la unidad de negocio cuando se cliquea para que se entienda que
+     refieren a la unidad de negocio en cuestión" -- el indent extra + el
+     borde izquierdo tenue son lo que comunican "esto pertenece a la unidad
+     de arriba", sin duplicar los items de Apps por canal (siguen siendo
+     los mismos nodos de siempre, solo se mueven de lugar). */
+  .sb-apps-group{
+    border-left:2px solid rgba(255,255,255,.08);margin-left:17px;
+  }
+  .sb-apps-group .sb-item{padding-left:14px}
+  .sb-apps-label{padding-top:8px;padding-bottom:4px}
+  #sidebar.collapsed .sb-apps-group{border-left:none;margin-left:0}
+  #sidebar.collapsed .sb-apps-group .sb-item{padding-left:0}
   .sb-logout{padding:11px 17px;font-size:12px;color:rgba(255,255,255,.5);cursor:pointer;border-top:1px solid rgba(255,255,255,.12);white-space:nowrap;display:flex;align-items:center;gap:12px}
   .sb-logout:hover{color:#fff}
   .sb-logout .sb-icon{font-size:13px}
@@ -277,6 +294,34 @@
     <div class="sb-item sb-channel active" data-channel="minorista" onclick="switchChannel('minorista')">
       <span class="sb-icon">🏪</span> <span class="sb-label">Minorista</span>
     </div>
+    <!-- appsGroup arranca acá (debajo de Minorista, la unidad activa por
+         defecto al loguearse) a propósito, así el primer render ya sale
+         bien sin depender de JS -- switchChannel() lo reubica debajo de la
+         unidad que se clickee, moviendo el mismo nodo (ver comentario en
+         switchChannel). Juan Manuel, 24/07/2026: "Las Apps que se despliegan
+         deben aparecer debajo de la unidad de negocio cuando se cliquea para
+         que se entienda que refieren a la unidad de negocio en cuestión". -->
+    <div id="appsGroup" class="sb-apps-group">
+      <div class="sb-section-label sb-apps-label">Apps</div>
+      <div class="sb-item active" data-pane="erp" data-channels="all" onclick="switchPane('erp')">
+        <span class="sb-icon">📡</span> <span class="sb-label">Ventas en Vivo</span>
+      </div>
+      <div class="sb-item" data-pane="dashboard" data-channels="all" onclick="switchPane('dashboard')">
+        <span class="sb-icon">📊</span> <span class="sb-label">Dashboard</span>
+      </div>
+      <div class="sb-item" data-pane="seguimiento" data-channels="minorista" onclick="switchPane('seguimiento')">
+        <span class="sb-icon">📋</span> <span class="sb-label">Seguimiento</span>
+      </div>
+      <div class="sb-item" data-pane="stocks" data-channels="all" onclick="switchPane('stocks')">
+        <span class="sb-icon">📦</span> <span class="sb-label">Stocks</span>
+      </div>
+      <div class="sb-item" data-pane="forecast" data-channels="minorista" onclick="switchPane('forecast')">
+        <span class="sb-icon">📈</span> <span class="sb-label">Forecast 2026</span>
+      </div>
+      <div class="sb-item" data-pane="productos" data-channels="minorista" onclick="switchPane('productos')">
+        <span class="sb-icon">🗂️</span> <span class="sb-label">Base de Productos</span>
+      </div>
+    </div>
     <div class="sb-item sb-channel" data-channel="movilidad" onclick="switchChannel('movilidad')">
       <span class="sb-icon">♿</span> <span class="sb-label">Movilidad</span>
     </div>
@@ -285,26 +330,6 @@
     </div>
     <div class="sb-item sb-channel" data-channel="cirugia_general" onclick="switchChannel('cirugia_general')">
       <span class="sb-icon">🏥</span> <span class="sb-label">Cirugía General</span>
-    </div>
-
-    <div class="sb-section-label">Apps</div>
-    <div class="sb-item active" data-pane="erp" data-channels="all" onclick="switchPane('erp')">
-      <span class="sb-icon">📡</span> <span class="sb-label">Ventas en Vivo</span>
-    </div>
-    <div class="sb-item" data-pane="dashboard" data-channels="all" onclick="switchPane('dashboard')">
-      <span class="sb-icon">📊</span> <span class="sb-label">Dashboard</span>
-    </div>
-    <div class="sb-item" data-pane="seguimiento" data-channels="minorista" onclick="switchPane('seguimiento')">
-      <span class="sb-icon">📋</span> <span class="sb-label">Seguimiento</span>
-    </div>
-    <div class="sb-item" data-pane="stocks" data-channels="all" onclick="switchPane('stocks')">
-      <span class="sb-icon">📦</span> <span class="sb-label">Stocks</span>
-    </div>
-    <div class="sb-item" data-pane="forecast" data-channels="minorista" onclick="switchPane('forecast')">
-      <span class="sb-icon">📈</span> <span class="sb-label">Forecast 2026</span>
-    </div>
-    <div class="sb-item" data-pane="productos" data-channels="minorista" onclick="switchPane('productos')">
-      <span class="sb-icon">🗂️</span> <span class="sb-label">Base de Productos</span>
     </div>
     <div class="sb-spacer"></div>
     <div class="sb-logout" onclick="doLogout()"><span class="sb-icon">⏻</span> <span class="sb-label">Cerrar sesión</span></div>
@@ -574,7 +599,15 @@ function switchChannel(channel){
   currentChannel = channel;
   document.querySelectorAll('.sb-channel').forEach(i=>i.classList.remove('active'));
   const chanItem = document.querySelector('.sb-channel[data-channel="'+channel+'"]');
-  if(chanItem) chanItem.classList.add('active');
+  if(chanItem){
+    chanItem.classList.add('active');
+    // Reubica el grupo de Apps (mismo nodo de siempre, no un clon -- ver
+    // comentario en #appsGroup/.sb-apps-group) debajo de la unidad recién
+    // elegida, para que quede visualmente claro que esas apps son las de
+    // ESA unidad. Juan Manuel, 24/07/2026.
+    const appsGroup = document.getElementById('appsGroup');
+    if(appsGroup) chanItem.insertAdjacentElement('afterend', appsGroup);
+  }
   updateAppVisibilityForChannel();
 
   // Si el pane que estaba abierto no existe para la unidad nueva (ej.
