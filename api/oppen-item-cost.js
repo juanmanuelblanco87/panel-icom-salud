@@ -32,7 +32,9 @@
 //
 // Uso desde el panel (el CLIENTE pagina, ver erpFetchItemCostNow en el
 // shell): fetch('/api/oppen-item-cost?offset=0&limit=500'), y repetir con
-// offset += limit mientras hasMore sea true.
+// offset += limit mientras hasMore sea true. Parámetro opcional
+// fxOverride=<numero>: si viene, se usa ese tipo de cambio en vez de
+// consultar dolarapi.com (ver "PISAR A MANO" más abajo).
 //
 // Respuesta (por página):
 // {
@@ -40,7 +42,7 @@
 //   hasMore: true,
 //   nextOffset: 500,
 //   recordsInPage: 500,
-//   fx: { rate: 1515, fecha: '2026-07-24T12:00:00.000Z' } | null,
+//   fx: { rate: 1515, fecha: '2026-07-24T12:00:00.000Z'|null, source: 'oficial'|'manual' } | null,
 //   rows: [ { sku, costo } ]   // costo: SIEMPRE en ARS (ver conversión de moneda abajo), o 0 si no hay dato
 // }
 //
@@ -70,6 +72,14 @@
 // siempre para "sin dato": getStockInfo cae a la aproximación por venta
 // más reciente, SKU_META, como red de seguridad) y se loguea un warning acá
 // para poder detectarlo en los logs de Vercel.
+//
+// PISAR A MANO (Juan Manuel, 24/07/2026 — "deja la opción de pisarlo a mano
+// en el caso que este fallando"): además del tipo de cambio oficial en
+// vivo, se puede mandar ?fxOverride=<numero> -- si viene, se usa TAL CUAL
+// (sin siquiera consultar dolarapi.com) y se marca fx.source:'manual' en la
+// respuesta. Quien decide guardar/limpiar ese valor y volver a pedir esta
+// página con o sin el parámetro es el shell (ver erpFetchItemCostNow) — acá
+// solo lo aplicamos si nos llega.
 
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOM';
 
@@ -173,9 +183,20 @@ module.exports = async function handler(req, res) {
 
     // Solo pedimos el tipo de cambio si esta página realmente tiene algún
     // costo en USD -- así no le pegamos a dolarapi.com en páginas 100% ARS
-    // (la gran mayoría del catálogo).
+    // (la gran mayoría del catálogo). Si vino un override manual, lo usamos
+    // directo y ni siquiera consultamos dolarapi.com.
     const tieneUsd = rawRows.some(row => String(row.OperativeCostCurrency || '').toUpperCase() === 'USD' && Number(row.OperativeCost) > 0);
-    const fx = tieneUsd ? await getTipoCambioOficialVenta() : null;
+    const overrideRaw = url.searchParams.get('fxOverride');
+    const overrideRate = overrideRaw != null ? Number(overrideRaw) : null;
+    let fx = null;
+    if (tieneUsd) {
+      if (overrideRate > 0) {
+        fx = { rate: overrideRate, fecha: null, source: 'manual' };
+      } else {
+        const oficial = await getTipoCambioOficialVenta();
+        fx = oficial ? { ...oficial, source: 'oficial' } : null;
+      }
+    }
 
     let usdSinConvertir = 0;
     const rows = [];
