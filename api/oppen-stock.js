@@ -199,6 +199,16 @@ module.exports = async function handler(req, res) {
     if (debug) {
       responseBody.debugRawSampleRows = rawRows.slice(0, 3);
       responseBody.debugRawKeys = rawRows[0] ? Object.keys(rawRows[0]) : [];
+      // Escaneo de la página completa (hasta 500 filas): cuántas traen Cost
+      // no-nulo y no-cero, y hasta 5 ejemplos reales de esas -- para no
+      // depender de las primeras 3 filas al azar (podían ser justo ítems con
+      // costo vacío, como el ejemplo serializado que vimos con Qty:0).
+      const withCost = rawRows.filter(r => r && r.Cost != null && Number(r.Cost) > 0);
+      responseBody.debugCostStats = {
+        totalRows: rawRows.length,
+        withNonNullNonZeroCost: withCost.length,
+        ejemplos: withCost.slice(0, 5),
+      };
     }
 
     res.status(200).json(responseBody);
