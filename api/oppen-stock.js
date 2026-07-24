@@ -190,6 +190,7 @@ module.exports = async function handler(req, res) {
 
     const responseBody = {
       ok: true,
+      _diagVersion: 'DIAG-V3-2026-07-24',
       hasMore: !!page.has_more,
       nextOffset: offset + limit,
       recordsInPage: rawRows.length,
