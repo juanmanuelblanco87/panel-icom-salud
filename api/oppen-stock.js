@@ -211,6 +211,35 @@ module.exports = async function handler(req, res) {
         ejemplos: withCost.slice(0, 5),
       };
     }
+    // DIAGNÓSTICO TEMPORAL #2 (Juan Manuel, 24/07/2026): encontró, inspeccionando
+    // la consulta real que arma la pantalla "Listado de Stock" de oppen.io, que
+    // el costo NO sale de Stock -- sale de una entidad separada "ItemCost"
+    // (columna real: IFNULL(ic.OperativeCost,0), unida a Item por Code). Con
+    // ?debugItemCost=1 probamos si esa entidad es consultable con NUESTRAS
+    // credenciales de servicio (las mismas OPPEN_USER/OPPEN_PASS, vía el mismo
+    // genericapi que ya usamos para Stock/Invoice) -- si funciona, sería la
+    // solución de fondo: nada de sesión de navegador, mismo mecanismo estable
+    // que ya tenemos.
+    if (url.searchParams.get('debugItemCost') === '1') {
+      try {
+        const icParams = new URLSearchParams({ __limit__: '5', __offset__: '0' });
+        const icRes = await fetch(`${BASE_URL}/ItemCost?${icParams.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const icText = await icRes.text();
+        let icJson = null;
+        try { icJson = JSON.parse(icText); } catch (e) { /* no era JSON */ }
+        responseBody.debugItemCost = {
+          status: icRes.status,
+          ok: icRes.ok,
+          bodyIsJson: !!icJson,
+          rawTextSnippet: icJson ? undefined : icText.slice(0, 500),
+          sampleRows: icJson && Array.isArray(icJson.data) ? icJson.data.slice(0, 5) : icJson,
+        };
+      } catch (e) {
+        responseBody.debugItemCost = { error: String(e.message || e) };
+      }
+    }
 
     res.status(200).json(responseBody);
   } catch (err) {
