@@ -17,7 +17,7 @@
 // logueado en el navegador — no es automatizable de forma segura ni
 // estable), ItemCost SÍ es una entidad más del mismo genericapi/ICOM que ya
 // usamos para Invoice y Stock — o sea, consultable con las MISMAS
-// credenciales de servicio (OPPEN_USER/OPPEN_PASS), sin depender de que
+// credenciales de servicio (OPPEN_USER_API/OPPEN_PASS_API), sin depender de que
 // nadie esté logueado. Confirmado contra la documentación pública de la API
 // (Swagger) y con datos reales: ej. Code "000004" (el mismo SKU que en Stock
 // tiene Cost:null) tiene OperativeCost: 870208.64 acá.
@@ -28,7 +28,7 @@
 // más rápido.
 //
 // Variables de entorno requeridas (compartidas con oppen-invoices.js y
-// oppen-stock.js): OPPEN_USER, OPPEN_PASS
+// oppen-stock.js): OPPEN_USER_API, OPPEN_PASS_API
 //
 // Uso desde el panel (el CLIENTE pagina, ver erpFetchItemCostNow en el
 // shell): fetch('/api/oppen-item-cost?offset=0&limit=500'), y repetir con
@@ -122,10 +122,10 @@ async function getToken() {
   if (cachedToken && now < cachedTokenExpiresAt - 30_000) {
     return cachedToken;
   }
-  const user = process.env.OPPEN_USER;
-  const pass = process.env.OPPEN_PASS;
+  const user = process.env.OPPEN_USER_API;
+  const pass = process.env.OPPEN_PASS_API;
   if (!user || !pass) {
-    throw new Error('Faltan las variables de entorno OPPEN_USER / OPPEN_PASS en Vercel.');
+    throw new Error('Faltan las variables de entorno OPPEN_USER_API / OPPEN_PASS_API en Vercel.');
   }
   const res = await fetch(`${BASE_URL}/authenticate`, {
     method: 'POST',

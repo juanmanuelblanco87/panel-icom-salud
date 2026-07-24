@@ -2,8 +2,9 @@
 // Endpoint serverless (Vercel) — proxy seguro hacia la entidad Stock de oppen.io.
 //
 // Mismo patrón de seguridad que api/oppen-invoices.js: las credenciales viven
-// solo en variables de entorno de Vercel (OPPEN_USER / OPPEN_PASS — las MISMAS
-// que ya tenés cargadas para facturación, no hace falta agregar nada nuevo).
+// solo en variables de entorno de Vercel (OPPEN_USER_API / OPPEN_PASS_API —
+// las MISMAS que ya se usan para facturación, no hace falta agregar nada
+// nuevo acá).
 //
 // A diferencia de Invoice (acotado al mes en curso), Stock no tiene un filtro
 // de fecha natural — hay que traer TODO el catálogo con existencia, que puede
@@ -41,7 +42,7 @@
 //     que se confirme qué son.
 //
 // Variables de entorno requeridas (compartidas con oppen-invoices.js):
-//   OPPEN_USER, OPPEN_PASS
+//   OPPEN_USER_API, OPPEN_PASS_API
 //
 // Uso desde el panel (el CLIENTE pagina, no el servidor — ver erpFetchStockNow
 // en el shell): fetch('/api/oppen-stock?offset=0&limit=500'), y repetir con
@@ -72,10 +73,10 @@ async function getToken() {
   if (cachedToken && now < cachedTokenExpiresAt - 30_000) {
     return cachedToken;
   }
-  const user = process.env.OPPEN_USER;
-  const pass = process.env.OPPEN_PASS;
+  const user = process.env.OPPEN_USER_API;
+  const pass = process.env.OPPEN_PASS_API;
   if (!user || !pass) {
-    throw new Error('Faltan las variables de entorno OPPEN_USER / OPPEN_PASS en Vercel.');
+    throw new Error('Faltan las variables de entorno OPPEN_USER_API / OPPEN_PASS_API en Vercel.');
   }
   const res = await fetch(`${BASE_URL}/authenticate`, {
     method: 'POST',

@@ -1,8 +1,8 @@
 // api/oppen-invoices.js
 // Endpoint serverless (Vercel) que actúa como proxy seguro hacia la API de oppen.io.
 //
-// - Las credenciales (OPPEN_USER / OPPEN_PASS) viven SOLO en variables de entorno
-//   de Vercel. Nunca se exponen al navegador.
+// - Las credenciales (OPPEN_USER_API / OPPEN_PASS_API) viven SOLO en variables de
+//   entorno de Vercel. Nunca se exponen al navegador.
 // - Cachea el token de autenticación en memoria del proceso (dura hasta 1h en
 //   Oppen); solo vuelve a autenticar si expiró o no hay token todavía.
 // - Trae todas las facturas del mes en curso, filtrando Status=1 (confirmada)
@@ -13,8 +13,14 @@
 //   archivos TSV del ERP.
 //
 // Variables de entorno requeridas en Vercel (Project Settings → Environment Variables):
-//   OPPEN_USER = usuario de API (idealmente uno dedicado, de solo lectura)
-//   OPPEN_PASS = contraseña de ese usuario
+//   OPPEN_USER_API = usuario de API del proyecto de Oppen (Juan Manuel,
+//     24/07/2026: se creó un proyecto nuevo en Oppen que da acceso a las 4
+//     unidades de negocio juntas -- Minorista, Movilidad, Cirugía Estética
+//     y Cirugía General -- reemplazando al proyecto viejo, que solo veía
+//     Minorista. Se renombró de OPPEN_USER a OPPEN_USER_API a propósito
+//     para no pisar el valor viejo en Vercel -- queda ahí de respaldo por
+//     si hiciera falta volver atrás.)
+//   OPPEN_PASS_API = contraseña de ese usuario
 //
 // Uso desde el panel (mismo origen, sin problema de CORS):
 //   fetch('/api/oppen-invoices').then(r => r.json())
@@ -46,10 +52,10 @@ async function getToken() {
     return cachedToken;
   }
 
-  const user = process.env.OPPEN_USER;
-  const pass = process.env.OPPEN_PASS;
+  const user = process.env.OPPEN_USER_API;
+  const pass = process.env.OPPEN_PASS_API;
   if (!user || !pass) {
-    throw new Error('Faltan las variables de entorno OPPEN_USER / OPPEN_PASS en Vercel.');
+    throw new Error('Faltan las variables de entorno OPPEN_USER_API / OPPEN_PASS_API en Vercel.');
   }
 
   const res = await fetch(`${BASE_URL}/authenticate`, {
