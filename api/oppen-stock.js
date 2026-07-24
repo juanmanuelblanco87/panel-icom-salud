@@ -155,6 +155,18 @@ module.exports = async function handler(req, res) {
     const url = new URL(req.url, 'http://x');
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '500', 10), 500);
+    // DIAGNÓSTICO TEMPORAL (Juan Manuel, 24/07/2026 — "si está en el reporte
+    // de Stock el campo de Costo... cómo podemos hallarlo?"): venía asumido
+    // (ver comentario en api/oppen-invoices.js, validado alguna vez contra
+    // ~130.608 registros) que row.Cost viene vacío el 100% de las veces. Si
+    // el reporte de Stock que exportás desde oppen.io SÍ trae un costo real,
+    // puede ser que el campo tenga OTRO nombre en esta API (genericapi), no
+    // "Cost" a secas. Con ?debug=1 devolvemos, además de lo de siempre, el
+    // objeto CRUDO completo de la primera fila de esta página — así vemos
+    // TODOS los campos que realmente manda oppen.io y buscamos el que
+    // coincida con "Costo Operativo". No cambia nada del comportamiento
+    // normal (rows sigue igual) — se saca apenas encontremos el campo.
+    const debug = url.searchParams.get('debug') === '1';
 
     const page = await fetchStockPage(token, offset, limit);
     const rawRows = page.data || [];
@@ -176,14 +188,20 @@ module.exports = async function handler(req, res) {
       rows.push({ sku, qty, excluded, canal, depo });
     }
 
-    res.status(200).json({
+    const responseBody = {
       ok: true,
       hasMore: !!page.has_more,
       nextOffset: offset + limit,
       recordsInPage: rawRows.length,
       depoCounts,
       rows,
-    });
+    };
+    if (debug) {
+      responseBody.debugRawSampleRows = rawRows.slice(0, 3);
+      responseBody.debugRawKeys = rawRows[0] ? Object.keys(rawRows[0]) : [];
+    }
+
+    res.status(200).json(responseBody);
   } catch (err) {
     console.error('oppen-stock error:', err);
     res.status(500).json({ ok: false, error: String(err.message || err) });
