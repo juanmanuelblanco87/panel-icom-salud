@@ -11,6 +11,13 @@
 // - Agrega el resultado por SKU y por canal (Office), usando RowNet (importe
 //   sin IVA) como "Total Neto" — mismo criterio que usa Seguimiento con los
 //   archivos TSV del ERP.
+// - También clasifica cada factura por UNIDAD DE NEGOCIO (Minorista/
+//   Movilidad/Cirugía Estética/Cirugía General) a partir del campo
+//   OperationType ("Tipo de Operación") -- ver OPERATION_TYPE_UNIT_MAP más
+//   abajo. Acepta un filtro opcional ?unidadNegocio=<clave> para traer SOLO
+//   las facturas de una unidad (pensado para el sync lazy por canal del
+//   shell). Sin ese parámetro, agrega TODAS las unidades mezcladas (mismo
+//   comportamiento de siempre).
 //
 // Variables de entorno requeridas en Vercel (Project Settings → Environment Variables):
 //   OPPEN_USER_API = usuario de API del proyecto de Oppen (Juan Manuel,
@@ -30,12 +37,15 @@
 //   ok: true,
 //   updatedAt: "2026-07-07T18:40:00.000Z",
 //   month: "07",
-//   invoicesProcessed: 143,
+//   invoicesProcessed: 143,       // facturas que entraron en los agregados (respeta ?unidadNegocio= si vino)
+//   invoicesEnRango: 210,         // total de facturas en el rango de fechas, ANTES de filtrar por unidad
+//   unidadNegocioFilter: null,    // eco de ?unidadNegocio= (null si no vino / no era válido)
 //   totals: { totalNeto: 12345678.9, unidades: 4321 },
 //   byCanal: { "ICOM-CEN": { totalNeto: ..., unidades: ... }, ... },
 //   bySku: { "8": { nombre: "...", unidades: ..., totalNeto: ... }, ... },
 //   byCanalSku: { "ICOM-CEN": { "8": { unidades, totalNeto } } },
-//   rows: [ { sku, f, u, fecha:"DD/MM/YYYY", office, desc }, ... ]  // detalle por línea de factura,
+//   byUnidadNegocio: { minorista: { unidades, totalNeto, facturas }, movilidad: {...}, ... }, // IOMA no entra acá a propósito
+//   rows: [ { sku, f, u, fecha:"DD/MM/YYYY", office, unidadNegocio, desc }, ... ]  // detalle por línea de factura,
 //          consumido directamente por Seguimiento (ver erpSyncNow / applyParsedSales)
 // }
 
@@ -141,6 +151,65 @@ function normalizeCanal(office) {
   return OFFICE_CANAL_MAP[office] || office || null; // null = sin canal reconocible
 }
 
+// CLASIFICACIÓN POR UNIDAD DE NEGOCIO (Juan Manuel, 24/07/2026 -- "Hay que
+// separar la info de venta por los distintos canales, el campo para
+// distribuirlas es: TIPO DE OPERACIÓN"): a diferencia de OFFICE_CANAL_MAP
+// (que distingue SUCURSALES dentro de Minorista: Central/JCP/ProSalud/
+// Mercado Libre/Tienda Online), esto distingue las 4 UNIDADES DE NEGOCIO de
+// Icom Salud entre sí (Minorista, Movilidad, Cirugía Estética, Cirugía
+// General -- ver CHANNELS en el shell), a partir del campo OperationType de
+// la entidad Invoice ("Tipo de Operación"). Codificación provista por Juan
+// Manuel:
+//   Cirugía Estética: MEN (Mentor), CAN (Canceladas), GMEN (Garantías)
+//   Cirugía General:  ETH (Ethicon), ASP (ASP), BW (Biosense),
+//                     COLO (Coloplast), DESC (Descartables), 3M (3M),
+//                     ABBO (Abbot)
+//   Movilidad:        MOVI (Movilidad Mayorista)
+//   Minorista:        HOME (Sucursales), ML (Mercado Libre)
+// Las claves usadas acá (minorista/movilidad/cirugia_estetica/
+// cirugia_general) son las MISMAS que usa el objeto CHANNELS del shell --
+// tienen que coincidir para que el filtro ?unidadNegocio= de abajo sirva
+// para alimentar cada unidad desde el shell más adelante.
+//
+// IOMA queda deliberadamente afuera de las 4 unidades ("NO colocalo" --
+// Juan Manuel): esas facturas NO se asignan a ninguna unidad de negocio
+// (unidadNegocio queda null, no entran en byUnidadNegocio ni en ningún
+// filtro por ?unidadNegocio=), pero siguen contando en los agregados
+// globales de siempre (totals/byCanal/bySku/rows) para no romper nada de lo
+// que ya funciona hoy en Minorista.
+//
+// Facturas SIN OperationType (vacío o null): confirmado con datos reales de
+// oppen.io que es el caso de la gran mayoría de las facturas históricas de
+// Minorista (Central/JCP/ProSalud/Tienda Online) -- este campo recién se
+// empezó a cargar para identificar las unidades NUEVAS, así que "sin dato"
+// se asume Minorista (el comportamiento de siempre, antes de que existiera
+// esta clasificación).
+const OPERATION_TYPE_UNIT_MAP = {
+  MEN: 'cirugia_estetica',
+  CAN: 'cirugia_estetica',
+  GMEN: 'cirugia_estetica',
+  ETH: 'cirugia_general',
+  ASP: 'cirugia_general',
+  BW: 'cirugia_general',
+  COLO: 'cirugia_general',
+  DESC: 'cirugia_general',
+  '3M': 'cirugia_general',
+  ABBO: 'cirugia_general',
+  MOVI: 'movilidad',
+  HOME: 'minorista',
+  ML: 'minorista',
+  IOMA: null, // excluida a propósito, ver comentario arriba
+};
+function classifyUnidadNegocio(operationType) {
+  const code = String(operationType || '').trim().toUpperCase();
+  if (!code) return 'minorista'; // sin dato = histórico previo a esta clasificación
+  if (Object.prototype.hasOwnProperty.call(OPERATION_TYPE_UNIT_MAP, code)) {
+    return OPERATION_TYPE_UNIT_MAP[code]; // puede ser null (IOMA, a propósito)
+  }
+  console.warn(`oppen-invoices: OperationType desconocido ("${operationType}"), se asume Minorista.`);
+  return 'minorista';
+}
+
 function toDDMMYYYY(isoDate) {
   // TransDate viene como "YYYY-MM-DD"; Seguimiento espera "DD/MM/YYYY"
   const s = String(isoDate || '').slice(0, 10);
@@ -166,14 +235,26 @@ module.exports = async function handler(req, res) {
     const toDate = url.searchParams.get('to') || null;
     const LIMIT = 200;
 
+    // Filtro opcional por unidad de negocio (ver OPERATION_TYPE_UNIT_MAP más
+    // arriba) -- pensado para cuando el shell empiece a sincronizar cada
+    // unidad por separado (Juan Manuel, 24/07/2026: "Recién actualiza la
+    // info del canal cuando se selecciona en el menú hamburgues el canal que
+    // se quiere consultar"). Si no viene, se comporta EXACTAMENTE igual que
+    // antes (todas las unidades mezcladas, como hoy en Minorista).
+    const UNIDAD_KEYS = ['minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general'];
+    const unidadNegocioFilterRaw = url.searchParams.get('unidadNegocio');
+    const unidadNegocioFilter = UNIDAD_KEYS.includes(unidadNegocioFilterRaw) ? unidadNegocioFilterRaw : null;
+
     let offset = 0;
     let hasMore = true;
-    let invoicesProcessed = 0;
+    let invoicesProcessed = 0; // cuenta TODO lo que devuelve oppen.io en el rango de fechas, sin filtrar por unidad (para detectar si el rango está vacío)
+    let invoicesEnUnidad = 0;  // cuenta las que efectivamente entraron en los agregados (después de aplicar unidadNegocioFilter, si vino)
 
     const bySku = {};       // sku -> {nombre, unidades, totalNeto}
     const byCanal = {};     // canal -> {unidades, totalNeto}
     const byCanalSku = {};  // canal -> sku -> {unidades, totalNeto}
     const invoicesByCanal = {}; // canal -> cantidad de facturas (para el KPI "Facturas procesadas" filtrado)
+    const byUnidadNegocio = {}; // unidad -> {unidades, totalNeto, facturas} -- IOMA (unidadNegocio null) NO entra acá, a propósito
     const rows = [];        // detalle por línea, para alimentar Seguimiento (applyParsedSales)
 
     while (hasMore) {
@@ -182,6 +263,20 @@ module.exports = async function handler(req, res) {
 
       for (const inv of pageInvoices) {
         invoicesProcessed++;
+        const unidadNegocio = classifyUnidadNegocio(inv.OperationType); // 'minorista'|'movilidad'|'cirugia_estetica'|'cirugia_general'|null (IOMA)
+
+        // Si vino ?unidadNegocio=, esta factura solo cuenta si coincide --
+        // así cada unidad, cuando el shell la sincronice, recibe SOLO sus
+        // propias facturas (IOMA, con unidadNegocio null, nunca coincide con
+        // ningún filtro, queda afuera de las 4 unidades a propósito).
+        if (unidadNegocioFilter && unidadNegocio !== unidadNegocioFilter) continue;
+        invoicesEnUnidad++;
+
+        if (unidadNegocio) {
+          if (!byUnidadNegocio[unidadNegocio]) byUnidadNegocio[unidadNegocio] = { unidades: 0, totalNeto: 0, facturas: 0 };
+          byUnidadNegocio[unidadNegocio].facturas++;
+        }
+
         const rawOffice = inv.Office || '';
         const canal = normalizeCanal(rawOffice); // null si no hay canal reconocible
         if (canal) {
@@ -198,6 +293,11 @@ module.exports = async function handler(req, res) {
           bySku[sku].unidades += qty;
           bySku[sku].totalNeto += neto;
           if (!bySku[sku].nombre && it.Name) bySku[sku].nombre = it.Name;
+
+          if (unidadNegocio) {
+            byUnidadNegocio[unidadNegocio].unidades += qty;
+            byUnidadNegocio[unidadNegocio].totalNeto += neto;
+          }
 
           if (canal) {
             if (!byCanal[canal]) byCanal[canal] = { unidades: 0, totalNeto: 0 };
@@ -216,6 +316,7 @@ module.exports = async function handler(req, res) {
             u: qty,
             fecha: toDDMMYYYY(inv.TransDate),
             office: rawOffice, // código crudo (ej "ICOM-CEN"), Seguimiento lo mapea con su propio SUC_CANAL
+            unidadNegocio, // 'minorista'|'movilidad'|'cirugia_estetica'|'cirugia_general'|null (IOMA)
             desc: it.Name || '',
             // Costo unitario real, tomado de OperativeCost/Qty. Validado contra
             // ~3000 líneas reales: 94.8% con costo cargado, 0% con costo
@@ -243,12 +344,19 @@ module.exports = async function handler(req, res) {
       ok: true,
       updatedAt: new Date().toISOString(),
       month: fromDate.slice(5, 7),
-      invoicesProcessed,
+      // invoicesProcessed = facturas que efectivamente entraron en los
+      // agregados de abajo (respeta ?unidadNegocio= si vino). Si se quiere
+      // saber cuántas facturas había en total en el rango de fechas ANTES de
+      // filtrar por unidad, ese es invoicesEnRango.
+      invoicesProcessed: invoicesEnUnidad,
+      invoicesEnRango: invoicesProcessed,
+      unidadNegocioFilter, // eco de ?unidadNegocio= (null si no vino / no era válido)
       invoicesByCanal,
       totals,
       byCanal,
       bySku,
       byCanalSku,
+      byUnidadNegocio,
       rows,
     });
   } catch (err) {
