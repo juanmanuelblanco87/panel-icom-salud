@@ -551,34 +551,46 @@ function loadPane(name){
    Juan Manuel, 24/07/2026: además de Minorista (todo lo que ya tenemos
    armado) hay otras 3 unidades -- Movilidad (mayorista institucional de
    sillas de ruedas, etc.), Cirugía Estética (pacientes/médicos) y Cirugía
-   General (mayorista) -- que por ahora comparten el mismo panel pero
-   todavía NO tienen datos reales conectados: hace falta (a) terminar de
-   migrar la conexión con oppen.io al proyecto nuevo (ver getToken en
-   api/oppen-*.js -- mismas variables de entorno OPPEN_USER/OPPEN_PASS en
-   Vercel, hay que actualizar sus VALORES al proyecto nuevo) y (b) confirmar
-   con qué código de Sucursal/Oficina se identifica cada unidad dentro de
-   esos datos (hoy Minorista ya usa ese mismo campo para separar canales,
-   ver SUC_CANAL más abajo) antes de poder filtrar y mostrar información real
-   acá. Mientras tanto, Ventas en Vivo/Dashboard de las 3 unidades nuevas
-   muestran un cartel de "todavía no conectado" (ver renderChannelPlaceholder)
-   -- Stocks SÍ se muestra igual para las 4 (Juan Manuel: "Stocks es para
+   General (mayorista) -- que comparten el mismo panel. "Ventas en Vivo" de
+   las 3 unidades nuevas YA está conectada (ver readyPanes abajo): usa el
+   mismo /api/oppen-invoices que Minorista, filtrado por
+   ?unidadNegocio=<clave> (ver OPERATION_TYPE_UNIT_MAP en
+   api/oppen-invoices.js -- el campo real es "Tipo de Operación" de la
+   factura, NO Sucursal/Oficina como se pensaba al principio). A diferencia
+   de Minorista (que sincroniza sola en segundo plano todo el tiempo, ver
+   erpStartGlobalPolling), estas 3 unidades sincronizan recién cuando se las
+   selecciona en el menú (ver erpSwitchToChannelView, llamado desde
+   switchChannel) -- "Recién actualiza la info del canal cuando se
+   selecciona en el menú hamburguesa el canal que se quiere consultar".
+   "Dashboard" SIGUE pendiente para estas 3 unidades: a diferencia de Ventas
+   en Vivo (que lee directo de /api/oppen-invoices), Dashboard depende de
+   los datos ya procesados/clasificados por Seguimiento (macro-categoría,
+   marca, etc. vía RPC) -- y Seguimiento es, por ahora, un concepto propio
+   de Minorista (ver data-channels="minorista" en el sidebar), así que
+   Dashboard necesita su propio armado para las otras 3 unidades. Por eso
+   readyPanes de esas 3 unidades incluye 'erp' pero NO 'dashboard' --
+   Dashboard sigue mostrando el cartel de "todavía no conectado" (ver
+   renderChannelPlaceholder) hasta que se resuelva esa dependencia.
+   Stocks SÍ se muestra igual para las 4 (Juan Manuel: "Stocks es para
    todos los canales, se muestra la misma App"), ya que el inventario es uno
    solo y hoy ya refleja el stock real sin importar qué unidad esté
    seleccionada (el ajuste pendiente, una vez conectadas las 3 unidades
-   nuevas, es sumar bien la venta de TODOS los canales para calcular el DOH
-   del "Stock Online" compartido -- hoy solo suma la de Minorista).
+   nuevas de verdad en Dashboard, es sumar bien la venta de TODOS los
+   canales para calcular el DOH del "Stock Online" compartido -- hoy solo
+   suma la de Minorista, ver fetchVentas30d en B64_STOCKS.html).
    Seguimiento/Forecast/Base de Productos son, por ahora, conceptos propios
    de Minorista y no aparecen para las otras 3 unidades. */
 const CHANNELS = {
-  minorista:        { label: 'Minorista',        ready: true  },
-  movilidad:        { label: 'Movilidad',         ready: false },
-  cirugia_estetica: { label: 'Cirugía Estética',  ready: false },
-  cirugia_general:  { label: 'Cirugía General',   ready: false },
+  minorista:        { label: 'Minorista',        readyPanes: ['erp','dashboard'] },
+  movilidad:        { label: 'Movilidad',         readyPanes: ['erp'] },
+  cirugia_estetica: { label: 'Cirugía Estética',  readyPanes: ['erp'] },
+  cirugia_general:  { label: 'Cirugía General',   readyPanes: ['erp'] },
 };
 let currentChannel = 'minorista';
 
-// Apps que siguen dependiendo de que su unidad esté conectada de verdad
-// (ver CHANNELS[x].ready) -- Stocks queda afuera a propósito, es compartido.
+// Apps que siguen dependiendo de que su unidad tenga ESE pane conectado de
+// verdad (ver CHANNELS[x].readyPanes) -- Stocks queda afuera a propósito,
+// es compartido y no depende de ninguna unidad.
 const CHANNEL_SPECIFIC_PANES = ['erp', 'dashboard'];
 
 function updateAppVisibilityForChannel(){
@@ -618,18 +630,24 @@ function switchChannel(channel){
   const stillValid = activeScope === 'all' || activeScope === channel;
   switchPane(stillValid && activeNav ? activeNav.getAttribute('data-pane') : 'erp');
 
-  if(CHANNELS[channel].ready){
-    // Arranca (o, si ya estaba corriendo, no hace nada — erpStartGlobalPolling
-    // es idempotente) recién ahora que el usuario seleccionó esta unidad. Hoy
-    // en la práctica esto solo aplica a Minorista, que además es la unidad
-    // por defecto al loguearse -- ver showShell.
+  if(CHANNELS[channel].readyPanes.includes('erp')){
+    // Pide SIEMPRE un fetch fresco de "Hoy" para la unidad recién elegida
+    // (incluida Minorista, si se vuelve a ella después de haber mirado otra
+    // unidad -- ERP_VIEW_DATA quedó con los datos de la unidad anterior, hay
+    // que refrescarlo, no alcanza con volver a mostrar el pane). Ver
+    // erpSwitchToChannelView.
+    erpSwitchToChannelView(channel);
+  }
+  if(channel === 'minorista'){
+    // erpStartGlobalPolling ya arrancó solo al loguearse (ver showShell) --
+    // esto es un no-op defensivo (es idempotente) por si algún día cambia
+    // ese orden. Es EXCLUSIVO de Minorista: es la única unidad con
+    // sincronización continua en segundo plano (Movilidad/Cirugía
+    // Estética/Cirugía General NO tienen polling propio a propósito, ver
+    // comentario arriba de CHANNELS -- recién se sincronizan cuando se las
+    // selecciona, vía erpSwitchToChannelView arriba).
     erpStartGlobalPolling();
   }
-  // TODO: una vez migrada la conexión al proyecto nuevo de Oppen y
-  // confirmados los códigos de Sucursal/Oficina de cada unidad (ver
-  // comentario arriba de CHANNELS), acá va a arrancar el polling propio de
-  // Movilidad / Cirugía Estética / Cirugía General cuando currentChannel sea
-  // esa unidad -- hoy no existe ese pipeline, así que no hacemos nada más.
 }
 
 function renderChannelPlaceholder(name){
@@ -642,18 +660,22 @@ function renderChannelPlaceholder(name){
   const navItem = document.querySelector('.sb-item[data-pane="'+name+'"]');
   if(navItem) navItem.classList.add('active');
   const appLabel = name === 'dashboard' ? 'Dashboard' : 'Ventas en Vivo';
+  // Hoy en la práctica esto solo se ve para "Dashboard" en Movilidad/Cirugía
+  // Estética/Cirugía General ("Ventas en Vivo" ya está conectado para las 4
+  // unidades, ver readyPanes en CHANNELS) -- el mensaje genérico de abajo
+  // igual sirve para cualquier pane que algún día vuelva a faltar acá.
   const holder = document.getElementById('pane-placeholder');
   holder.innerHTML =
       '<div class="pane-loading" style="flex-direction:column;gap:10px;text-align:center;padding:24px">'
     +   '<div style="font-size:15px;font-weight:600;color:#555">'+CHANNELS[currentChannel].label+' — '+appLabel+'</div>'
-    +   '<div style="max-width:420px;color:#999;line-height:1.5">Esta unidad todavía no está conectada. Hace falta terminar de migrar la conexión con el proyecto nuevo de Oppen (y confirmar cómo se identifica esta unidad en los datos) antes de poder mostrar información real acá.</div>'
+    +   '<div style="max-width:420px;color:#999;line-height:1.5">Todavía no está conectado para esta unidad.</div>'
     + '</div>';
   holder.classList.add('active');
   closeMobileSidebar();
 }
 
 function switchPane(name){
-  if(!CHANNELS[currentChannel].ready && CHANNEL_SPECIFIC_PANES.includes(name)){
+  if(!CHANNELS[currentChannel].readyPanes.includes(name) && CHANNEL_SPECIFIC_PANES.includes(name)){
     renderChannelPlaceholder(name);
     return;
   }
@@ -1316,37 +1338,43 @@ function erpBroadcastSyncStatus(kind, ok, label){
 // las otras 3 unidades (canales que no existen en Minorista, como
 // ESME/BELL-OFI/MONTA/BELL-99, aparecieron en la pantalla).
 //
-// OJO -- se usa 'minorista' fijo acá, NO currentChannel: todo este pipeline
-// (erpFetchNow/erpFetchViewData/erpFetchMonthRows, el polling de
-// erpStartGlobalPolling, Seguimiento, Dashboard) es hoy una única instancia
-// que es, en la práctica, PROPIA de Minorista -- corre siempre en segundo
-// plano desde que se loguea (ver showShell), sin importar qué unidad esté
-// seleccionada en el menú Principal (elegir Movilidad, por ejemplo, solo
-// cambia qué pane placeholder se ve, no pausa ni redirige este polling). Si
-// se usara currentChannel acá, pasar por el menú a una unidad todavía no
-// conectada le pisaría el filtro a la sincronización de Minorista que sigue
-// corriendo atrás. Cuando se conecten Movilidad/Cirugía Estética/Cirugía
-// General de verdad, cada una va a necesitar su PROPIA instancia de este
-// pipeline (con su propio polling y su propio filtro fijo a su unidad) --
-// no alcanza con parametrizar esta función con currentChannel.
-function erpInvoicesUrl(params){
+// El parámetro `unit` es OBLIGATORIO en la práctica (todos los call sites lo
+// pasan explícito) -- default 'minorista' es solo una red de seguridad. NO
+// se lee currentChannel automáticamente acá adentro a propósito: el pipeline
+// de Minorista (erpFetchNow/erpStartGlobalPolling, que corre siempre en
+// segundo plano sin importar qué unidad esté mirando el usuario, ver
+// comentario en erpFetchNow) necesita seguir apuntando a 'minorista' pase lo
+// que pase en el menú -- si esta función mirara currentChannel sola,
+// visitar otra unidad le pisaría el filtro a esa sincronización de fondo.
+// Los call sites que SÍ deben seguir a la unidad activa (erpFetchViewData,
+// disparado por el date-range picker y por erpSwitchToChannelView) pasan
+// currentChannel ellos mismos, explícitamente.
+function erpInvoicesUrl(params, unit){
   const sp = new URLSearchParams(params || {});
-  sp.set('unidadNegocio', 'minorista');
+  sp.set('unidadNegocio', unit || 'minorista');
   return '/api/oppen-invoices?' + sp.toString();
 }
 
 async function erpFetchNow(){
   try{
-    const res = await fetch(erpInvoicesUrl(), {cache:'no-store'});
+    // Fijo a 'minorista' -- ver comentario en erpInvoicesUrl. Este poll de 5
+    // min es EXCLUSIVO de Minorista (Seguimiento/Dashboard/Forecast dependen
+    // de él vía erpBroadcastToApps más abajo, y esos 3 son, por ahora,
+    // conceptos propios de Minorista).
+    const res = await fetch(erpInvoicesUrl({}, 'minorista'), {cache:'no-store'});
     const data = await res.json();
     if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
     ERP_DATA = data;
     erpBroadcastSyncStatus('ventas', true, 'Ventas: ✓ '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
     erpBroadcastToApps();
-    // Si el usuario está viendo "hoy" en Ventas en Vivo, la refrescamos junto
-    // con este ciclo de 5 min — si está mirando un día pasado, lo dejamos
-    // como está (no le pisamos la selección).
-    if(erpViewFrom === erpTodayStr() && erpViewTo === erpTodayStr()) erpFetchViewData(erpViewFrom, erpViewTo);
+    // Si el usuario está viendo "hoy" en Ventas en Vivo DE MINORISTA, la
+    // refrescamos junto con este ciclo de 5 min — si está mirando un día
+    // pasado, o mirando OTRA unidad (Movilidad/Cirugía Estética/Cirugía
+    // General, que no tienen polling propio -- ver comentario arriba de
+    // CHANNELS), no la tocamos: erpFetchViewData sigue a currentChannel, y
+    // pisaría la vista de la unidad que el usuario esté mirando en este
+    // momento con datos de Minorista si no filtráramos esto acá.
+    if(currentChannel === 'minorista' && erpViewFrom === erpTodayStr() && erpViewTo === erpTodayStr()) erpFetchViewData(erpViewFrom, erpViewTo);
   }catch(e){
     console.error('Error consultando /api/oppen-invoices:', e);
     erpBroadcastSyncStatus('ventas', false, 'Ventas: ⚠ error');
@@ -1638,23 +1666,30 @@ function erpMergeViewData(results){
 // si falla (oppen.io a veces devuelve un error de conexión transitorio —
 // confirmado en producción, ver comentario más arriba — que en general se
 // resuelve solo con un segundo intento unos segundos después).
-async function erpFetchInvoicesChunk(c, attempt){
+async function erpFetchInvoicesChunk(c, unit, attempt){
   attempt = attempt || 1;
   try{
-    const res = await fetch(erpInvoicesUrl({from:c.from, to:c.to}), {cache:'no-store'});
+    const res = await fetch(erpInvoicesUrl({from:c.from, to:c.to}, unit), {cache:'no-store'});
     const d = await res.json();
     if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
     return d;
   }catch(e){
     if(attempt < 2){
       await new Promise(r=>setTimeout(r, 1500));
-      return erpFetchInvoicesChunk(c, attempt+1);
+      return erpFetchInvoicesChunk(c, unit, attempt+1);
     }
     throw new Error((e.message || 'Error desconocido del proxy') + ' (rango '+c.from+' a '+c.to+')');
   }
 }
 
 async function erpFetchViewData(fromStr, toStr){
+  // Fijamos la unidad ACÁ, al empezar -- si el usuario cambia de unidad
+  // mientras este fetch está en vuelo (ej. tocó Movilidad y después, antes
+  // de que responda, tocó Cirugía General), no queremos que la respuesta
+  // vieja se aplique sobre la unidad nueva. Ver el guard más abajo, antes de
+  // tocar ERP_VIEW_DATA. Juan Manuel, 24/07/2026 -- "continua con eso"
+  // (conectar Ventas en Vivo de las 3 unidades nuevas).
+  const targetChannel = currentChannel;
   erpSetStatus('Cargando…', 'loading');
   try{
     const chunks = erpDateChunksForRange(fromStr, toStr);
@@ -1662,7 +1697,7 @@ async function erpFetchViewData(fromStr, toStr){
     if(chunks.length <= 1){
       // Rango de ≤1 mes calendario: un solo pedido, exactamente como antes
       // (mismo comportamiento ya probado, cero cambios para el caso común).
-      const res = await fetch(erpInvoicesUrl({from:fromStr, to:toStr}), {cache:'no-store'});
+      const res = await fetch(erpInvoicesUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'});
       data = await res.json();
       if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
     }else{
@@ -1675,21 +1710,60 @@ async function erpFetchViewData(fromStr, toStr){
       const results = [];
       for(let i=0;i<chunks.length;i++){
         erpSetStatus('Cargando… ('+(i+1)+'/'+chunks.length+')', 'loading');
-        results.push(await erpFetchInvoicesChunk(chunks[i]));
+        results.push(await erpFetchInvoicesChunk(chunks[i], targetChannel));
       }
       data = erpMergeViewData(results);
     }
+    if(targetChannel !== currentChannel) return; // el usuario ya cambió de unidad -- esta respuesta quedó vieja, se descarta
     ERP_VIEW_DATA = data;
     erpRenderAll();
     erpSetStatus('OK', 'ok');
     const overlay = document.getElementById('erpFirstLoadOverlay');
     if(overlay) overlay.style.display = 'none';
   }catch(e){
+    if(targetChannel !== currentChannel) return; // idem -- error de una unidad que ya no se está mirando, no lo mostramos
     console.error('Error consultando /api/oppen-invoices (vista por rango de fechas):', e);
     erpSetStatus('Error: ' + e.message, 'err');
     const overlay = document.getElementById('erpFirstLoadOverlay');
     if(overlay) overlay.innerHTML = '<span style="color:#c0422a">⚠ No se pudo cargar: '+e.message+' — probá "Actualizar ahora".</span>';
   }
+}
+
+// Se llama cada vez que switchChannel() cambia a una unidad con "Ventas en
+// Vivo" conectada (readyPanes incluye 'erp') -- incluida Minorista, al
+// volver a ella después de haber mirado otra unidad. Reinicia los filtros
+// de la pantalla (canal excluido, marca, macro categoría, búsquedas) y el
+// rango de fechas a "Hoy" antes de pedir los datos: los canales/marcas/
+// macro-categorías de una unidad casi seguro no significan nada en otra
+// (ej. los canales de Movilidad no son Mercado Libre/Tienda Online/etc.),
+// así que arrastrar esos filtros de una unidad a otra confundiría más de lo
+// que ayuda. Juan Manuel, 24/07/2026 -- "continua con eso" (conectar Ventas
+// en Vivo real de Movilidad/Cirugía Estética/Cirugía General, ahora que
+// tenemos la clasificación por Tipo de Operación).
+function erpSwitchToChannelView(channel){
+  erpCanalExcluded = new Set();
+  erpMacroSelected = null;
+  erpMarcaSelectedKey = null;
+  erpMarcaSelectedLabel = '';
+  erpActiveQuickRangeKey = 'hoy';
+  const today = erpTodayStr();
+  erpViewFrom = today;
+  erpViewTo = today;
+  const fromInput = document.getElementById('erpViewDateFrom');
+  const toInput = document.getElementById('erpViewDateTo');
+  if(fromInput) fromInput.value = today;
+  if(toInput) toInput.value = today;
+  const marcaSearch = document.getElementById('erpMarcaSearch');
+  if(marcaSearch) marcaSearch.value = '';
+  const skuSearch = document.getElementById('erpSkuSearch');
+  if(skuSearch) skuSearch.value = '';
+  // Estas 3 no dependen de que haya terminado de cargar datos (ver mismo
+  // criterio en erpInit) -- se pintan ya, el fetch de abajo actualiza el
+  // resto cuando responda.
+  erpRenderQuickRangeButtons();
+  erpRenderDateRangeLabel();
+  erpRenderCanalGroupBtns();
+  erpFetchViewData(today, today); // pide fresco para currentChannel (ya está seteado por switchChannel antes de llamar acá)
 }
 
 // Cuál de los 4 botones rápidos (o ninguno, si el usuario tipeó un rango a
@@ -2371,7 +2445,9 @@ async function erpFetchMonthRows(y, m){
   const from = y+'-'+m+'-01';
   const lastDay = new Date(parseInt(y,10), parseInt(m,10), 0).getDate();
   const to = y+'-'+m+'-'+String(lastDay).padStart(2,'0');
-  const res = await fetch(erpInvoicesUrl({from:from, to:to}), {cache:'no-store'});
+  // Fijo a 'minorista' -- ver comentario en erpInvoicesUrl. Este backfill
+  // alimenta Seguimiento/Forecast, que son conceptos propios de Minorista.
+  const res = await fetch(erpInvoicesUrl({from:from, to:to}, 'minorista'), {cache:'no-store'});
   const data = await res.json();
   if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
   return data;
