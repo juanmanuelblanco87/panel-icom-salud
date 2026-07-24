@@ -2,6 +2,9 @@
   "functions": {
     "api/oppen-stock.js": {
       "maxDuration": 30
+    },
+    "api/oppen-item-cost.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [

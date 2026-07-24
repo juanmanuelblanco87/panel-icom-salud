@@ -155,18 +155,6 @@ module.exports = async function handler(req, res) {
     const url = new URL(req.url, 'http://x');
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '500', 10), 500);
-    // DIAGNÓSTICO TEMPORAL (Juan Manuel, 24/07/2026 — "si está en el reporte
-    // de Stock el campo de Costo... cómo podemos hallarlo?"): venía asumido
-    // (ver comentario en api/oppen-invoices.js, validado alguna vez contra
-    // ~130.608 registros) que row.Cost viene vacío el 100% de las veces. Si
-    // el reporte de Stock que exportás desde oppen.io SÍ trae un costo real,
-    // puede ser que el campo tenga OTRO nombre en esta API (genericapi), no
-    // "Cost" a secas. Con ?debug=1 devolvemos, además de lo de siempre, el
-    // objeto CRUDO completo de la primera fila de esta página — así vemos
-    // TODOS los campos que realmente manda oppen.io y buscamos el que
-    // coincida con "Costo Operativo". No cambia nada del comportamiento
-    // normal (rows sigue igual) — se saca apenas encontremos el campo.
-    const debug = url.searchParams.get('debug') === '1';
 
     const page = await fetchStockPage(token, offset, limit);
     const rawRows = page.data || [];
@@ -190,56 +178,12 @@ module.exports = async function handler(req, res) {
 
     const responseBody = {
       ok: true,
-      _diagVersion: 'DIAG-V3-2026-07-24',
       hasMore: !!page.has_more,
       nextOffset: offset + limit,
       recordsInPage: rawRows.length,
       depoCounts,
       rows,
     };
-    if (debug) {
-      responseBody.debugRawSampleRows = rawRows.slice(0, 3);
-      responseBody.debugRawKeys = rawRows[0] ? Object.keys(rawRows[0]) : [];
-      // Escaneo de la página completa (hasta 500 filas): cuántas traen Cost
-      // no-nulo y no-cero, y hasta 5 ejemplos reales de esas -- para no
-      // depender de las primeras 3 filas al azar (podían ser justo ítems con
-      // costo vacío, como el ejemplo serializado que vimos con Qty:0).
-      const withCost = rawRows.filter(r => r && r.Cost != null && Number(r.Cost) > 0);
-      responseBody.debugCostStats = {
-        totalRows: rawRows.length,
-        withNonNullNonZeroCost: withCost.length,
-        ejemplos: withCost.slice(0, 5),
-      };
-    }
-    // DIAGNÓSTICO TEMPORAL #2 (Juan Manuel, 24/07/2026): encontró, inspeccionando
-    // la consulta real que arma la pantalla "Listado de Stock" de oppen.io, que
-    // el costo NO sale de Stock -- sale de una entidad separada "ItemCost"
-    // (columna real: IFNULL(ic.OperativeCost,0), unida a Item por Code). Con
-    // ?debugItemCost=1 probamos si esa entidad es consultable con NUESTRAS
-    // credenciales de servicio (las mismas OPPEN_USER/OPPEN_PASS, vía el mismo
-    // genericapi que ya usamos para Stock/Invoice) -- si funciona, sería la
-    // solución de fondo: nada de sesión de navegador, mismo mecanismo estable
-    // que ya tenemos.
-    if (url.searchParams.get('debugItemCost') === '1') {
-      try {
-        const icParams = new URLSearchParams({ __limit__: '5', __offset__: '0' });
-        const icRes = await fetch(`${BASE_URL}/ItemCost?${icParams.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const icText = await icRes.text();
-        let icJson = null;
-        try { icJson = JSON.parse(icText); } catch (e) { /* no era JSON */ }
-        responseBody.debugItemCost = {
-          status: icRes.status,
-          ok: icRes.ok,
-          bodyIsJson: !!icJson,
-          rawTextSnippet: icJson ? undefined : icText.slice(0, 500),
-          sampleRows: icJson && Array.isArray(icJson.data) ? icJson.data.slice(0, 5) : icJson,
-        };
-      } catch (e) {
-        responseBody.debugItemCost = { error: String(e.message || e) };
-      }
-    }
 
     res.status(200).json(responseBody);
   } catch (err) {
