@@ -39,7 +39,14 @@
 //          consumido directamente por Seguimiento (ver erpSyncNow / applyParsedSales)
 // }
 
-const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOM';
+// 24/07/2026: migrado de ICOM a ICOMGENERAL -- el proyecto viejo (ICOM) solo
+// veía la unidad Minorista; el nuevo proyecto (ICOMGENERAL) da acceso a las
+// 4 unidades de negocio juntas (Minorista, Movilidad, Cirugía Estética,
+// Cirugía General). Confirmado por Juan Manuel probando directo contra el
+// Swagger de ICOMGENERAL (https://icomsalud.oppen.io/genericapi/ICOMGENERAL/docs/)
+// con un token nuevo pedido ahí: GET /genericapi/ICOMGENERAL/Invoice
+// devolvió 200 con datos reales de facturas.
+const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 
 // Cache de token en memoria del proceso serverless. Sobrevive entre invocaciones
 // mientras la instancia esté "warm" (típico en polls frecuentes cada 5 min).

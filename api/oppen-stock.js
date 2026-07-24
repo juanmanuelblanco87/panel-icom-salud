@@ -63,7 +63,9 @@
 //   ]
 // }
 
-const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOM';
+// 24/07/2026: migrado de ICOM a ICOMGENERAL (ver misma nota en
+// api/oppen-invoices.js) -- confirmado funcionando contra el Swagger real.
+const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
