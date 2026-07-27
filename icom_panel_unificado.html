@@ -452,10 +452,30 @@
              y antes del selector de Unidades de negocio, colocar un gráfico
              tipo torta para entender el peso de las unidades de negocio."
              Oculto por default -- solo se muestra (ver erpUpdateChannelSpecificUI)
-             cuando currentChannel === 'icom'. -->
+             cuando currentChannel === 'icom'.
+             27/07/2026 (3ra vuelta, mismo día): "el grafico del acumulado
+             año no va ahi [en la card de 'por mes'], sino que hay que
+             partir en 2 el espacio de peso por unidad de negocio donde esta
+             la torta del espacio temporal asignado actual y a la derecha
+             colocar el mismo grafico pero con el acumulado año en
+             porcentual y absoluto. mismo formato." -- esta card ahora tiene
+             2 mitades: izquierda = torta del período seleccionado
+             (erpRenderIcomPieChart, sin cambios), derecha = torta del
+             acumulado del año (erpRenderIcomYearPieChart, reubicada acá
+             desde la card "por mes"), ambas con el MISMO formato completo
+             (torta grande + leyenda con ícono/label/$/%) vía el helper
+             compartido erpBuildIcomPieChartHtml. -->
         <div class="erp-card" id="erpIcomPieCard" style="display:none">
-          <h2>Peso por Unidad de Negocio</h2>
-          <div id="erpIcomPieChart"></div>
+          <div style="display:flex;gap:28px;flex-wrap:wrap">
+            <div style="flex:1;min-width:280px">
+              <h2>Peso por Unidad de Negocio</h2>
+              <div id="erpIcomPieChart"></div>
+            </div>
+            <div style="flex:1;min-width:280px">
+              <h2>Peso por Unidad de Negocio — Acumulado Año</h2>
+              <div id="erpIcomYearPieChart"></div>
+            </div>
+          </div>
         </div>
 
         <!-- Juan Manuel, 27/07/2026: "Entre peso por unidad de negocio y
@@ -471,21 +491,14 @@
              para saber cuantos meses restan por actualizar" -- ver
              #erpIcomMonthlyProgress / erpRenderIcomMonthlyProgress, que
              muestra el avance mientras erpFetchIcomMonthlyWeightsImpl pide
-             los meses (secuencial, uno por vez). "arriba a la derecha hay
-             que colocar un grafico de torta con el acumulado año para
-             comparar la performance del mes actual" -- ver
-             #erpIcomYearPieChart / erpRenderIcomYearPieChart, torta chica
-             con el total ENE-a-hoy sumado (todos los meses ya cargados en
-             erpIcomMonthlyWeights), al lado del título, para comparar de un
-             vistazo contra el mes en curso (la última barra del gráfico). -->
+             los meses (secuencial, uno por vez). La torta del acumulado del
+             año que antes vivía acá (arriba a la derecha) se mudó a
+             #erpIcomPieCard (ver comentario arriba) por pedido del
+             27/07/2026 (3ra vuelta) -- esta card quedó solo con el título y
+             la barra de progreso. -->
         <div class="erp-card" id="erpIcomMonthlyChartCard" style="display:none">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:14px">
-            <div style="flex:1;min-width:220px">
-              <h2 style="margin-bottom:8px">Peso por Unidad de Negocio — por mes</h2>
-              <div id="erpIcomMonthlyProgress"></div>
-            </div>
-            <div id="erpIcomYearPieChart" style="flex-shrink:0;min-width:200px"></div>
-          </div>
+          <h2 style="margin-bottom:8px">Peso por Unidad de Negocio — por mes</h2>
+          <div id="erpIcomMonthlyProgress"></div>
           <div id="erpIcomMonthlyChart"><span class="pm-empty">Cargando…</span></div>
         </div>
 
@@ -1914,26 +1927,20 @@ const ICOM_PIE_COLORS = {
 };
 const ICOM_PIE_ORDER = ['Minorista', 'Movilidad', 'Cirugía Estética', 'Cirugía General'];
 
-// Dibuja el gráfico de torta de #erpIcomPieCard con el peso de cada unidad
-// de negocio (mismos totales que ya se usan en los pills de "Canales" --
-// erpComputeCanalTotals -- así que respeta los filtros de marca/macro
-// categoría, pero NO el filtro de canal excluido de los pills, mismo
-// criterio que erpRenderCanalPills). Se llama desde erpRenderAll, siempre
-// gateado en currentChannel === 'icom'.
-function erpRenderIcomPieChart(){
-  const container = document.getElementById('erpIcomPieChart');
-  if(!container) return;
-  if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.byCanal){
-    container.innerHTML = '<span class="pm-empty">Cargando datos…</span>';
-    return;
-  }
-  const canalTotals = erpComputeCanalTotals();
-  const rows = Object.entries(canalTotals).filter(([,v])=>v.totalNeto > 0);
-  if(!rows.length){
-    container.innerHTML = '<span class="pm-empty">Sin facturas este día.</span>';
-    return;
-  }
-  const total = rows.reduce((s,[,v])=>s + v.totalNeto, 0);
+// Helper compartido -- Juan Manuel, 27/07/2026 (3ra vuelta): "a la derecha
+// colocar el mismo grafico [torta] pero con el acumulado año en porcentual
+// y absoluto. mismo formato." Construye el SVG (torta grande, 220px, con
+// etiqueta directa de % en las porciones >=3%) + leyenda completa (ícono +
+// label + $ + %) a partir de un mapa {label: totalNeto}, sin importar de
+// dónde salió ese total (período actual vs. acumulado del año). Devuelve
+// null si no hay datos (>0), para que cada caller ponga su propio mensaje
+// vacío. Usado por erpRenderIcomPieChart (torta del período) y
+// erpRenderIcomYearPieChart (torta del acumulado del año) -- así las dos
+// quedan pixel-idénticas en formato, solo cambia la fuente de los totales.
+function erpBuildIcomPieChartHtml(totalsByLabel){
+  const rows = Object.entries(totalsByLabel).filter(([,totalNeto])=>totalNeto > 0);
+  if(!rows.length) return null;
+  const total = rows.reduce((s,[,totalNeto])=>s + totalNeto, 0);
   // Orden fijo (Minorista, Movilidad, Cirugía Estética, Cirugía General) --
   // nunca reordenado por valor, así el color siempre identifica a la misma
   // unidad sin importar cuál sea más grande hoy. Cualquier canal fuera de
@@ -1945,8 +1952,8 @@ function erpRenderIcomPieChart(){
   const size = 220, cx = size/2, cy = size/2, r = 90;
   let angleStart = -Math.PI/2; // arranca a las 12
   const slices = [];
-  ordered.forEach(([canal, v])=>{
-    const frac = v.totalNeto / total;
+  ordered.forEach(([canal, totalNeto])=>{
+    const frac = totalNeto / total;
     const angleEnd = angleStart + frac * Math.PI * 2;
     const midAngle = (angleStart + angleEnd) / 2;
     const color = ICOM_PIE_COLORS[canal] || '#9aa0a6';
@@ -1963,7 +1970,7 @@ function erpRenderIcomPieChart(){
     }
     const labelR = r * 0.65;
     const lx = cx + labelR * Math.cos(midAngle), ly = cy + labelR * Math.sin(midAngle);
-    slices.push({canal, v, frac, path, lx, ly, color});
+    slices.push({canal, totalNeto, frac, path, lx, ly, color});
     angleStart = angleEnd;
   });
 
@@ -1983,15 +1990,36 @@ function erpRenderIcomPieChart(){
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
     + '<span style="width:12px;height:12px;border-radius:3px;background:'+s.color+';flex-shrink:0"></span>'
     + '<span style="font-size:12.5px;color:#333;flex:1">'+erpCanalIcon(s.canal)+' '+s.canal+'</span>'
-    + '<span style="font-size:12.5px;font-weight:700;color:#1a3d70">'+erpFmtMoney(s.v.totalNeto)+'</span>'
+    + '<span style="font-size:12.5px;font-weight:700;color:#1a3d70">'+erpFmtMoney(s.totalNeto)+'</span>'
     + '<span style="font-size:11px;color:#888;min-width:38px;text-align:right">'+Math.round(s.frac*100)+'%</span>'
     + '</div>'
   ).join('');
 
-  container.innerHTML = '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
+  return '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
     + '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+svgSlices+svgLabels+'</svg>'
     + '<div style="flex:1;min-width:200px">'+legend+'</div>'
     + '</div>';
+}
+
+// Dibuja el gráfico de torta de #erpIcomPieChart (mitad izquierda de
+// #erpIcomPieCard) con el peso de cada unidad de negocio en el período
+// seleccionado (mismos totales que ya se usan en los pills de "Canales" --
+// erpComputeCanalTotals -- así que respeta los filtros de marca/macro
+// categoría, pero NO el filtro de canal excluido de los pills, mismo
+// criterio que erpRenderCanalPills). Se llama desde erpRenderAll, siempre
+// gateado en currentChannel === 'icom'.
+function erpRenderIcomPieChart(){
+  const container = document.getElementById('erpIcomPieChart');
+  if(!container) return;
+  if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.byCanal){
+    container.innerHTML = '<span class="pm-empty">Cargando datos…</span>';
+    return;
+  }
+  const canalTotals = erpComputeCanalTotals();
+  const totalsByLabel = {};
+  Object.entries(canalTotals).forEach(([canal, v])=>{ totalsByLabel[canal] = v.totalNeto; });
+  const html = erpBuildIcomPieChartHtml(totalsByLabel);
+  container.innerHTML = html || '<span class="pm-empty">Sin facturas este día.</span>';
 }
 
 // Juan Manuel, 27/07/2026: "Entre peso por unidad de negocio y unidades de
@@ -2167,7 +2195,7 @@ function erpRenderIcomMonthlyBarChart(){
         return '<div style="height:'+heightPx+'px;background:'+s.color+';display:flex;align-items:center;justify-content:center;'
           + (i > 0 ? 'border-top:2px solid #faf9f7;' : '')
           + '" title="'+s.unitLabel+': '+pct+'% ('+erpFmtMoney(s.totalNeto)+')">'
-          + (showLabel ? '<span style="font-size:10px;font-weight:700;color:#fff;paint-order:stroke;-webkit-text-stroke:2px rgba(0,0,0,.3)">'+pct+'%</span>' : '')
+          + (showLabel ? '<span style="font-size:8px;font-weight:700;color:#fff;paint-order:stroke;-webkit-text-stroke:2px rgba(0,0,0,.3)">'+pct+'%</span>' : '')
           + '</div>';
       }).join('');
     }
@@ -2175,7 +2203,7 @@ function erpRenderIcomMonthlyBarChart(){
       + '<div style="width:100%;max-width:44px;height:'+barHeight+'px;display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#f2f2ef">'
       + barInner
       + '</div>'
-      + '<span style="font-size:11px;color:'+(b.isCurrent?'#1a3d70':'#888')+';font-weight:'+(b.isCurrent?'700':'400')+'">'+b.label+(b.isCurrent?' •':'')+'</span>'
+      + '<span style="font-size:11px;color:'+(b.isCurrent?'#1a3d70':'#888')+';font-weight:'+(b.isCurrent?'700':'400')+'">'+b.label+'</span>'
       + '</div>';
   }).join('');
 
@@ -2193,13 +2221,17 @@ function erpRenderIcomMonthlyBarChart(){
 
 // Juan Manuel, 27/07/2026 (2do pedido): "arriba a la derecha hay que
 // colocar un grafico de torta con el acumulado año para comparar la
-// performance del mes actual." Torta chica (misma paleta/orden fijo que la
-// torta grande y que las barras) con el ACUMULADO de todos los meses ya
-// cargados en erpIcomMonthlyWeights (enero a hoy, sumando totalNeto por
-// unidad) -- se repinta cada vez que termina de cargar un mes más (ver
-// erpFetchIcomMonthlyWeightsImpl), así que va creciendo en vivo a medida
-// que avanza la barrita de progreso, no hace falta esperar a que termine
-// todo el año.
+// performance del mes actual." (3ra vuelta, mismo día): "el grafico del
+// acumulado año no va ahi... a la derecha colocar el mismo grafico pero
+// con el acumulado año en porcentual y absoluto. mismo formato." -- ahora
+// vive en la mitad derecha de #erpIcomPieCard y usa el MISMO formato
+// completo que la torta del período (erpBuildIcomPieChartHtml: torta
+// grande + leyenda con ícono/$/%), no la versión chica/compacta de antes.
+// Suma el ACUMULADO de todos los meses ya cargados en erpIcomMonthlyWeights
+// (enero a hoy, totalNeto por unidad) -- se repinta cada vez que termina de
+// cargar un mes más (ver erpFetchIcomMonthlyWeightsImpl), así que va
+// creciendo en vivo a medida que avanza la barrita de progreso, no hace
+// falta esperar a que termine todo el año.
 function erpRenderIcomYearPieChart(){
   const container = document.getElementById('erpIcomYearPieChart');
   if(!container) return;
@@ -2212,57 +2244,10 @@ function erpRenderIcomYearPieChart(){
       if(v && v.totalNeto) totals[key] += v.totalNeto;
     });
   });
-  const rows = unitKeys
-    .map(key => ({ unitLabel: ICOM_UNIT_LABELS[key], totalNeto: totals[key] }))
-    .filter(r => r.totalNeto > 0);
-  if(!rows.length){
-    container.innerHTML = '<span class="pm-empty">Cargando acumulado del año…</span>';
-    return;
-  }
-  const total = rows.reduce((s,r)=>s+r.totalNeto, 0);
-
-  const size = 108, cx = size/2, cy = size/2, r = 46;
-  let angleStart = -Math.PI/2;
-  const slices = [];
-  rows.forEach(({unitLabel, totalNeto})=>{
-    const frac = totalNeto / total;
-    const angleEnd = angleStart + frac * Math.PI * 2;
-    const color = ICOM_PIE_COLORS[unitLabel] || '#9aa0a6';
-    let path;
-    if(frac >= 0.9999){
-      path = 'M '+cx+' '+(cy-r)+' A '+r+' '+r+' 0 1 1 '+(cx-0.01)+' '+(cy-r)+' Z';
-    } else {
-      const x1 = cx + r*Math.cos(angleStart), y1 = cy + r*Math.sin(angleStart);
-      const x2 = cx + r*Math.cos(angleEnd), y2 = cy + r*Math.sin(angleEnd);
-      const largeArc = (angleEnd - angleStart) > Math.PI ? 1 : 0;
-      path = 'M '+cx+' '+cy+' L '+x1+' '+y1+' A '+r+' '+r+' 0 '+largeArc+' 1 '+x2+' '+y2+' Z';
-    }
-    slices.push({unitLabel, totalNeto, frac, path, color});
-    angleStart = angleEnd;
-  });
-
-  const svgSlices = slices.map(s=>
-    '<path d="'+s.path+'" fill="'+s.color+'" stroke="#fff" stroke-width="2">'
-    + '<title>'+s.unitLabel+': '+Math.round(s.frac*100)+'% ('+erpFmtMoney(s.totalNeto)+')</title>'
-    + '</path>'
-  ).join('');
-
-  // Torta chica, sin lugar para etiquetas directas adentro de cada
-  // porción (a diferencia de la torta grande) -- la leyenda compacta de al
-  // lado, con % de cada unidad, cumple el mismo rol que exige el WARN de
-  // contraste de aqua/amarillo (nunca color solo, siempre con texto).
-  const legend = slices.map(s=>
-    '<div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#333;white-space:nowrap">'
-    + '<span style="width:8px;height:8px;border-radius:2px;background:'+s.color+';flex-shrink:0"></span>'
-    + Math.round(s.frac*100)+'%'
-    + '</div>'
-  ).join('');
-
-  container.innerHTML = '<div style="font-size:11px;color:#888;text-align:right;margin-bottom:6px">Acumulado del año</div>'
-    + '<div style="display:flex;gap:10px;align-items:center;justify-content:flex-end">'
-    + '<div style="display:flex;flex-direction:column;gap:3px">'+legend+'</div>'
-    + '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+svgSlices+'</svg>'
-    + '</div>';
+  const totalsByLabel = {};
+  unitKeys.forEach(key => { totalsByLabel[ICOM_UNIT_LABELS[key]] = totals[key]; });
+  const html = erpBuildIcomPieChartHtml(totalsByLabel);
+  container.innerHTML = html || '<span class="pm-empty">Cargando acumulado del año…</span>';
 }
 
 // Juan Manuel, 27/07/2026: "Ahi se desplegara un ventas en vivo pero los
