@@ -183,9 +183,8 @@ function normalizeCanal(office) {
 // aparece en los dos), pero SalesManInstitution suele venir vacío cuando la
 // venta no es institucional (ej. SalesMan="AM", SalesManInstitution="").
 // Diccionario de códigos provisto por Juan Manuel (tabla Código/Cuenta/
-// Representante): cualquier código que no esté acá se muestra tal cual
-// (fallback, mismo criterio que normalizeCanal con OFFICE_CANAL_MAP), para
-// no romper si aparece un vendedor nuevo que todavía no está en la tabla.
+// Representante, más una segunda tanda: "AG= Eva Piña JF=Julieta Fernandez
+// NK= Nikole Kimmel MP= Micaela Pioti MG= Maria Galeano").
 const SALESMAN_NAME_MAP = {
   MDB: 'Miriam De Bernardo',
   AM: 'Antonella Macchi',
@@ -196,11 +195,27 @@ const SALESMAN_NAME_MAP = {
   MCR: 'Mario Crespo',
   PEP: 'Pedro Picardi',
   EP: 'Eva Piña',
+  // Juan Manuel, 27/07/2026 (segunda tanda de códigos):
+  AG: 'Eva Piña',
+  JF: 'Julieta Fernandez',
+  NK: 'Nikole Kimmel',
+  MP: 'Micaela Pioti',
+  MG: 'Maria Galeano',
 };
+
+// Juan Manuel, 27/07/2026: "RP; IVE; IVC; EL; FJP; CR; IC; VA; JE; son 'Sin
+// vendedor' Si llega a aparecer otra inicial dejarlo 'Sin Vendedor'" --
+// CAMBIO DE COMPORTAMIENTO respecto de la versión anterior: antes, un
+// código desconocido se mostraba tal cual (mismo criterio que
+// normalizeCanal con OFFICE_CANAL_MAP); ahora, a pedido explícito,
+// CUALQUIER código que no esté en SALESMAN_NAME_MAP -- ya sea uno de estos
+// 9 confirmados como "no son vendedores reales" (RP, IVE, IVC, EL, FJP, CR,
+// IC, VA, JE) o cualquier otro que aparezca en el futuro -- se muestra como
+// "Sin Vendedor", nunca el código crudo.
 function normalizeVendedor(code) {
   const c = String(code || '').trim();
   if (!c) return 'Sin Vendedor';
-  return SALESMAN_NAME_MAP[c] || c;
+  return SALESMAN_NAME_MAP[c] || 'Sin Vendedor';
 }
 
 // CLASIFICACIÓN POR UNIDAD DE NEGOCIO (Juan Manuel, 24/07/2026 -- "Hay que
@@ -260,6 +275,46 @@ function classifyUnidadNegocio(operationType) {
   }
   console.warn(`oppen-invoices: OperationType desconocido ("${operationType}"), se asume Minorista.`);
   return 'minorista';
+}
+
+// CONVERSIÓN DE MONEDA (Juan Manuel, 27/07/2026 -- "En Cirugia Estetica hay
+// ventas con Moneda 'Dolar' esa venta hay que multiplicarla por el tipo de
+// cambio que se convierte el stock para llevarla a pesos"): la entidad
+// Invoice trae "Currency" a nivel de factura completa (ej. "ARS" o "USD");
+// cuando es USD, tanto RowNet (el neto de cada línea) como OperativeCost
+// están en dólares y hay que convertirlos a pesos ANTES de sumarlos a
+// cualquier agregado, o los totales quedarían mezclando pesos y dólares
+// como si fueran lo mismo. Mismo mecanismo (dolarapi.com, punta oficial
+// VENTA, cacheado 10 min) que ya usa api/oppen-item-cost.js para el mismo
+// problema con el Costo Operativo del Stock -- duplicado acá a propósito
+// (no se importa desde ese archivo) para no tocar ese código, que es
+// sensible y ya está probado a fondo (ver su comentario "SOLUCIÓN DE
+// FONDO"). Si dolarapi.com no responde y no hay ni siquiera un valor
+// cacheado de antes, la línea se descarta de TODOS los agregados (nunca se
+// muestra el número crudo en USD disfrazado de pesos -- mismo criterio que
+// ya usa oppen-item-cost.js).
+let cachedFx = null; // { rate, fecha }
+let cachedFxAt = 0;
+const FX_CACHE_MS = 10 * 60 * 1000; // 10 minutos
+
+async function getTipoCambioOficialVenta() {
+  const now = Date.now();
+  if (cachedFx && now - cachedFxAt < FX_CACHE_MS) {
+    return cachedFx;
+  }
+  try {
+    const res = await fetch('https://dolarapi.com/v1/dolares/oficial');
+    if (!res.ok) throw new Error(`dolarapi.com respondió ${res.status}`);
+    const data = await res.json();
+    const rate = Number(data.venta);
+    if (!(rate > 0)) throw new Error('dolarapi.com no trajo una punta venta válida: ' + JSON.stringify(data));
+    cachedFx = { rate, fecha: data.fechaActualizacion || null };
+    cachedFxAt = now;
+    return cachedFx;
+  } catch (e) {
+    console.error('oppen-invoices: no se pudo obtener el tipo de cambio oficial de dolarapi.com:', e);
+    return cachedFx || null;
+  }
 }
 
 function toDDMMYYYY(isoDate) {
@@ -344,11 +399,37 @@ module.exports = async function handler(req, res) {
         const vendedorInstitucion = normalizeVendedor(inv.SalesManInstitution);
         const cliente = inv.CustName ? String(inv.CustName).trim() : 'Sin Cliente';
 
+        // Juan Manuel, 27/07/2026: "En Cirugia Estetica hay ventas con
+        // Moneda 'Dolar' esa venta hay que multiplicarla por el tipo de
+        // cambio que se convierte el stock para llevarla a pesos" -- ver
+        // getTipoCambioOficialVenta más arriba. Si la factura es USD y NO
+        // se puede conseguir un tipo de cambio (ni siquiera uno cacheado de
+        // antes), sus líneas se saltean por completo más abajo (ver
+        // "continue" en el loop de items) -- mismo criterio que
+        // oppen-item-cost.js: nunca mostrar un número crudo en USD
+        // disfrazado de pesos.
+        const currency = String(inv.Currency || 'ARS').toUpperCase();
+        let fxRate = null;
+        if (currency === 'USD') {
+          const fx = await getTipoCambioOficialVenta();
+          if (fx && fx.rate > 0) {
+            fxRate = fx.rate;
+          } else {
+            console.error(`oppen-invoices: factura ${inv.SerNr} en USD sin tipo de cambio disponible -- sus líneas se descartan de los agregados (no se muestran en pesos crudos).`);
+          }
+        }
+
         const items = inv.Items || [];
         for (const it of items) {
           const sku = cleanSku(it.ArtCode);
           const qty = Number(it.Qty) || 0;
-          const neto = Number(it.RowNet) || 0;
+          let neto = Number(it.RowNet) || 0;
+          let operativeCost = Number(it.OperativeCost) || 0;
+          if (currency === 'USD') {
+            if (!fxRate) continue; // sin tipo de cambio disponible: se descarta esta línea, ver comentario arriba
+            neto = neto * fxRate;
+            operativeCost = operativeCost * fxRate;
+          }
 
           if (!bySku[sku]) bySku[sku] = { nombre: it.Name || '', unidades: 0, totalNeto: 0 };
           bySku[sku].unidades += qty;
@@ -380,11 +461,12 @@ module.exports = async function handler(req, res) {
             canal, // mismo canal ya normalizado que usan byCanal/byCanalSku (ej. "Central", "Bella Vista") -- lo agregamos acá para que el shell pueda filtrar por canal cruzando con Vendedor/Cliente sin tener que duplicar OFFICE_CANAL_MAP del lado del cliente
             unidadNegocio, // 'minorista'|'movilidad'|'cirugia_estetica'|'cirugia_general'|null (IOMA)
             desc: it.Name || '',
-            // Costo unitario real, tomado de OperativeCost/Qty. Validado contra
-            // ~3000 líneas reales: 94.8% con costo cargado, 0% con costo
-            // mayor a 1.5x el precio de venta (Stock.Cost, en cambio, viene
-            // vacío el 100% de las veces — no sirve como fuente).
-            costoUnit: (qty > 0 && Number(it.OperativeCost) > 0) ? Number(it.OperativeCost) / qty : 0,
+            // Costo unitario real, tomado de OperativeCost/Qty (ya convertido
+            // a pesos arriba si la factura era USD). Validado contra ~3000
+            // líneas reales: 94.8% con costo cargado, 0% con costo mayor a
+            // 1.5x el precio de venta (Stock.Cost, en cambio, viene vacío el
+            // 100% de las veces — no sirve como fuente).
+            costoUnit: (qty > 0 && operativeCost > 0) ? operativeCost / qty : 0,
             // Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... tenemos
             // Vendedor (Cliente) y Vendedor (Institución)". Ver normalizeVendedor
             // más arriba -- "Sin Vendedor" si el campo viene vacío.

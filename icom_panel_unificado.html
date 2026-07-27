@@ -432,6 +432,18 @@
         </div>
         <style>@keyframes erpSpin{to{transform:rotate(360deg)}}</style>
 
+        <!-- Juan Manuel, 27/07/2026: "Este cuadro dejarlo arriba de todo
+             debajo del selector de fechas En todas las appso." -- el resumen
+             KPI (Total Neto/Unidades/Facturas/Última actualización) va
+             primero, antes del gráfico ICOM, Vendedores y Canales, en TODAS
+             las apps (sin gating por canal). -->
+        <div class="erp-kpis" id="erpKpis">
+          <div class="erp-kpi"><div class="lbl">Total Neto (mes)</div><div class="val" id="erpKpiTotal">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Unidades</div><div class="val" id="erpKpiUnidades">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Facturas procesadas</div><div class="val" id="erpKpiInvoices">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Última actualización</div><div class="val" id="erpKpiUpdated" style="font-size:13px">—</div></div>
+        </div>
+
         <!-- Juan Manuel, 27/07/2026: "En Icom: Debajo del selector de fechas
              y antes del selector de Unidades de negocio, colocar un gráfico
              tipo torta para entender el peso de las unidades de negocio."
@@ -492,13 +504,6 @@
           </div>
           <div id="erpCanalGroupChart"></div>
           <div id="erpCanalPills" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"></div>
-        </div>
-
-        <div class="erp-kpis" id="erpKpis">
-          <div class="erp-kpi"><div class="lbl">Total Neto (mes)</div><div class="val" id="erpKpiTotal">—</div></div>
-          <div class="erp-kpi"><div class="lbl">Unidades</div><div class="val" id="erpKpiUnidades">—</div></div>
-          <div class="erp-kpi"><div class="lbl">Facturas procesadas</div><div class="val" id="erpKpiInvoices">—</div></div>
-          <div class="erp-kpi"><div class="lbl">Última actualización</div><div class="val" id="erpKpiUpdated" style="font-size:13px">—</div></div>
         </div>
 
         <div class="erp-card">
