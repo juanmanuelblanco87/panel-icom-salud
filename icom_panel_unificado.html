@@ -2051,8 +2051,20 @@ let erpIcomMonthlyWeightsPromise = null; // guardia de "una sola vuelta a la vez
 // una espera real de red.
 let erpIcomMonthlyProgress = { active:false, loaded:0, total:0 };
 
+// Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "en algunos meses sigue
+// sin verse el resultado de movilidad" -- los meses CERRADOS se guardan en
+// IndexedDB de forma PERMANENTE (nunca se vuelven a pedir), así que
+// cualquier valor cacheado desde ANTES de que Movilidad quedara bien
+// clasificado/conectado (24/07/2026) o desde una corrida anterior de este
+// mismo gráfico (recién agregado hoy) se queda pegado para siempre con un
+// desglose incompleto -- el mes en curso, en cambio, se pide fresco cada
+// vez y por eso sí muestra las 4 unidades. Se le agrega un sufijo de
+// versión a la clave de caché (v2) para invalidar de una sola vez TODO lo
+// cacheado bajo la clave vieja -- la próxima vez que cada usuario entre a
+// ICOM, los meses cerrados se vuelven a pedir en limpio (una sola vez) y
+// quedan cacheados correctos bajo la clave nueva.
 function erpIcomMonthlyWeightsCacheKey(year, monthNum){
-  return 'icom_peso_mensual_'+year+'_'+String(monthNum).padStart(2,'0');
+  return 'icom_peso_mensual_v2_'+year+'_'+String(monthNum).padStart(2,'0');
 }
 
 function erpFetchIcomMonthlyWeights(){
