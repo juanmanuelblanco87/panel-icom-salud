@@ -442,6 +442,39 @@
           <div id="erpIcomPieChart"></div>
         </div>
 
+        <!-- Juan Manuel, 27/07/2026: "vamos a agregar Vendedores (encima de
+             Canales y debajo de Fechas... tenemos Vendedor (Cliente) y
+             Vendedor (Institución) ambos son necesarios... necesitamos 2
+             selectores independientes... Abajo un desplegable seleccionable
+             igual que el de marca con Clientes." Campos reales en la
+             Factura: SalesMan = Vendedor Cliente, SalesManInstitution =
+             Vendedor Institución, CustName = Cliente. Oculta por default
+             (ver erpUpdateChannelSpecificUI) -- solo se muestra en Cirugía
+             General/Movilidad/Cirugía Estética (ERP_VENDEDORES_CHANNELS),
+             no en Minorista ni en la vista agregada ICOM. -->
+        <div class="erp-card" id="erpVendedoresCard" style="display:none;padding-bottom:14px">
+          <h2>Vendedor Institución <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+          <div id="erpVendInstPills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
+
+          <h2>Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+          <div id="erpVendClientePills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
+
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Cliente</span>
+            <span class="erp-count" id="erpClienteFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearClienteSelection()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <input type="text" id="erpClienteSearch" placeholder="Buscar por cliente..." oninput="erpOnClienteSearchInput()">
+            <span class="erp-count" id="erpClienteCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Cliente</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="erpClienteBody"><tr><td colspan="4" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="erp-card" style="padding-bottom:14px">
           <h2 id="erpCanalesTitle">Canales <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
           <div class="erp-actions" style="margin-bottom:12px">
@@ -1452,6 +1485,15 @@ function erpCanalIcon(canal){
 let erpCanalFcst = {};
 let erpCanalFcstLoaded = false;
 let erpCanalExcluded = new Set();
+// Juan Manuel, 27/07/2026: "vamos a agregar Vendedores (encima de Canales y
+// debajo de Fechas... tenemos Vendedor (Cliente) y Vendedor (Institución)
+// ambos son necesarios... necesitamos 2 selectores independientes)". Mismo
+// patrón que erpCanalExcluded (Set de "excluidos", pills clickeables) para
+// cada uno, más una selección única (como Marca) para "Cliente".
+let erpVendInstExcluded = new Set();
+let erpVendClienteExcluded = new Set();
+let erpClienteSelectedKey = null;
+let erpClienteSelectedLabel = '';
 
 async function erpLoadCanalFcst(){
   if(erpCanalFcstLoaded) return; // se pide una sola vez por sesión, no cambia tan seguido
@@ -1957,6 +1999,15 @@ function erpUpdateChannelSpecificUI(channel){
       ? 'Unidades de Negocio <span style="font-weight:400;color:#999;font-size:11.5px">— tocá una para incluirla/excluirla de todo lo de abajo</span>'
       : 'Canales <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>';
   }
+
+  // Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... Mismo racional
+  // para Movilidad y para Cirugia Estetica" -- Vendedor Institución/
+  // Vendedor/Cliente solo tienen sentido en las 3 unidades con SalesMan/
+  // SalesManInstitution reales; no aplica a Minorista (no usa esos campos
+  // de la misma forma) ni a la vista agregada ICOM (mezcla las 4 unidades).
+  const showVendedores = ERP_VENDEDORES_CHANNELS.includes(channel);
+  const vendedoresCard = document.getElementById('erpVendedoresCard');
+  if(vendedoresCard) vendedoresCard.style.display = showVendedores ? '' : 'none';
 }
 
 function erpSwitchToChannelView(channel){
@@ -1964,6 +2015,14 @@ function erpSwitchToChannelView(channel){
   erpMacroSelected = null;
   erpMarcaSelectedKey = null;
   erpMarcaSelectedLabel = '';
+  // Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... Vendedor
+  // (Cliente) y Vendedor (Institución)" -- mismo criterio de reseteo que
+  // los demás filtros al cambiar de unidad, para no arrastrar un filtro de
+  // Vendedor/Cliente de una unidad a otra sin darse cuenta.
+  erpVendInstExcluded = new Set();
+  erpVendClienteExcluded = new Set();
+  erpClienteSelectedKey = null;
+  erpClienteSelectedLabel = '';
   erpActiveQuickRangeKey = 'hoy';
   const today = erpTodayStr();
   erpViewFrom = today;
@@ -1976,6 +2035,8 @@ function erpSwitchToChannelView(channel){
   if(marcaSearch) marcaSearch.value = '';
   const skuSearch = document.getElementById('erpSkuSearch');
   if(skuSearch) skuSearch.value = '';
+  const clienteSearch = document.getElementById('erpClienteSearch');
+  if(clienteSearch) clienteSearch.value = '';
   erpUpdateChannelSpecificUI(channel);
   // Estas 3 no dependen de que haya terminado de cargar datos (ver mismo
   // criterio en erpInit) -- se pintan ya, el fetch de abajo actualiza el
@@ -2226,6 +2287,124 @@ function erpRenderCanalPills(){
   }).join('');
 }
 
+// Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... El Selector 1 se
+// va a llamar Vendedor Institución... necesitamos pastillas mas pequeñas
+// que en canales para que entren los 6 en la misma linea vistual". Misma
+// mecánica que erpToggleCanal/erpRenderCanalPills (Set de excluidos +
+// pills clickeables), pero con pills más chicas para que entren varias en
+// la misma línea, y reusando erpComputeRowGroupTotals en vez de un cálculo
+// de canal aparte.
+function erpToggleVendInst(vendedor){
+  if(erpVendInstExcluded.has(vendedor)) erpVendInstExcluded.delete(vendedor);
+  else erpVendInstExcluded.add(vendedor);
+  erpRenderAll();
+}
+function erpToggleVendCliente(vendedor){
+  if(erpVendClienteExcluded.has(vendedor)) erpVendClienteExcluded.delete(vendedor);
+  else erpVendClienteExcluded.add(vendedor);
+  erpRenderAll();
+}
+
+// Pills compactas compartidas por Vendedor Institución y Vendedor (Cliente)
+// -- mismo look que los pills de Canales pero con padding/tipografía más
+// chicos, para que los ~6 vendedores entren en una sola línea visual.
+function erpRenderVendPillsGeneric(wrapId, totals, excludedSet, toggleFnName){
+  const wrap = document.getElementById(wrapId);
+  if(!wrap) return;
+  if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.rows){
+    wrap.innerHTML = '<span class="pm-empty">Cargando datos del ERP…</span>';
+    return;
+  }
+  const rows = Object.entries(totals).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  if(!rows.length){
+    wrap.innerHTML = '<span class="pm-empty">Sin facturas este día.</span>';
+    return;
+  }
+  wrap.innerHTML = rows.map(([vendedor, v])=>{
+    const excluded = excludedSet.has(vendedor);
+    return '<div onclick="'+toggleFnName+'(\''+erpJsStrEscape(vendedor)+'\')" title="Tocar para incluir/excluir" '
+      + 'style="cursor:pointer;user-select:none;border:2px solid '+(excluded?'#ddd':'#1a3d70')+';border-radius:11px;'
+      + 'padding:6px 10px;background:'+(excluded?'#f7f6f2':'#eef3fb')+';opacity:'+(excluded?'.5':'1')+';transition:.15s">'
+      + '<div style="font-size:11px;font-weight:700;color:#1a3d70;white-space:nowrap">'+(excluded?'☐':'☑')+' '+vendedor+'</div>'
+      + '<div style="font-size:12.5px;font-weight:700;color:#1a3d70;margin-top:1px">'+erpFmtMoney(v.totalNeto)+'</div>'
+      + '<div style="font-size:9.5px;color:#888;margin-top:1px">'+erpFmtInt(v.unidades)+' un.</div>'
+      + '</div>';
+  }).join('');
+}
+function erpRenderVendInstPills(){
+  erpRenderVendPillsGeneric('erpVendInstPills', erpComputeVendInstTotals(), erpVendInstExcluded, 'erpToggleVendInst');
+}
+function erpRenderVendClientePills(){
+  erpRenderVendPillsGeneric('erpVendClientePills', erpComputeVendClienteTotals(), erpVendClienteExcluded, 'erpToggleVendCliente');
+}
+
+// "Cliente": mismo patrón que "Por Marca" (buscador + tabla + click en una
+// fila para filtrar) pero agrupando por Cliente (CustName) en vez de por
+// marca de producto -- ver erpComputeRowGroupTotals. Juan Manuel,
+// 27/07/2026: "Abajo un desplegable seleccionable igual que el de marca con
+// Clientes. con los mismos campos que trae marca".
+function erpToggleClienteRow(key, label){
+  if(erpClienteSelectedKey === key){
+    erpClienteSelectedKey = null;
+    erpClienteSelectedLabel = '';
+  }else{
+    erpClienteSelectedKey = key;
+    erpClienteSelectedLabel = label;
+  }
+  erpRenderAll();
+}
+function erpClearClienteSelection(){
+  erpClienteSelectedKey = null;
+  erpClienteSelectedLabel = '';
+  erpRenderAll();
+}
+function erpGetActiveClienteQuery(){
+  const el = document.getElementById('erpClienteSearch');
+  if(!el) return '';
+  return erpNormalizeMarcaKey(el.value||''); // mismo criterio de normalización (acentos/mayúsculas/espacios) que ya usa Marca
+}
+function erpOnClienteSearchInput(){
+  erpRenderAll();
+}
+function erpRenderClienteTable(){
+  const body = document.getElementById('erpClienteBody');
+  if(!body) return; // no está en esta unidad (Minorista/ICOM no tienen esta card)
+  const countSpan = document.getElementById('erpClienteCount');
+  const filterNote = document.getElementById('erpClienteFilterNote');
+  if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.rows){
+    body.innerHTML = '<tr><td colspan="4" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  if(filterNote){
+    if(erpClienteSelectedKey){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + erpClienteSelectedLabel + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+  const byCliente = erpComputeRowGroupTotals(row=>row.cliente, {cliente:true});
+  let rows = Object.entries(byCliente).map(([label, v])=>({
+    key: erpNormalizeMarcaKey(label), label, unidades: v.unidades, totalNeto: v.totalNeto,
+  }));
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  const q = erpGetActiveClienteQuery();
+  if(q) rows = rows.filter(r=>erpNormalizeMarcaKey(r.label).includes(q));
+  if(countSpan) countSpan.textContent = rows.length + ' clientes';
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="4" class="pm-empty">'+(q ? 'Sin clientes que coincidan con la búsqueda.' : 'Sin facturas este día.')+'</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = erpClienteSelectedKey === r.key;
+    return '<tr onclick="erpToggleClienteRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este cliente (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
 // Predicado único para los filtros de marca (buscador de texto Y click
 // exacto) y de macro categoría (click). Centralizarlo acá evita que
 // erpGetFilteredData y erpComputeCanalTotals (pills de "Canales") diverjan —
@@ -2259,63 +2438,123 @@ function erpHasActiveMarcaMacroFilter(){
   return false;
 }
 
-// Arma bySku/totals filtrado según los canales incluidos, sobre el DÍA
-// seleccionado (ERP_VIEW_DATA). Si no hay ningún canal excluido, usa el dato
-// tal cual (incluye lo que no tiene canal reconocido). Si hay algún filtro
-// activo, solo suma lo que SÍ está atribuido a un canal incluido (via
-// byCanalSku) — es la única forma de filtrar por canal de forma exacta.
-// Después se aplican, en cascada, los filtros de marca y macro categoría
-// (erpSkuMatchesMarcaMacroFilters) — así Por Marca, Por Macro Categoría,
-// Por SKU, los KPIs y ahora también los pills de Canales quedan consistentes.
+// Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... tenemos Vendedor
+// (Cliente) y Vendedor (Institución) ambos son necesarios... necesitamos 2
+// selectores independientes". A diferencia de Marca/Macro (atributos del
+// SKU/producto, válidos siempre para ese SKU sin importar la factura),
+// Canal/Vendedor Institución/Vendedor Cliente/Cliente son atributos de la
+// FACTURA -- una misma SKU puede venderse a través de distintos canales y
+// vendedores. Para que estos filtros se crucen bien entre sí (ej. "canal A
+// Y vendedor X" al mismo tiempo, sin contar de más ni de menos), esta
+// función centraliza el chequeo fila por fila sobre ERP_VIEW_DATA.rows (el
+// detalle por línea de factura que ya manda el backend), en vez de intentar
+// intersectar agregados separados (byCanalSku/byVendedorXSku) que no
+// alcanzan para combinaciones simultáneas.
+//
+// `skip` permite pedirle a esta función que NO aplique uno de los filtros
+// de "pill" -- así cada grupo de pills (Canales/Vendedor Institución/
+// Vendedor Cliente) puede calcular sus propios totales ya recortados por
+// TODOS los demás filtros activos, sin auto-excluirse a sí mismo (mismo
+// criterio que ya usaba erpComputeCanalTotals con marca/macro, generalizado
+// ahora a los 3 filtros de pill + Cliente). Marca/Macro nunca se saltean acá
+// a propósito: son ortogonales a los pills, siempre se aplican si están activos.
+function erpRowPassesFilters(row, skip){
+  skip = skip || {};
+  if(!skip.canal && erpCanalExcluded.size > 0){
+    if(!row.canal || erpCanalExcluded.has(row.canal)) return false; // sin canal reconocible: se excluye en cuanto CUALQUIER canal esté filtrado (mismo comportamiento de siempre)
+  }
+  if(!skip.vendInst && erpVendInstExcluded.has(row.vendedorInstitucion)) return false;
+  if(!skip.vendCliente && erpVendClienteExcluded.has(row.vendedorCliente)) return false;
+  if(!skip.cliente && erpClienteSelectedKey && erpNormalizeMarcaKey(row.cliente) !== erpClienteSelectedKey) return false;
+  if(!skip.marcaMacro && erpHasActiveMarcaMacroFilter() && !erpSkuMatchesMarcaMacroFilters(row.sku)) return false;
+  return true;
+}
+
+// Arma bySku/totals filtrado según TODOS los filtros activos (canal,
+// Vendedor Institución, Vendedor Cliente, Cliente seleccionado, marca/macro
+// categoría), escaneando ERP_VIEW_DATA.rows una sola vez. Si no hay ningún
+// filtro activo, devuelve el dato tal cual (misma referencia, sin costo
+// extra) -- mismo comportamiento de siempre para el caso común.
 function erpGetFilteredData(){
   if(!ERP_VIEW_DATA) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
-  let bySku = ERP_VIEW_DATA.bySku;
-  if(erpCanalExcluded.size > 0){
-    const byCanal = {};
-    Object.entries(ERP_VIEW_DATA.byCanalSku||{}).forEach(([canal, skus])=>{
-      if(erpCanalExcluded.has(canal)) return;
-      Object.entries(skus).forEach(([sku, v])=>{
-        if(!byCanal[sku]) byCanal[sku] = {nombre:(ERP_VIEW_DATA.bySku[sku]&&ERP_VIEW_DATA.bySku[sku].nombre)||sku, unidades:0, totalNeto:0};
-        byCanal[sku].unidades += v.unidades;
-        byCanal[sku].totalNeto += v.totalNeto;
-      });
-    });
-    bySku = byCanal;
+  const anyFilter = erpCanalExcluded.size > 0 || erpVendInstExcluded.size > 0
+    || erpVendClienteExcluded.size > 0 || !!erpClienteSelectedKey || erpHasActiveMarcaMacroFilter();
+  if(!anyFilter){
+    return {bySku: ERP_VIEW_DATA.bySku, totals: ERP_VIEW_DATA.totals};
   }
-  if(erpHasActiveMarcaMacroFilter()){
-    const filtered = {};
-    Object.entries(bySku).forEach(([sku, v])=>{
-      if(erpSkuMatchesMarcaMacroFilters(sku)) filtered[sku] = v;
-    });
-    bySku = filtered;
-  }
-  if(bySku === ERP_VIEW_DATA.bySku){
-    return {bySku, totals: ERP_VIEW_DATA.totals};
-  }
+  const bySku = {};
+  (ERP_VIEW_DATA.rows||[]).forEach(row=>{
+    if(!erpRowPassesFilters(row)) return;
+    if(!bySku[row.sku]){
+      const nombre = row.desc || (ERP_VIEW_DATA.bySku[row.sku] && ERP_VIEW_DATA.bySku[row.sku].nombre) || row.sku;
+      bySku[row.sku] = {nombre, unidades:0, totalNeto:0};
+    }
+    bySku[row.sku].unidades += row.u;
+    bySku[row.sku].totalNeto += row.f;
+  });
   const totals = Object.values(bySku).reduce((a,v)=>({unidades:a.unidades+v.unidades, totalNeto:a.totalNeto+v.totalNeto}), {unidades:0,totalNeto:0});
   return {bySku, totals};
 }
 
+// Agrupa rows por getKey(row), respetando todos los filtros activos EXCEPTO
+// los indicados en `skip` -- generaliza lo que antes hacía erpComputeCanalTotals
+// solo para Canales, ahora reusado también por Vendedor Institución/Vendedor
+// Cliente/Cliente (ver erpRowPassesFilters).
+function erpComputeRowGroupTotals(getKey, skip){
+  const out = {};
+  if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.rows) return out;
+  ERP_VIEW_DATA.rows.forEach(row=>{
+    if(!erpRowPassesFilters(row, skip)) return;
+    const key = getKey(row);
+    if(key == null) return;
+    if(!out[key]) out[key] = {unidades:0, totalNeto:0};
+    out[key].unidades += row.u;
+    out[key].totalNeto += row.f;
+  });
+  return out;
+}
+
 // Totales por canal (usados por los pills de "Canales") recortados a los
-// filtros de marca/macro activos — pero NUNCA al filtro de canal en sí
-// (erpCanalExcluded), porque estos pills son justamente los que lo
-// controlan: siempre deben listar los 5 canales para poder tocarlos, solo
-// cambian los números que muestran. Si no hay ningún filtro de marca/macro
-// activo, devuelve ERP_VIEW_DATA.byCanal tal cual (mismo comportamiento que
-// antes, sin costo extra).
+// demás filtros activos (Vendedor Institución/Cliente, Cliente, marca/macro)
+// — pero NUNCA al filtro de canal en sí (erpCanalExcluded), porque estos
+// pills son justamente los que lo controlan: siempre deben listar los
+// canales para poder tocarlos, solo cambian los números que muestran. Si no
+// hay ningún otro filtro activo, devuelve ERP_VIEW_DATA.byCanal tal cual
+// (mismo comportamiento que antes, sin costo extra).
 function erpComputeCanalTotals(){
   if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.byCanal) return {};
-  if(!erpHasActiveMarcaMacroFilter()) return ERP_VIEW_DATA.byCanal;
-  const byCanal = {};
-  Object.keys(ERP_VIEW_DATA.byCanal).forEach(canal=>{
-    const skus = (ERP_VIEW_DATA.byCanalSku && ERP_VIEW_DATA.byCanalSku[canal]) || {};
-    let unidades = 0, totalNeto = 0;
-    Object.entries(skus).forEach(([sku, v])=>{
-      if(erpSkuMatchesMarcaMacroFilters(sku)){ unidades += v.unidades; totalNeto += v.totalNeto; }
-    });
-    byCanal[canal] = {unidades, totalNeto};
+  const anyOtherFilter = erpVendInstExcluded.size > 0 || erpVendClienteExcluded.size > 0
+    || !!erpClienteSelectedKey || erpHasActiveMarcaMacroFilter();
+  if(!anyOtherFilter) return ERP_VIEW_DATA.byCanal;
+  return erpComputeRowGroupTotals(row=>row.canal, {canal:true});
+}
+
+// Totales por Vendedor Institución/Vendedor Cliente (pills, mismo criterio
+// que erpComputeCanalTotals: se saltea su propio filtro, respeta todos los
+// demás). Juan Manuel, 27/07/2026.
+function erpComputeVendInstTotals(){
+  return erpComputeRowGroupTotals(row=>row.vendedorInstitucion, {vendInst:true});
+}
+function erpComputeVendClienteTotals(){
+  return erpComputeRowGroupTotals(row=>row.vendedorCliente, {vendCliente:true});
+}
+
+// Cuenta facturas DISTINTAS (por sernr) que pasan los filtros de pill/cliente
+// activos -- generaliza el KPI "Facturas procesadas", que antes solo
+// respetaba el filtro de canal (vía invoicesByCanal). A propósito NO aplica
+// marca/macro (mismo comportamiento de siempre: "Facturas procesadas" cuenta
+// facturas completas, no líneas, y marca/macro son atributos de línea/SKU).
+function erpComputeFilteredInvoiceCount(){
+  if(!ERP_VIEW_DATA) return 0;
+  const anyFilter = erpCanalExcluded.size > 0 || erpVendInstExcluded.size > 0
+    || erpVendClienteExcluded.size > 0 || !!erpClienteSelectedKey;
+  if(!anyFilter) return ERP_VIEW_DATA.invoicesProcessed || 0;
+  const seen = new Set();
+  (ERP_VIEW_DATA.rows||[]).forEach(row=>{
+    if(!erpRowPassesFilters(row, {marcaMacro:true})) return;
+    if(row.sernr != null) seen.add(row.sernr);
   });
-  return byCanal;
+  return seen.size;
 }
 
 // Lee y normaliza el texto del buscador de "Por Marca" (mismo criterio que
@@ -2332,17 +2571,11 @@ function erpRenderKpis(){
   const {totals} = erpGetFilteredData();
   document.getElementById('erpKpiTotal').textContent = erpFmtMoney(totals.totalNeto);
   document.getElementById('erpKpiUnidades').textContent = erpFmtInt(totals.unidades);
-  // "Facturas procesadas" respeta el filtro de canales — si hay alguno
-  // excluido, sumamos solo las facturas de los canales incluidos (antes
-  // siempre mostraba el total general, sin importar qué canales estuvieran
-  // tildados).
-  let invoiceCount = ERP_VIEW_DATA.invoicesProcessed || 0;
-  if(erpCanalExcluded.size > 0 && ERP_VIEW_DATA.invoicesByCanal){
-    invoiceCount = Object.entries(ERP_VIEW_DATA.invoicesByCanal)
-      .filter(([canal])=>!erpCanalExcluded.has(canal))
-      .reduce((a,[,n])=>a+n, 0);
-  }
-  document.getElementById('erpKpiInvoices').textContent = erpFmtInt(invoiceCount);
+  // "Facturas procesadas" respeta TODOS los filtros de pill/cliente activos
+  // (canal, Vendedor Institución, Vendedor Cliente, Cliente) -- ver
+  // erpComputeFilteredInvoiceCount, generalizado 27/07/2026 a partir del
+  // filtro de canal que ya existía.
+  document.getElementById('erpKpiInvoices').textContent = erpFmtInt(erpComputeFilteredInvoiceCount());
   const d = new Date(ERP_VIEW_DATA.updatedAt);
   document.getElementById('erpKpiUpdated').textContent = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
 }
@@ -2628,6 +2861,12 @@ async function erpRenderMarcaTable(){
   }).join('');
 }
 
+// Unidades que tienen Vendedor (Cliente)/Vendedor (Institución) reales en
+// la Factura -- Juan Manuel, 27/07/2026: "En Cirugia General... Mismo
+// racional para Movilidad y para Cirugia Estetica." Minorista e ICOM (vista
+// agregada) quedan afuera a propósito (ver erpUpdateChannelSpecificUI).
+const ERP_VENDEDORES_CHANNELS = ['cirugia_general', 'movilidad', 'cirugia_estetica'];
+
 function erpRenderAll(){
   erpRenderCanalPills();
   erpRenderKpis();
@@ -2637,6 +2876,11 @@ function erpRenderAll(){
   // Juan Manuel, 27/07/2026: gráfico de torta solo en la vista ICOM (ver
   // erpUpdateChannelSpecificUI, que muestra/oculta #erpIcomPieCard).
   if(currentChannel === 'icom') erpRenderIcomPieChart();
+  if(ERP_VENDEDORES_CHANNELS.includes(currentChannel)){
+    erpRenderVendInstPills();
+    erpRenderVendClientePills();
+    erpRenderClienteTable();
+  }
 }
 
 async function pmEnsureLoaded(){

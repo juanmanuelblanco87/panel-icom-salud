@@ -45,8 +45,12 @@
 //   bySku: { "8": { nombre: "...", unidades: ..., totalNeto: ... }, ... },
 //   byCanalSku: { "ICOM-CEN": { "8": { unidades, totalNeto } } },
 //   byUnidadNegocio: { minorista: { unidades, totalNeto, facturas }, movilidad: {...}, ... }, // IOMA no entra acá a propósito
-//   rows: [ { sku, f, u, fecha:"DD/MM/YYYY", office, unidadNegocio, desc }, ... ]  // detalle por línea de factura,
-//          consumido directamente por Seguimiento (ver erpSyncNow / applyParsedSales)
+//   rows: [ { sku, f, u, fecha:"DD/MM/YYYY", office, canal, unidadNegocio, desc,
+//             costoUnit, vendedorCliente, vendedorInstitucion, cliente, sernr }, ... ]
+//          // detalle por línea de factura, consumido por Seguimiento (ver
+//          // erpSyncNow / applyParsedSales, que solo usa sku/f/u/fecha/office/
+//          // desc/costoUnit) y por los filtros de Vendedor/Cliente del shell
+//          // (ver erpGetFilteredData/erpComputeRowGroupTotals -- 27/07/2026)
 // }
 
 // 24/07/2026: migrado de ICOM a ICOMGENERAL -- el proyecto viejo (ICOM) solo
@@ -168,6 +172,35 @@ const OFFICE_CANAL_MAP = {
 };
 function normalizeCanal(office) {
   return OFFICE_CANAL_MAP[office] || office || null; // null = sin canal reconocible
+}
+
+// VENDEDORES (Juan Manuel, 27/07/2026 -- "vamos a agregar Vendedores...
+// tenemos Vendedor (Cliente) y Vendedor (Institución) ambos son
+// necesarios"). Campos reales de la entidad Invoice, confirmados contra
+// producción (endpoint temporal de diagnóstico, ya borrado): el campo
+// "SalesMan" es el Vendedor (Cliente) y "SalesManInstitution" es el
+// Vendedor (Institución) -- comparten el mismo espacio de códigos (ej. "RM"
+// aparece en los dos), pero SalesManInstitution suele venir vacío cuando la
+// venta no es institucional (ej. SalesMan="AM", SalesManInstitution="").
+// Diccionario de códigos provisto por Juan Manuel (tabla Código/Cuenta/
+// Representante): cualquier código que no esté acá se muestra tal cual
+// (fallback, mismo criterio que normalizeCanal con OFFICE_CANAL_MAP), para
+// no romper si aparece un vendedor nuevo que todavía no está en la tabla.
+const SALESMAN_NAME_MAP = {
+  MDB: 'Miriam De Bernardo',
+  AM: 'Antonella Macchi',
+  JL: 'Juan Pablo Lentini',
+  RM: 'Rolando Mijaloski',
+  FB: 'Federico Bustos',
+  JRA: 'Jorge Ravazzoli',
+  MCR: 'Mario Crespo',
+  PEP: 'Pedro Picardi',
+  EP: 'Eva Piña',
+};
+function normalizeVendedor(code) {
+  const c = String(code || '').trim();
+  if (!c) return 'Sin Vendedor';
+  return SALESMAN_NAME_MAP[c] || c;
 }
 
 // CLASIFICACIÓN POR UNIDAD DE NEGOCIO (Juan Manuel, 24/07/2026 -- "Hay que
@@ -302,6 +335,15 @@ module.exports = async function handler(req, res) {
           invoicesByCanal[canal] = (invoicesByCanal[canal] || 0) + 1;
         }
 
+        // Vendedor (Cliente)/Vendedor (Institución)/Cliente son atributos de
+        // la FACTURA completa (no de cada línea/SKU, a diferencia de Marca),
+        // así que se calculan UNA vez por factura acá, antes del loop de
+        // items -- ver comentario en la clasificación de Vendedores más
+        // arriba.
+        const vendedorCliente = normalizeVendedor(inv.SalesMan);
+        const vendedorInstitucion = normalizeVendedor(inv.SalesManInstitution);
+        const cliente = inv.CustName ? String(inv.CustName).trim() : 'Sin Cliente';
+
         const items = inv.Items || [];
         for (const it of items) {
           const sku = cleanSku(it.ArtCode);
@@ -335,6 +377,7 @@ module.exports = async function handler(req, res) {
             u: qty,
             fecha: toDDMMYYYY(inv.TransDate),
             office: rawOffice, // código crudo (ej "ICOM-CEN"), Seguimiento lo mapea con su propio SUC_CANAL
+            canal, // mismo canal ya normalizado que usan byCanal/byCanalSku (ej. "Central", "Bella Vista") -- lo agregamos acá para que el shell pueda filtrar por canal cruzando con Vendedor/Cliente sin tener que duplicar OFFICE_CANAL_MAP del lado del cliente
             unidadNegocio, // 'minorista'|'movilidad'|'cirugia_estetica'|'cirugia_general'|null (IOMA)
             desc: it.Name || '',
             // Costo unitario real, tomado de OperativeCost/Qty. Validado contra
@@ -342,6 +385,13 @@ module.exports = async function handler(req, res) {
             // mayor a 1.5x el precio de venta (Stock.Cost, en cambio, viene
             // vacío el 100% de las veces — no sirve como fuente).
             costoUnit: (qty > 0 && Number(it.OperativeCost) > 0) ? Number(it.OperativeCost) / qty : 0,
+            // Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... tenemos
+            // Vendedor (Cliente) y Vendedor (Institución)". Ver normalizeVendedor
+            // más arriba -- "Sin Vendedor" si el campo viene vacío.
+            vendedorCliente,
+            vendedorInstitucion,
+            cliente,
+            sernr: inv.SerNr != null ? String(inv.SerNr) : null, // para poder contar facturas DISTINTAS al filtrar por Vendedor/Cliente (varias líneas comparten la misma factura)
           });
         }
       }
