@@ -144,6 +144,13 @@ function cleanSku(artCode) {
 // Esmeralda, hay que sumarlos)"): mismo patrón que ICEN-99/PSAL-99/IJCP-99
 // más abajo -- un código "-99" secundario que hay que sumar bajo el mismo
 // nombre de canal que su sucursal principal, no reportarlo aparte.
+// Juan Manuel, 27/07/2026 (segundo aviso, con captura de Cirugía Estética
+// en producción): "en cirugia estetica sigue apareciendo ESME-99, recorda
+// que esto va sumado dentro de Esmeralda" -- el código real que manda
+// oppen.io es "ESME-99" (con el prefijo "ESME" completo), no "EME-99" como
+// se había asumido por el texto original ("Eme-99"). Se deja "EME-99"
+// también mapeado por si ese código existe en algún dato viejo, pero el
+// que de verdad hace falta es "ESME-99".
 const OFFICE_CANAL_MAP = {
   ML: 'Mercado Libre',
   ECOMMERCE: 'Tienda Online',
@@ -155,6 +162,7 @@ const OFFICE_CANAL_MAP = {
   'IJCP-99': 'JCP',
   ESME: 'Esmeralda',
   'EME-99': 'Esmeralda',
+  'ESME-99': 'Esmeralda',
   'BELL-OFI': 'Bella Vista',
   'BELL-99': 'Bella Vista',
 };
