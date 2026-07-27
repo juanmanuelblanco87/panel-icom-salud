@@ -465,9 +465,27 @@
              muestre el peso % de cada unidad de negocio)." Mismo gating que
              la torta (ver erpUpdateChannelSpecificUI) -- exclusivo de ICOM.
              Datos: erpFetchIcomMonthlyWeights (byUnidadNegocio por mes,
-             cacheado en IndexedDB para los meses cerrados). -->
+             cacheado en IndexedDB para los meses cerrados).
+             27/07/2026 (2do pedido, misma sesión): "necesitamos una
+             barrita de progreso para saber como viene la actualización y
+             para saber cuantos meses restan por actualizar" -- ver
+             #erpIcomMonthlyProgress / erpRenderIcomMonthlyProgress, que
+             muestra el avance mientras erpFetchIcomMonthlyWeightsImpl pide
+             los meses (secuencial, uno por vez). "arriba a la derecha hay
+             que colocar un grafico de torta con el acumulado año para
+             comparar la performance del mes actual" -- ver
+             #erpIcomYearPieChart / erpRenderIcomYearPieChart, torta chica
+             con el total ENE-a-hoy sumado (todos los meses ya cargados en
+             erpIcomMonthlyWeights), al lado del título, para comparar de un
+             vistazo contra el mes en curso (la última barra del gráfico). -->
         <div class="erp-card" id="erpIcomMonthlyChartCard" style="display:none">
-          <h2>Peso por Unidad de Negocio — por mes</h2>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:14px">
+            <div style="flex:1;min-width:220px">
+              <h2 style="margin-bottom:8px">Peso por Unidad de Negocio — por mes</h2>
+              <div id="erpIcomMonthlyProgress"></div>
+            </div>
+            <div id="erpIcomYearPieChart" style="flex-shrink:0;min-width:200px"></div>
+          </div>
           <div id="erpIcomMonthlyChart"><span class="pm-empty">Cargando…</span></div>
         </div>
 
@@ -1996,6 +2014,15 @@ function erpRenderIcomPieChart(){
 let erpIcomMonthlyWeights = {}; // { "01": {minorista:{unidades,totalNeto,facturas}, movilidad:{...}, ...}, "02": {...}, ... }
 let erpIcomMonthlyWeightsPromise = null; // guardia de "una sola vuelta a la vez", mismo criterio que erpAutoHealClosedMonths
 
+// Juan Manuel, 27/07/2026 (2do pedido): "necesitamos una barrita de
+// progreso para saber como viene la actualización y para saber cuantos
+// meses restan por actualizar" -- se actualiza en cada paso del loop de
+// erpFetchIcomMonthlyWeightsImpl (tanto si el mes salió de caché como si se
+// pidió fresco), así que "loaded" avanza aunque casi todos los meses vengan
+// de IndexedDB (que es casi instantáneo) y solo el mes en curso implique
+// una espera real de red.
+let erpIcomMonthlyProgress = { active:false, loaded:0, total:0 };
+
 function erpIcomMonthlyWeightsCacheKey(year, monthNum){
   return 'icom_peso_mensual_'+year+'_'+String(monthNum).padStart(2,'0');
 }
@@ -2011,6 +2038,9 @@ async function erpFetchIcomMonthlyWeightsImpl(){
   const year = now.getFullYear();
   const currentMonthNum = now.getMonth() + 1; // 1-12
 
+  erpIcomMonthlyProgress = { active:true, loaded:0, total:currentMonthNum };
+  erpRenderIcomMonthlyProgress();
+
   for(let m = 1; m <= currentMonthNum; m++){
     const mm = String(m).padStart(2,'0');
     const isCurrentMonth = (m === currentMonthNum);
@@ -2021,7 +2051,9 @@ async function erpFetchIcomMonthlyWeightsImpl(){
         const cached = await pmIdbGet(cacheKey);
         if(cached && cached.byUnidadNegocio){
           erpIcomMonthlyWeights[mm] = cached.byUnidadNegocio;
-          if(currentChannel === 'icom') erpRenderIcomMonthlyBarChart();
+          erpIcomMonthlyProgress.loaded++;
+          erpRenderIcomMonthlyProgress();
+          if(currentChannel === 'icom'){ erpRenderIcomMonthlyBarChart(); erpRenderIcomYearPieChart(); }
           continue; // mes cerrado ya cacheado -- no hace falta volver a pedirlo
         }
       }catch(e){ /* seguimos y lo pedimos fresco */ }
@@ -2042,12 +2074,37 @@ async function erpFetchIcomMonthlyWeightsImpl(){
       }
       // Repinta incrementalmente mes a mes -- no hace falta esperar a que
       // termine todo el año para que el usuario vea los primeros meses.
-      if(currentChannel === 'icom') erpRenderIcomMonthlyBarChart();
+      if(currentChannel === 'icom'){ erpRenderIcomMonthlyBarChart(); erpRenderIcomYearPieChart(); }
     }catch(e){
       console.error('erpFetchIcomMonthlyWeights: no se pudo traer el mes '+mm+'/'+year+':', e);
       // seguimos con el resto de los meses -- uno que falla no debe tirar abajo todo el gráfico
     }
+    erpIcomMonthlyProgress.loaded++;
+    erpRenderIcomMonthlyProgress();
   }
+
+  erpIcomMonthlyProgress.active = false;
+  erpRenderIcomMonthlyProgress();
+}
+
+// Barrita de progreso de #erpIcomMonthlyProgress -- mientras está activa,
+// muestra "Actualizando meses… X de Y (faltan Z)" con una barra de avance;
+// al terminar, se borra sola (no queda un mensaje viejo dando vueltas).
+function erpRenderIcomMonthlyProgress(){
+  const el = document.getElementById('erpIcomMonthlyProgress');
+  if(!el) return;
+  const p = erpIcomMonthlyProgress;
+  if(!p.active || !p.total || p.loaded >= p.total){
+    el.innerHTML = '';
+    return;
+  }
+  const pct = Math.round((p.loaded / p.total) * 100);
+  const faltan = p.total - p.loaded;
+  el.innerHTML = '<div style="font-size:11.5px;color:#888;margin-bottom:4px">'
+    + 'Actualizando meses… '+p.loaded+' de '+p.total+' (faltan '+faltan+')</div>'
+    + '<div style="width:100%;max-width:260px;height:6px;background:#e9e9e6;border-radius:3px;overflow:hidden">'
+    + '<div style="width:'+pct+'%;height:100%;background:#1a3d70;border-radius:3px;transition:width .3s ease"></div>'
+    + '</div>';
 }
 
 const ERP_MESES_ABREV = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -2132,6 +2189,80 @@ function erpRenderIcomMonthlyBarChart(){
 
   container.innerHTML = '<div style="display:flex;gap:10px;align-items:flex-end;overflow-x:auto;padding-bottom:4px">'+columnsHtml+'</div>'
     + '<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #eee">'+legend+'</div>';
+}
+
+// Juan Manuel, 27/07/2026 (2do pedido): "arriba a la derecha hay que
+// colocar un grafico de torta con el acumulado año para comparar la
+// performance del mes actual." Torta chica (misma paleta/orden fijo que la
+// torta grande y que las barras) con el ACUMULADO de todos los meses ya
+// cargados en erpIcomMonthlyWeights (enero a hoy, sumando totalNeto por
+// unidad) -- se repinta cada vez que termina de cargar un mes más (ver
+// erpFetchIcomMonthlyWeightsImpl), así que va creciendo en vivo a medida
+// que avanza la barrita de progreso, no hace falta esperar a que termine
+// todo el año.
+function erpRenderIcomYearPieChart(){
+  const container = document.getElementById('erpIcomYearPieChart');
+  if(!container) return;
+  const unitKeys = Object.keys(ICOM_UNIT_LABELS);
+  const totals = {};
+  unitKeys.forEach(key => { totals[key] = 0; });
+  Object.values(erpIcomMonthlyWeights).forEach(byUnidad => {
+    unitKeys.forEach(key => {
+      const v = byUnidad[key];
+      if(v && v.totalNeto) totals[key] += v.totalNeto;
+    });
+  });
+  const rows = unitKeys
+    .map(key => ({ unitLabel: ICOM_UNIT_LABELS[key], totalNeto: totals[key] }))
+    .filter(r => r.totalNeto > 0);
+  if(!rows.length){
+    container.innerHTML = '<span class="pm-empty">Cargando acumulado del año…</span>';
+    return;
+  }
+  const total = rows.reduce((s,r)=>s+r.totalNeto, 0);
+
+  const size = 108, cx = size/2, cy = size/2, r = 46;
+  let angleStart = -Math.PI/2;
+  const slices = [];
+  rows.forEach(({unitLabel, totalNeto})=>{
+    const frac = totalNeto / total;
+    const angleEnd = angleStart + frac * Math.PI * 2;
+    const color = ICOM_PIE_COLORS[unitLabel] || '#9aa0a6';
+    let path;
+    if(frac >= 0.9999){
+      path = 'M '+cx+' '+(cy-r)+' A '+r+' '+r+' 0 1 1 '+(cx-0.01)+' '+(cy-r)+' Z';
+    } else {
+      const x1 = cx + r*Math.cos(angleStart), y1 = cy + r*Math.sin(angleStart);
+      const x2 = cx + r*Math.cos(angleEnd), y2 = cy + r*Math.sin(angleEnd);
+      const largeArc = (angleEnd - angleStart) > Math.PI ? 1 : 0;
+      path = 'M '+cx+' '+cy+' L '+x1+' '+y1+' A '+r+' '+r+' 0 '+largeArc+' 1 '+x2+' '+y2+' Z';
+    }
+    slices.push({unitLabel, totalNeto, frac, path, color});
+    angleStart = angleEnd;
+  });
+
+  const svgSlices = slices.map(s=>
+    '<path d="'+s.path+'" fill="'+s.color+'" stroke="#fff" stroke-width="2">'
+    + '<title>'+s.unitLabel+': '+Math.round(s.frac*100)+'% ('+erpFmtMoney(s.totalNeto)+')</title>'
+    + '</path>'
+  ).join('');
+
+  // Torta chica, sin lugar para etiquetas directas adentro de cada
+  // porción (a diferencia de la torta grande) -- la leyenda compacta de al
+  // lado, con % de cada unidad, cumple el mismo rol que exige el WARN de
+  // contraste de aqua/amarillo (nunca color solo, siempre con texto).
+  const legend = slices.map(s=>
+    '<div style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:#333;white-space:nowrap">'
+    + '<span style="width:8px;height:8px;border-radius:2px;background:'+s.color+';flex-shrink:0"></span>'
+    + Math.round(s.frac*100)+'%'
+    + '</div>'
+  ).join('');
+
+  container.innerHTML = '<div style="font-size:11px;color:#888;text-align:right;margin-bottom:6px">Acumulado del año</div>'
+    + '<div style="display:flex;gap:10px;align-items:center;justify-content:flex-end">'
+    + '<div style="display:flex;flex-direction:column;gap:3px">'+legend+'</div>'
+    + '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+svgSlices+'</svg>'
+    + '</div>';
 }
 
 // Juan Manuel, 27/07/2026: "Ahi se desplegara un ventas en vivo pero los
@@ -3108,12 +3239,15 @@ function erpRenderAll(){
   // erpUpdateChannelSpecificUI, que muestra/oculta #erpIcomPieCard).
   if(currentChannel === 'icom'){
     erpRenderIcomPieChart();
-    // Gráfico de barras mensual (Ene-Dic, peso % por unidad) -- usa datos
-    // propios (erpIcomMonthlyWeights, ver erpFetchIcomMonthlyWeights), no
-    // depende de ERP_VIEW_DATA, así que se repinta acá para reflejar
-    // filtros/resize, pero el contenido en sí solo cambia cuando termina un
-    // fetch mensual nuevo.
+    // Gráfico de barras mensual (Ene-Dic, peso % por unidad) + torta chica
+    // de acumulado del año + barrita de progreso -- usan datos propios
+    // (erpIcomMonthlyWeights/erpIcomMonthlyProgress, ver
+    // erpFetchIcomMonthlyWeights), no dependen de ERP_VIEW_DATA, así que se
+    // repintan acá para reflejar filtros/resize, pero el contenido en sí
+    // solo cambia cuando termina un fetch mensual nuevo.
     erpRenderIcomMonthlyBarChart();
+    erpRenderIcomYearPieChart();
+    erpRenderIcomMonthlyProgress();
   }
   if(ERP_VENDEDORES_CHANNELS.includes(currentChannel)){
     erpRenderVendInstPills();
