@@ -468,7 +468,16 @@
         <div class="erp-card" id="erpIcomPieCard" style="display:none">
           <div style="display:flex;gap:28px;flex-wrap:wrap">
             <div style="flex:1;min-width:280px">
-              <h2>Peso por Unidad de Negocio</h2>
+              <!-- Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "En el
+                   grafico de tortas de la izquierda en el titulo hay que
+                   colocar '- y la fecha que se halla colocado, en este
+                   ejemplo: Mes Actual' para que se entienda a que esta
+                   referenciando." -- el texto se completa en JS
+                   (erpRenderIcomPieChart -> erpQuickRangeLabel), reflejando
+                   el rango de fechas activo (Hoy/Ayer/Semana Actual/Semana
+                   Anterior/Mes Actual, o el rango a medida si el usuario
+                   tipeó uno). -->
+              <h2>Peso por Unidad de Negocio<span id="erpIcomPieChartPeriodo"></span></h2>
               <div id="erpIcomPieChart"></div>
             </div>
             <div style="flex:1;min-width:280px">
@@ -1986,19 +1995,40 @@ function erpBuildIcomPieChartHtml(totalsByLabel){
     + Math.round(s.frac*100) + '%</text>'
   ).join('');
 
+  // Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "Los icono / textos de
+  // descripcion del canal quedan corridos en ambos graficos, hay que
+  // ordenarlos para que queden iguales de ambos lados." -- el ícono
+  // (emoji) de cada unidad no mide lo mismo en todas (🏪/♿/💉/🏥), así que
+  // sin un ancho fijo el texto de cada fila arranca en una posición
+  // distinta -- eso desalinea la columna de $ y % dentro de una misma
+  // leyenda Y hace que las dos leyendas lado a lado (período actual /
+  // acumulado del año) no calcen entre sí. Se le da al ícono un ancho fijo
+  // (24px, centrado) en su propio <span>, separado del texto de la unidad,
+  // así todas las filas -- en las DOS tortas, que comparten este mismo
+  // helper -- arrancan exactamente en la misma posición.
   const legend = slices.map(s=>
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
     + '<span style="width:12px;height:12px;border-radius:3px;background:'+s.color+';flex-shrink:0"></span>'
-    + '<span style="font-size:12.5px;color:#333;flex:1">'+erpCanalIcon(s.canal)+' '+s.canal+'</span>'
-    + '<span style="font-size:12.5px;font-weight:700;color:#1a3d70">'+erpFmtMoney(s.totalNeto)+'</span>'
+    + '<span style="font-size:14px;width:24px;flex-shrink:0;text-align:center">'+erpCanalIcon(s.canal)+'</span>'
+    + '<span style="font-size:12.5px;color:#333;flex:1">'+s.canal+'</span>'
+    + '<span style="font-size:12.5px;font-weight:700;color:#1a3d70;white-space:nowrap">'+erpFmtMoney(s.totalNeto)+'</span>'
     + '<span style="font-size:11px;color:#888;min-width:38px;text-align:right">'+Math.round(s.frac*100)+'%</span>'
     + '</div>'
   ).join('');
 
+  // Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "Debajo de ambos
+  // graficos colocar un 'Total: xxxx' el valor absoluto de la suma en
+  // AR$." -- una sola línea con el total en pesos, debajo de la torta+
+  // leyenda, en las DOS tortas (comparten este mismo helper).
+  const totalRow = '<div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee;font-size:13px;color:#333">'
+    + '<strong style="color:#1a3d70">Total:</strong> '+erpFmtMoney(total)
+    + '</div>';
+
   return '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
     + '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+svgSlices+svgLabels+'</svg>'
     + '<div style="flex:1;min-width:200px">'+legend+'</div>'
-    + '</div>';
+    + '</div>'
+    + totalRow;
 }
 
 // Dibuja el gráfico de torta de #erpIcomPieChart (mitad izquierda de
@@ -2011,6 +2041,12 @@ function erpBuildIcomPieChartHtml(totalsByLabel){
 function erpRenderIcomPieChart(){
   const container = document.getElementById('erpIcomPieChart');
   if(!container) return;
+  // Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "En el grafico de
+  // tortas de la izquierda en el titulo hay que colocar '- y la fecha que
+  // se halla colocado... Mes Actual' para que se entienda a que esta
+  // referenciando" -- ver erpQuickRangeLabel.
+  const periodoEl = document.getElementById('erpIcomPieChartPeriodo');
+  if(periodoEl) periodoEl.textContent = ' - '+erpQuickRangeLabel();
   if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.byCanal){
     container.innerHTML = '<span class="pm-empty">Cargando datos…</span>';
     return;
@@ -2418,6 +2454,24 @@ function erpRenderQuickRangeButtons(){
     const btn = document.getElementById(id);
     if(btn) btn.classList.toggle('erp-quickbtn-active', erpActiveQuickRangeKey === key);
   });
+}
+
+// Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "En el grafico de tortas
+// de la izquierda en el titulo hay que colocar '- y la fecha que se halla
+// colocado, en este ejemplo: Mes Actual' para que se entienda a que esta
+// referenciando." -- traduce erpActiveQuickRangeKey a un texto legible
+// (Hoy/Ayer/Semana Actual/Semana Anterior/Mes Actual); si el usuario tipeó
+// un rango a mano (erpActiveQuickRangeKey === null) usa el mismo rango
+// formateado que ya se ve en el selector de fechas (erpRenderDateRangeLabel).
+function erpQuickRangeLabel(){
+  const labels = {
+    hoy: 'Hoy', ayer: 'Ayer', semanaAct: 'Semana Actual',
+    semanaAnt: 'Semana Anterior', mesAct: 'Mes Actual',
+  };
+  if(erpActiveQuickRangeKey && labels[erpActiveQuickRangeKey]) return labels[erpActiveQuickRangeKey];
+  return (erpViewFrom === erpViewTo)
+    ? erpFmtDateDDMMYYYY(erpViewFrom)
+    : erpFmtDateDDMMYYYY(erpViewFrom)+' a '+erpFmtDateDDMMYYYY(erpViewTo);
 }
 
 // Formatea YYYY-MM-DD a DD/MM/YYYY para mostrar en el botón del selector de
