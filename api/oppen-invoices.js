@@ -317,6 +317,102 @@ async function getTipoCambioOficialVenta() {
   }
 }
 
+// TIPO DE CAMBIO HISTÓRICO POR FECHA DE FACTURA (Juan Manuel, 27/07/2026:
+// "necesito que el tipo de cambio por el que se calcula la venta en pesos
+// de Cirugia estetica sea el tipo de cambio de ese dia... Lo ideal seria
+// crear y guardar una tabla con el tipo de cambio para atras asi no se
+// consulta cada vez que se carga"). SOLO aplica a Cirugía Estética (ver uso
+// más abajo) -- dolarapi.com (arriba) solo trae la cotización de HOY, así
+// que para el oficial de una fecha PASADA puntual se usa argentinadatos.com
+// (misma fuente de datos que dolarapi.com, API pública, sin auth).
+//
+// La "tabla" pedida por Juan Manuel es este cache en memoria: se arma con
+// UNA sola consulta masiva (el endpoint de abajo trae TODO el historial
+// del oficial en un solo llamado, no hay que pedirlo día por día) y se
+// reusa mientras la instancia del servidor esté "caliente" (24hs de cache,
+// como el resto de este archivo) -- confirmado con Juan Manuel que esto
+// alcanza, no hace falta una base de datos real para esto.
+let cachedFxHistorico = null; // Map<"YYYY-MM-DD", venta>
+let cachedFxHistoricoAt = 0;
+const FX_HISTORICO_CACHE_MS = 24 * 60 * 60 * 1000; // 24 horas -- el historial de fechas pasadas no cambia, no hace falta refrescarlo seguido
+
+async function getTablaFxHistoricoOficial() {
+  const now = Date.now();
+  if (cachedFxHistorico && now - cachedFxHistoricoAt < FX_HISTORICO_CACHE_MS) {
+    return cachedFxHistorico;
+  }
+  try {
+    const res = await fetch('https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial');
+    if (!res.ok) throw new Error(`argentinadatos.com respondió ${res.status}`);
+    const data = await res.json();
+    const tabla = new Map();
+    (Array.isArray(data) ? data : []).forEach(row => {
+      const fecha = row && row.fecha;
+      const venta = Number(row && row.venta);
+      if (fecha && venta > 0) tabla.set(fecha, venta);
+    });
+    if (tabla.size === 0) throw new Error('la tabla histórica de argentinadatos.com vino vacía');
+    cachedFxHistorico = tabla;
+    cachedFxHistoricoAt = now;
+    return tabla;
+  } catch (e) {
+    console.error('oppen-invoices: no se pudo armar la tabla histórica de tipo de cambio oficial (argentinadatos.com):', e);
+    return cachedFxHistorico || null; // devolvemos la tabla vieja si había, para no perderla por un error pasajero
+  }
+}
+
+// Respaldo por fecha puntual (para el caso de una factura de una fecha tan
+// reciente que la tabla masiva de arriba todavía no la tiene cargada) --
+// cache liviano en memoria por fecha, para no volver a pedir la misma fecha
+// dos veces en la misma instancia.
+const cachedFxPorFecha = new Map(); // "YYYY-MM-DD" -> venta | null (null = ya se probó y no había)
+
+async function getTipoCambioOficialVentaPorFecha(fechaISO) {
+  if (cachedFxPorFecha.has(fechaISO)) return cachedFxPorFecha.get(fechaISO);
+  try {
+    const [y, m, d] = fechaISO.split('-');
+    const res = await fetch(`https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial/${y}/${m}/${d}`);
+    if (!res.ok) {
+      cachedFxPorFecha.set(fechaISO, null);
+      return null;
+    }
+    const data = await res.json();
+    const venta = Number(data && data.venta);
+    if (!(venta > 0)) {
+      cachedFxPorFecha.set(fechaISO, null);
+      return null;
+    }
+    cachedFxPorFecha.set(fechaISO, venta);
+    return venta;
+  } catch (e) {
+    console.error(`oppen-invoices: no se pudo consultar el tipo de cambio oficial puntual del ${fechaISO} (argentinadatos.com):`, e);
+    cachedFxPorFecha.set(fechaISO, null);
+    return null;
+  }
+}
+
+// Combina las 3 fuentes en cascada, de la más barata/exacta a la más
+// genérica -- nunca se inventa un número, y solo si NINGUNA de las 3
+// funciona se descarta la línea (mismo criterio de siempre en este
+// archivo):
+//   1. Tabla histórica masiva (fecha exacta de la factura, ya en memoria)
+//   2. Consulta puntual a esa fecha exacta (por si la tabla aún no la tiene)
+//   3. Cotización de HOY de dolarapi.com (mismo mecanismo que ya usa Stocks,
+//      como último respaldo -- mejor una conversión con el tipo de cambio
+//      de hoy que ninguna conversión)
+async function getTipoCambioHistoricoParaFecha(fechaISO) {
+  const tabla = await getTablaFxHistoricoOficial();
+  if (tabla && tabla.has(fechaISO)) return tabla.get(fechaISO);
+
+  const puntual = await getTipoCambioOficialVentaPorFecha(fechaISO);
+  if (puntual) return puntual;
+
+  const hoy = await getTipoCambioOficialVenta();
+  if (hoy && hoy.rate > 0) return hoy.rate;
+
+  return null;
+}
+
 function toDDMMYYYY(isoDate) {
   // TransDate viene como "YYYY-MM-DD"; Seguimiento espera "DD/MM/YYYY"
   const s = String(isoDate || '').slice(0, 10);
@@ -427,9 +523,18 @@ module.exports = async function handler(req, res) {
         const currency = String(inv.Currency || 'ARS').toUpperCase();
         let fxRate = null;
         if (currency === 'USD') {
-          const fx = await getTipoCambioOficialVenta();
-          if (fx && fx.rate > 0) {
-            fxRate = fx.rate;
+          // Juan Manuel, 27/07/2026: "necesito que el tipo de cambio por el
+          // que se calcula la venta en pesos de Cirugia estetica sea el
+          // tipo de cambio de ese dia" -- en Cirugía Estética se usa el
+          // oficial del DÍA DE LA FACTURA (TransDate), no el de hoy (ver
+          // getTipoCambioHistoricoParaFecha más arriba). Las demás unidades
+          // (si alguna vez facturan en USD) siguen usando el de hoy, como
+          // antes.
+          const fxRateNum = unidadNegocio === 'cirugia_estetica'
+            ? await getTipoCambioHistoricoParaFecha(String(inv.TransDate || ''))
+            : (await getTipoCambioOficialVenta() || {}).rate;
+          if (fxRateNum && fxRateNum > 0) {
+            fxRate = fxRateNum;
           } else {
             console.error(`oppen-invoices: factura ${inv.SerNr} en USD sin tipo de cambio disponible -- sus líneas se descartan de los agregados (no se muestran en pesos crudos).`);
           }

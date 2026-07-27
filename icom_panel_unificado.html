@@ -465,10 +465,21 @@
              General/Movilidad/Cirugía Estética (ERP_VENDEDORES_CHANNELS),
              no en Minorista ni en la vista agregada ICOM. -->
         <div class="erp-card" id="erpVendedoresCard" style="display:none;padding-bottom:14px">
-          <h2>Vendedor Institución <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
-          <div id="erpVendInstPills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
+          <!-- Juan Manuel, 27/07/2026: "Ahora si, solo en Cirugia Estetica
+               quita vendedor instirución y deja Vendedor pero cambiale el
+               nombre por Visitador Medico." -- en Cirugía Estética los dos
+               selectores mostraban lo mismo (los dos leen
+               MedicalSalesRepresentative, ver oppen-invoices.js), así que
+               se oculta esta sección entera y solo queda "Vendedor" (con el
+               título cambiado a "Visitador Médico" -- ver erpVendClienteTitle
+               en erpUpdateChannelSpecificUI). En Cirugía General/Movilidad
+               sigue igual que antes, con los 2 selectores. -->
+          <div id="erpVendInstSection">
+            <h2>Vendedor Institución <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+            <div id="erpVendInstPills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
+          </div>
 
-          <h2>Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+          <h2 id="erpVendClienteTitle">Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
           <div id="erpVendClientePills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
 
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -2025,6 +2036,23 @@ function erpUpdateChannelSpecificUI(channel){
   const showVendedores = ERP_VENDEDORES_CHANNELS.includes(channel);
   const vendedoresCard = document.getElementById('erpVendedoresCard');
   if(vendedoresCard) vendedoresCard.style.display = showVendedores ? '' : 'none';
+
+  // Juan Manuel, 27/07/2026: "Ahora si, solo en Cirugia Estetica quita
+  // vendedor instirución y deja Vendedor pero cambiale el nombre por
+  // Visitador Medico." -- en Cirugía Estética el selector "Vendedor
+  // Institución" se oculta (ambos leían el mismo campo,
+  // MedicalSalesRepresentative, y quedaban duplicados) y el que queda
+  // ("Vendedor") pasa a llamarse "Visitador Médico". En Cirugía General/
+  // Movilidad se mantienen los 2 selectores con sus nombres de siempre.
+  const isCirugiaEstetica = channel === 'cirugia_estetica';
+  const vendInstSection = document.getElementById('erpVendInstSection');
+  if(vendInstSection) vendInstSection.style.display = isCirugiaEstetica ? 'none' : '';
+  const vendClienteTitle = document.getElementById('erpVendClienteTitle');
+  if(vendClienteTitle){
+    vendClienteTitle.innerHTML = isCirugiaEstetica
+      ? 'Visitador Médico <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>'
+      : 'Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>';
+  }
 }
 
 function erpSwitchToChannelView(channel){
