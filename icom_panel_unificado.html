@@ -504,9 +504,24 @@
              año que antes vivía acá (arriba a la derecha) se mudó a
              #erpIcomPieCard (ver comentario arriba) por pedido del
              27/07/2026 (3ra vuelta) -- esta card quedó solo con el título y
-             la barra de progreso. -->
+             la barra de progreso.
+             27/07/2026 (5ta vuelta, mismo día): "necesitamos que guarde los
+             datos de los meses antiguos en algun lugar de la app para no
+             tardar en cargarlos, que solo actualice el mes en curso y deja
+             un boton (pequeño) para actualizar en el caso que se necesite
+             correr todos los meses de nuevo" -- los meses cerrados YA se
+             guardan de forma permanente en IndexedDB y por default solo el
+             mes en curso se pide fresco (ver erpFetchIcomMonthlyWeightsImpl);
+             se agrega este botón chico para forzar, a mano, una vuelta
+             completa que ignora el caché de TODOS los meses (ver
+             erpForceRefreshIcomMonthlyWeights). -->
         <div class="erp-card" id="erpIcomMonthlyChartCard" style="display:none">
-          <h2 style="margin-bottom:8px">Peso por Unidad de Negocio — por mes</h2>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+            <h2 style="margin:0">Peso por Unidad de Negocio — por mes</h2>
+            <button class="pm-btn" id="erpBtnRefreshIcomMonthly" onclick="erpForceRefreshIcomMonthlyWeights()"
+              title="Vuelve a pedir TODOS los meses (incluidos los ya cerrados/cacheados) a la red -- usar solo si hace falta recalcular todo desde cero"
+              style="font-size:11.5px;padding:4px 10px">🔄 Actualizar</button>
+          </div>
           <div id="erpIcomMonthlyProgress"></div>
           <div id="erpIcomMonthlyChart"><span class="pm-empty">Cargando…</span></div>
         </div>
@@ -2103,13 +2118,36 @@ function erpIcomMonthlyWeightsCacheKey(year, monthNum){
   return 'icom_peso_mensual_v2_'+year+'_'+String(monthNum).padStart(2,'0');
 }
 
-function erpFetchIcomMonthlyWeights(){
+// Juan Manuel, 27/07/2026 (5ta vuelta, mismo día): "deja un boton (pequeño)
+// para actualizar en el caso que se necesite correr todos los meses de
+// nuevo" -- forceRefreshAll=true hace que erpFetchIcomMonthlyWeightsImpl
+// IGNORE el caché de IndexedDB para TODOS los meses (no solo el mes en
+// curso, que ya se pide fresco siempre) y los vuelva a pedir a la red,
+// re-cacheando el resultado -- para el uso normal (auto, sin el botón) este
+// parámetro no se pasa, y el comportamiento de siempre (solo el mes en
+// curso fresco, los cerrados desde caché) sigue igual.
+function erpFetchIcomMonthlyWeights(forceRefreshAll){
   if(erpIcomMonthlyWeightsPromise) return erpIcomMonthlyWeightsPromise;
-  erpIcomMonthlyWeightsPromise = erpFetchIcomMonthlyWeightsImpl().finally(()=>{ erpIcomMonthlyWeightsPromise = null; });
+  erpIcomMonthlyWeightsPromise = erpFetchIcomMonthlyWeightsImpl(forceRefreshAll).finally(()=>{ erpIcomMonthlyWeightsPromise = null; });
   return erpIcomMonthlyWeightsPromise;
 }
 
-async function erpFetchIcomMonthlyWeightsImpl(){
+// Juan Manuel, 27/07/2026 (5ta vuelta, mismo día): botón "🔄 Actualizar" de
+// #erpIcomMonthlyChartCard -- fuerza una vuelta completa que ignora el
+// caché de IndexedDB para TODOS los meses (no solo el en curso). Limpia
+// primero el estado en memoria para que el gráfico vuelva a verse
+// "cargando" (feedback claro de que se está recalculando todo desde cero),
+// y respeta la misma guardia de "una sola corrida a la vez"
+// (erpIcomMonthlyWeightsPromise) que ya usa la carga automática -- si ya
+// hay una corrida en curso, este click no hace nada (evita pisarlas).
+function erpForceRefreshIcomMonthlyWeights(){
+  if(erpIcomMonthlyWeightsPromise) return;
+  erpIcomMonthlyWeights = {};
+  if(currentChannel === 'icom'){ erpRenderIcomMonthlyBarChart(); erpRenderIcomYearPieChart(); }
+  erpFetchIcomMonthlyWeights(true);
+}
+
+async function erpFetchIcomMonthlyWeightsImpl(forceRefreshAll){
   const now = new Date();
   const year = now.getFullYear();
   const currentMonthNum = now.getMonth() + 1; // 1-12
@@ -2122,7 +2160,7 @@ async function erpFetchIcomMonthlyWeightsImpl(){
     const isCurrentMonth = (m === currentMonthNum);
     const cacheKey = erpIcomMonthlyWeightsCacheKey(year, m);
 
-    if(!isCurrentMonth){
+    if(!isCurrentMonth && !forceRefreshAll){
       try{
         const cached = await pmIdbGet(cacheKey);
         if(cached && cached.byUnidadNegocio){
@@ -2168,6 +2206,13 @@ async function erpFetchIcomMonthlyWeightsImpl(){
 // al terminar, se borra sola (no queda un mensaje viejo dando vueltas).
 function erpRenderIcomMonthlyProgress(){
   const el = document.getElementById('erpIcomMonthlyProgress');
+  // Juan Manuel, 27/07/2026 (5ta vuelta, mismo día): mientras hay una
+  // corrida en curso (auto o forzada por el botón), el botón "🔄
+  // Actualizar" queda deshabilitado -- evita que un segundo click dispare
+  // otra vuelta en paralelo (erpForceRefreshIcomMonthlyWeights ya se
+  // protege con la misma guardia, esto es solo el feedback visual).
+  const btn = document.getElementById('erpBtnRefreshIcomMonthly');
+  if(btn) btn.disabled = erpIcomMonthlyProgress.active;
   if(!el) return;
   const p = erpIcomMonthlyProgress;
   if(!p.active || !p.total || p.loaded >= p.total){
@@ -2190,10 +2235,12 @@ const ERP_MESES_ABREV = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','
 // mes -- meses cerrados y el mes en curso EN COLOR (mismo ICOM_PIE_COLORS
 // que la torta, mismo orden fijo ICOM_UNIT_LABELS así el color siempre
 // identifica a la misma unidad), meses futuros en gris neutro sin desglose
-// (todavía no pasaron, no hay nada que mostrar). Etiqueta directa (%) solo
-// en franjas ≥12% (evita amontonar texto en columnas angostas) + leyenda
-// siempre presente -- mismo criterio de la torta para el WARN de contraste
-// de aqua/amarillo detectado por la skill de dataviz.
+// (todavía no pasaron, no hay nada que mostrar). Etiqueta directa (%)
+// SIEMPRE, en todos los segmentos sin importar el ancho (Juan Manuel,
+// 27/07/2026, 5ta/6ta vuelta -- antes se ocultaba en franjas <12%, lo que
+// hacía parecer que a las unidades chicas "les faltaban datos" en algunos
+// meses) + leyenda siempre presente -- mismo criterio de la torta para el
+// WARN de contraste de aqua/amarillo detectado por la skill de dataviz.
 function erpRenderIcomMonthlyBarChart(){
   const container = document.getElementById('erpIcomMonthlyChart');
   if(!container) return;
@@ -2236,14 +2283,27 @@ function erpRenderIcomMonthlyBarChart(){
     } else if(!b.segments.length){
       barInner = '<div style="width:100%;height:100%;background:#e3e3e0;border-radius:4px" title="Sin facturas"></div>';
     } else {
+      // Juan Manuel, 27/07/2026 (5ta/6ta vuelta, mismo día): "Cuando me
+      // referi a que no se 've los datos de movilidad' me referi a que en
+      // la barrita no se ve el % de algunos meses: ej. enero. Es una
+      // cuestión grafica." -- antes se ocultaba la etiqueta de % en
+      // segmentos angostos (<12% de la barra) para que el texto no se
+      // amontonara -- eso hacía parecer que a Movilidad "le faltaban
+      // datos" en los meses donde su porción era chica, cuando en realidad
+      // el segmento de color SÍ estaba (solo sin el numerito). Ahora se
+      // muestra el % SIEMPRE, en todos los segmentos, sin importar el
+      // ancho -- si el segmento es muy angosto el texto puede desbordar
+      // ligeramente sobre el segmento vecino, pero el contorno oscuro
+      // (-webkit-text-stroke) lo mantiene legible contra cualquier color de
+      // fondo; el tooltip (title) sigue disponible al pasar el mouse con el
+      // detalle completo en $.
       barInner = b.segments.map((s, i) => {
         const heightPx = Math.max(1, Math.round(s.frac * barHeight));
         const pct = Math.round(s.frac * 100);
-        const showLabel = s.frac >= 0.12;
-        return '<div style="height:'+heightPx+'px;background:'+s.color+';display:flex;align-items:center;justify-content:center;'
+        return '<div style="height:'+heightPx+'px;background:'+s.color+';display:flex;align-items:center;justify-content:center;overflow:visible;position:relative;z-index:'+(i+1)+';'
           + (i > 0 ? 'border-top:2px solid #faf9f7;' : '')
           + '" title="'+s.unitLabel+': '+pct+'% ('+erpFmtMoney(s.totalNeto)+')">'
-          + (showLabel ? '<span style="font-size:8px;font-weight:700;color:#fff;paint-order:stroke;-webkit-text-stroke:2px rgba(0,0,0,.3)">'+pct+'%</span>' : '')
+          + '<span style="font-size:8px;font-weight:700;color:#fff;white-space:nowrap;paint-order:stroke;-webkit-text-stroke:2px rgba(0,0,0,.45)">'+pct+'%</span>'
           + '</div>';
       }).join('');
     }
