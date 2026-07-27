@@ -291,6 +291,15 @@
       </div>
     </div>
     <div class="sb-section-label">Principal</div>
+    <!-- Juan Manuel, 27/07/2026: "Crear un Dashboard general, ubicarlo a
+         arriba de todo por encima de Minorista y colocale el nombre de
+         ICOM. Ahi se desplegara un ventas en vivo pero los canales son las
+         unidades de negocio." No es una 5ta unidad de negocio real (no
+         tiene su propio Tipo de Operación) -- es una vista agregada de las
+         4 juntas, ver erpRemapDataForIcomView. -->
+    <div class="sb-item sb-channel" data-channel="icom" onclick="switchChannel('icom')">
+      <span class="sb-icon">🧭</span> <span class="sb-label">ICOM</span>
+    </div>
     <div class="sb-item sb-channel active" data-channel="minorista" onclick="switchChannel('minorista')">
       <span class="sb-icon">🏪</span> <span class="sb-label">Minorista</span>
     </div>
@@ -423,12 +432,30 @@
         </div>
         <style>@keyframes erpSpin{to{transform:rotate(360deg)}}</style>
 
+        <!-- Juan Manuel, 27/07/2026: "En Icom: Debajo del selector de fechas
+             y antes del selector de Unidades de negocio, colocar un gráfico
+             tipo torta para entender el peso de las unidades de negocio."
+             Oculto por default -- solo se muestra (ver erpUpdateChannelSpecificUI)
+             cuando currentChannel === 'icom'. -->
+        <div class="erp-card" id="erpIcomPieCard" style="display:none">
+          <h2>Peso por Unidad de Negocio</h2>
+          <div id="erpIcomPieChart"></div>
+        </div>
+
         <div class="erp-card" style="padding-bottom:14px">
-          <h2>Canales <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+          <h2 id="erpCanalesTitle">Canales <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
           <div class="erp-actions" style="margin-bottom:12px">
             <button class="pm-btn primary" onclick="erpFetchNow()">⟳ Actualizar ahora</button>
-            <button class="pm-btn" id="erpBtnOnline" onclick="erpToggleCanalGroup('online')" title="Mercado Libre + Tienda Online">ON-LINE</button>
-            <button class="pm-btn" id="erpBtnOffline" onclick="erpToggleCanalGroup('offline')" title="JCP + ProSalud + Central">OFF-LINE</button>
+            <!-- Juan Manuel, 27/07/2026: "Quitar el filtro de On-line / Off-line
+                 para la App ICOM, Cirugía Estética, Movilidad y Cirugía General,
+                 solo aplica en Minorista" -- ON-LINE/OFF-LINE agrupa canales
+                 (Mercado Libre/Tienda Online vs JCP/ProSalud/Central) que solo
+                 existen en Minorista; en las demás unidades no significa nada.
+                 Oculto/mostrado por erpUpdateChannelSpecificUI. -->
+            <span id="erpOnOffGroup" style="display:contents">
+              <button class="pm-btn" id="erpBtnOnline" onclick="erpToggleCanalGroup('online')" title="Mercado Libre + Tienda Online">ON-LINE</button>
+              <button class="pm-btn" id="erpBtnOffline" onclick="erpToggleCanalGroup('offline')" title="JCP + ProSalud + Central">OFF-LINE</button>
+            </span>
           </div>
           <div id="erpCanalGroupChart"></div>
           <div id="erpCanalPills" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"></div>
@@ -581,6 +608,13 @@ function loadPane(name){
    Seguimiento/Forecast/Base de Productos son, por ahora, conceptos propios
    de Minorista y no aparecen para las otras 3 unidades. */
 const CHANNELS = {
+  // "icom" NO es una unidad de negocio real (no tiene su propio Tipo de
+  // Operación en OPERATION_TYPE_UNIT_MAP) -- es la vista agregada de las 4
+  // juntas ("Crear un Dashboard general... los canales son las unidades de
+  // negocio", Juan Manuel 27/07/2026). erpInvoicesUrl la trata especial: NO
+  // filtra por unidad (pide TODO mezclado) y erpRemapDataForIcomView
+  // reagrupa esa respuesta por unidad de negocio en vez de por canal/oficina.
+  icom:             { label: 'ICOM',              readyPanes: ['erp'] },
   minorista:        { label: 'Minorista',        readyPanes: ['erp','dashboard'] },
   movilidad:        { label: 'Movilidad',         readyPanes: ['erp'] },
   cirugia_estetica: { label: 'Cirugía Estética',  readyPanes: ['erp'] },
@@ -1351,7 +1385,12 @@ function erpBroadcastSyncStatus(kind, ok, label){
 // currentChannel ellos mismos, explícitamente.
 function erpInvoicesUrl(params, unit){
   const sp = new URLSearchParams(params || {});
-  sp.set('unidadNegocio', unit || 'minorista');
+  // 'icom' es la vista agregada (ver comentario en CHANNELS) -- ahí NO se
+  // filtra por unidad, se pide todo mezclado y erpRemapDataForIcomView
+  // reagrupa la respuesta por unidad de negocio en el cliente.
+  if(unit !== 'icom'){
+    sp.set('unidadNegocio', unit || 'minorista');
+  }
   return '/api/oppen-invoices?' + sp.toString();
 }
 
@@ -1402,7 +1441,9 @@ const ERP_CANAL_ICONS = {
   'JCP': '🏬',
 };
 function erpCanalIcon(canal){
-  return ERP_CANAL_ICONS[canal] || '📍';
+  // ICOM_UNIT_ICONS (definido más abajo, ver erpRemapDataForIcomView) cubre
+  // los "canales" de la vista ICOM, que en realidad son unidades de negocio.
+  return ERP_CANAL_ICONS[canal] || (typeof ICOM_UNIT_ICONS !== 'undefined' && ICOM_UNIT_ICONS[canal]) || '📍';
 }
 
 // Forecast por canal (traído por RPC a Seguimiento — ver erpRpcCall) y qué
@@ -1715,6 +1756,11 @@ async function erpFetchViewData(fromStr, toStr){
       data = erpMergeViewData(results);
     }
     if(targetChannel !== currentChannel) return; // el usuario ya cambió de unidad -- esta respuesta quedó vieja, se descarta
+    // Vista ICOM (agregada): la respuesta trae las 4 unidades mezcladas
+    // (sin filtro, ver erpInvoicesUrl) -- se reagrupa acá por unidad de
+    // negocio para que el motor de siempre (pills, KPIs, tabla de SKU) la
+    // muestre como si "canal" fuera la unidad.
+    if(targetChannel === 'icom') data = erpRemapDataForIcomView(data);
     ERP_VIEW_DATA = data;
     erpRenderAll();
     erpSetStatus('OK', 'ok');
@@ -1729,6 +1775,153 @@ async function erpFetchViewData(fromStr, toStr){
   }
 }
 
+// Etiquetas + iconos de unidad de negocio para la vista ICOM (agregada) --
+// mismos textos que CHANNELS[x].label, mismos iconos que el menú Principal,
+// para que la vista se sienta consistente con el resto del panel.
+const ICOM_UNIT_LABELS = {
+  minorista: 'Minorista',
+  movilidad: 'Movilidad',
+  cirugia_estetica: 'Cirugía Estética',
+  cirugia_general: 'Cirugía General',
+};
+const ICOM_UNIT_ICONS = {
+  Minorista: '🏪',
+  Movilidad: '♿',
+  'Cirugía Estética': '💉',
+  'Cirugía General': '🏥',
+};
+// Juan Manuel, 27/07/2026: "En Icom: ...colocar un gráfico tipo torta para
+// entender el peso de las unidades de negocio." Paleta categórica validada
+// con la skill de dataviz (node scripts/validate_palette.js) en modo light:
+// las 4 pasan el piso de croma/luminosidad y la separación CVD (ΔE 9.1) y de
+// visión normal (ΔE 22.9), pero aqua y amarillo dan WARN de contraste contra
+// el fondo blanco -- ese warning no es descartable sin etiquetas directas
+// visibles, por eso erpRenderIcomPieChart pone el % en cada porción Y una
+// leyenda con el monto, nunca solo color. El color se asigna por identidad
+// de unidad de negocio, fijo, nunca por el orden/tamaño de los valores.
+const ICOM_PIE_COLORS = {
+  Minorista: '#2a78d6',
+  Movilidad: '#eb6834',
+  'Cirugía Estética': '#1baf7a',
+  'Cirugía General': '#eda100',
+};
+const ICOM_PIE_ORDER = ['Minorista', 'Movilidad', 'Cirugía Estética', 'Cirugía General'];
+
+// Dibuja el gráfico de torta de #erpIcomPieCard con el peso de cada unidad
+// de negocio (mismos totales que ya se usan en los pills de "Canales" --
+// erpComputeCanalTotals -- así que respeta los filtros de marca/macro
+// categoría, pero NO el filtro de canal excluido de los pills, mismo
+// criterio que erpRenderCanalPills). Se llama desde erpRenderAll, siempre
+// gateado en currentChannel === 'icom'.
+function erpRenderIcomPieChart(){
+  const container = document.getElementById('erpIcomPieChart');
+  if(!container) return;
+  if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.byCanal){
+    container.innerHTML = '<span class="pm-empty">Cargando datos…</span>';
+    return;
+  }
+  const canalTotals = erpComputeCanalTotals();
+  const rows = Object.entries(canalTotals).filter(([,v])=>v.totalNeto > 0);
+  if(!rows.length){
+    container.innerHTML = '<span class="pm-empty">Sin facturas este día.</span>';
+    return;
+  }
+  const total = rows.reduce((s,[,v])=>s + v.totalNeto, 0);
+  // Orden fijo (Minorista, Movilidad, Cirugía Estética, Cirugía General) --
+  // nunca reordenado por valor, así el color siempre identifica a la misma
+  // unidad sin importar cuál sea más grande hoy. Cualquier canal fuera de
+  // ICOM_PIE_ORDER (no debería pasar tras el remap, pero por las dudas) se
+  // agrega al final con gris neutro.
+  const ordered = ICOM_PIE_ORDER.map(label => rows.find(([c])=>c === label)).filter(Boolean);
+  rows.forEach(r=>{ if(!ICOM_PIE_ORDER.includes(r[0])) ordered.push(r); });
+
+  const size = 220, cx = size/2, cy = size/2, r = 90;
+  let angleStart = -Math.PI/2; // arranca a las 12
+  const slices = [];
+  ordered.forEach(([canal, v])=>{
+    const frac = v.totalNeto / total;
+    const angleEnd = angleStart + frac * Math.PI * 2;
+    const midAngle = (angleStart + angleEnd) / 2;
+    const color = ICOM_PIE_COLORS[canal] || '#9aa0a6';
+    let path;
+    if(frac >= 0.9999){
+      // Caso límite: una sola unidad con el 100% -- un arco de 360° con los
+      // mismos puntos de inicio/fin degenera, se dibuja como dos semicírculos.
+      path = 'M '+cx+' '+(cy-r)+' A '+r+' '+r+' 0 1 1 '+(cx-0.01)+' '+(cy-r)+' Z';
+    } else {
+      const x1 = cx + r*Math.cos(angleStart), y1 = cy + r*Math.sin(angleStart);
+      const x2 = cx + r*Math.cos(angleEnd), y2 = cy + r*Math.sin(angleEnd);
+      const largeArc = (angleEnd - angleStart) > Math.PI ? 1 : 0;
+      path = 'M '+cx+' '+cy+' L '+x1+' '+y1+' A '+r+' '+r+' 0 '+largeArc+' 1 '+x2+' '+y2+' Z';
+    }
+    const labelR = r * 0.65;
+    const lx = cx + labelR * Math.cos(midAngle), ly = cy + labelR * Math.sin(midAngle);
+    slices.push({canal, v, frac, path, lx, ly, color});
+    angleStart = angleEnd;
+  });
+
+  const svgSlices = slices.map(s=>
+    '<path d="'+s.path+'" fill="'+s.color+'" stroke="#fff" stroke-width="2"></path>'
+  ).join('');
+  // Etiqueta directa (%) sobre cada porción -- obligatorio por el WARN de
+  // contraste de aqua/amarillo detectado por la skill de dataviz; se omite
+  // solo en porciones tan chicas (<3%) que el texto no entraría.
+  const svgLabels = slices.filter(s=>s.frac >= 0.03).map(s=>
+    '<text x="'+s.lx+'" y="'+s.ly+'" text-anchor="middle" dominant-baseline="middle" '
+    + 'style="font-size:12px;font-weight:700;fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:3px">'
+    + Math.round(s.frac*100) + '%</text>'
+  ).join('');
+
+  const legend = slices.map(s=>
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+    + '<span style="width:12px;height:12px;border-radius:3px;background:'+s.color+';flex-shrink:0"></span>'
+    + '<span style="font-size:12.5px;color:#333;flex:1">'+erpCanalIcon(s.canal)+' '+s.canal+'</span>'
+    + '<span style="font-size:12.5px;font-weight:700;color:#1a3d70">'+erpFmtMoney(s.v.totalNeto)+'</span>'
+    + '<span style="font-size:11px;color:#888;min-width:38px;text-align:right">'+Math.round(s.frac*100)+'%</span>'
+    + '</div>'
+  ).join('');
+
+  container.innerHTML = '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
+    + '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+svgSlices+svgLabels+'</svg>'
+    + '<div style="flex:1;min-width:200px">'+legend+'</div>'
+    + '</div>';
+}
+
+// Juan Manuel, 27/07/2026: "Ahi se desplegara un ventas en vivo pero los
+// canales son las unidades de negocio". erpInvoicesUrl ya pidió TODO
+// mezclado para 'icom' (sin ?unidadNegocio=) -- acá se reagrupa esa
+// respuesta agregando por UNIDAD DE NEGOCIO (usando el campo unidadNegocio
+// que ya trae cada fila, ver classifyUnidadNegocio en api/oppen-invoices.js)
+// en vez de por canal/oficina, y se lo deja en la MISMA forma (byCanal/
+// byCanalSku/invoicesByCanal) que ya sabe leer todo el motor de Ventas en
+// Vivo (pills, KPIs, tabla de SKU) -- así no hace falta tocar ese motor
+// para nada, solo alimentarlo con "canales" que en realidad son unidades.
+// Facturas IOMA (unidadNegocio null, excluidas a propósito de las 4
+// unidades, ver OPERATION_TYPE_UNIT_MAP) no generan ningún pill acá -- pero
+// SIGUEN sumando en `totals` (sin tocar), mismo criterio que ya usa
+// byUnidadNegocio en el servidor.
+function erpRemapDataForIcomView(data){
+  const byCanal = {};
+  const byCanalSku = {};
+  (data.rows || []).forEach(r=>{
+    const unit = r.unidadNegocio;
+    if(!unit) return; // IOMA u otro caso sin clasificar -- no se le asigna pill
+    const label = ICOM_UNIT_LABELS[unit] || unit;
+    if(!byCanal[label]) byCanal[label] = {unidades:0, totalNeto:0};
+    byCanal[label].unidades += (r.u||0);
+    byCanal[label].totalNeto += (r.f||0);
+    if(!byCanalSku[label]) byCanalSku[label] = {};
+    if(!byCanalSku[label][r.sku]) byCanalSku[label][r.sku] = {unidades:0, totalNeto:0};
+    byCanalSku[label][r.sku].unidades += (r.u||0);
+    byCanalSku[label][r.sku].totalNeto += (r.f||0);
+  });
+  const invoicesByCanal = {};
+  Object.entries(data.byUnidadNegocio || {}).forEach(([unit, v])=>{
+    invoicesByCanal[ICOM_UNIT_LABELS[unit] || unit] = v.facturas || 0;
+  });
+  return Object.assign({}, data, {byCanal, byCanalSku, invoicesByCanal});
+}
+
 // Se llama cada vez que switchChannel() cambia a una unidad con "Ventas en
 // Vivo" conectada (readyPanes incluye 'erp') -- incluida Minorista, al
 // volver a ella después de haber mirado otra unidad. Reinicia los filtros
@@ -1740,6 +1933,32 @@ async function erpFetchViewData(fromStr, toStr){
 // que ayuda. Juan Manuel, 24/07/2026 -- "continua con eso" (conectar Ventas
 // en Vivo real de Movilidad/Cirugía Estética/Cirugía General, ahora que
 // tenemos la clasificación por Tipo de Operación).
+// Muestra/oculta partes de "Ventas en Vivo" que solo tienen sentido para
+// ciertas unidades: el filtro ON-LINE/OFF-LINE + su gráfico de barra
+// apilada son conceptos de canal DENTRO de Minorista (Mercado Libre/Tienda
+// Online vs JCP/ProSalud/Central) -- Juan Manuel, 27/07/2026: "Quitar el
+// filtro de On-line / Off-line para la App ICOM, Cirugía Estética,
+// Movilidad y Cirugía General, solo aplica en Minorista". El gráfico de
+// torta (ver erpRenderIcomPieChart) y el título "Unidades de Negocio" son,
+// al revés, exclusivos de la vista ICOM agregada.
+function erpUpdateChannelSpecificUI(channel){
+  const isMinorista = channel === 'minorista';
+  const onOffGroup = document.getElementById('erpOnOffGroup');
+  const onOffChart = document.getElementById('erpCanalGroupChart');
+  if(onOffGroup) onOffGroup.style.display = isMinorista ? 'contents' : 'none';
+  if(onOffChart) onOffChart.style.display = isMinorista ? '' : 'none';
+
+  const isIcom = channel === 'icom';
+  const pieCard = document.getElementById('erpIcomPieCard');
+  if(pieCard) pieCard.style.display = isIcom ? '' : 'none';
+  const canalesTitle = document.getElementById('erpCanalesTitle');
+  if(canalesTitle){
+    canalesTitle.innerHTML = isIcom
+      ? 'Unidades de Negocio <span style="font-weight:400;color:#999;font-size:11.5px">— tocá una para incluirla/excluirla de todo lo de abajo</span>'
+      : 'Canales <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>';
+  }
+}
+
 function erpSwitchToChannelView(channel){
   erpCanalExcluded = new Set();
   erpMacroSelected = null;
@@ -1757,6 +1976,7 @@ function erpSwitchToChannelView(channel){
   if(marcaSearch) marcaSearch.value = '';
   const skuSearch = document.getElementById('erpSkuSearch');
   if(skuSearch) skuSearch.value = '';
+  erpUpdateChannelSpecificUI(channel);
   // Estas 3 no dependen de que haya terminado de cargar datos (ver mismo
   // criterio en erpInit) -- se pintan ya, el fetch de abajo actualiza el
   // resto cuando responda.
@@ -2413,6 +2633,9 @@ function erpRenderAll(){
   erpRenderMacroTable();
   erpRenderMarcaTable();
   erpRenderSkuTable();
+  // Juan Manuel, 27/07/2026: gráfico de torta solo en la vista ICOM (ver
+  // erpUpdateChannelSpecificUI, que muestra/oculta #erpIcomPieCard).
+  if(currentChannel === 'icom') erpRenderIcomPieChart();
 }
 
 async function pmEnsureLoaded(){
@@ -3150,6 +3373,7 @@ function erpInit(){
   const today = erpTodayStr();
   if(fromInput){ fromInput.max = today; fromInput.value = erpViewFrom; }
   if(toInput){ toInput.max = today; toInput.value = erpViewTo; }
+  erpUpdateChannelSpecificUI(currentChannel); // defensivo: currentChannel arranca en 'minorista', pero si algún día cambia el default, esto lo mantiene consistente
   erpRenderQuickRangeButtons(); // resalta "Hoy" desde el arranque
   erpRenderDateRangeLabel(); // "22/07/2026" en el botón del calendario, desde el arranque
   erpRenderCanalGroupBtns(); // resalta ON-LINE/OFF-LINE desde el arranque (no depende de que la carga de datos haya terminado)

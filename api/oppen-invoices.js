@@ -137,6 +137,13 @@ function cleanSku(artCode) {
 
 // Distintos códigos de Office en oppen.io corresponden al mismo canal real.
 // Mismo criterio que usa Seguimiento (SUC_CANAL) para no reportar duplicados.
+//
+// ESME/BELL-OFI (Juan Manuel, 27/07/2026 -- "Los canales de las nuevas
+// unidades de negocio hay que detallarlas: ESME = Esmeralda, Bell-OFI=
+// Bella Vista, (Bell-99 es parte de Bella Vista y Eme-99 es parte de
+// Esmeralda, hay que sumarlos)"): mismo patrón que ICEN-99/PSAL-99/IJCP-99
+// más abajo -- un código "-99" secundario que hay que sumar bajo el mismo
+// nombre de canal que su sucursal principal, no reportarlo aparte.
 const OFFICE_CANAL_MAP = {
   ML: 'Mercado Libre',
   ECOMMERCE: 'Tienda Online',
@@ -146,6 +153,10 @@ const OFFICE_CANAL_MAP = {
   'PSAL-99': 'ProSalud',
   'ICOM-JCP': 'JCP',
   'IJCP-99': 'JCP',
+  ESME: 'Esmeralda',
+  'EME-99': 'Esmeralda',
+  'BELL-OFI': 'Bella Vista',
+  'BELL-99': 'Bella Vista',
 };
 function normalizeCanal(office) {
   return OFFICE_CANAL_MAP[office] || office || null; // null = sin canal reconocible
