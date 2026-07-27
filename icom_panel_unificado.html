@@ -296,14 +296,15 @@
          ICOM. Ahi se desplegara un ventas en vivo pero los canales son las
          unidades de negocio." No es una 5ta unidad de negocio real (no
          tiene su propio Tipo de Operación) -- es una vista agregada de las
-         4 juntas, ver erpRemapDataForIcomView. -->
-    <div class="sb-item sb-channel" data-channel="icom" onclick="switchChannel('icom')">
+         4 juntas, ver erpRemapDataForIcomView.
+         Juan Manuel, 27/07/2026 (2do pedido): "Al iniciar la app debe
+         ingresar a ventas en vivo ICOM." -- ICOM pasa a ser la unidad
+         activa por defecto al loguearse (antes era Minorista, ver
+         currentChannel más abajo en el script). -->
+    <div class="sb-item sb-channel active" data-channel="icom" onclick="switchChannel('icom')">
       <span class="sb-icon">🧭</span> <span class="sb-label">ICOM</span>
     </div>
-    <div class="sb-item sb-channel active" data-channel="minorista" onclick="switchChannel('minorista')">
-      <span class="sb-icon">🏪</span> <span class="sb-label">Minorista</span>
-    </div>
-    <!-- appsGroup arranca acá (debajo de Minorista, la unidad activa por
+    <!-- appsGroup arranca acá (debajo de ICOM, la unidad activa por
          defecto al loguearse) a propósito, así el primer render ya sale
          bien sin depender de JS -- switchChannel() lo reubica debajo de la
          unidad que se clickee, moviendo el mismo nodo (ver comentario en
@@ -330,6 +331,9 @@
       <div class="sb-item" data-pane="productos" data-channels="minorista" onclick="switchPane('productos')">
         <span class="sb-icon">🗂️</span> <span class="sb-label">Base de Productos</span>
       </div>
+    </div>
+    <div class="sb-item sb-channel" data-channel="minorista" onclick="switchChannel('minorista')">
+      <span class="sb-icon">🏪</span> <span class="sb-label">Minorista</span>
     </div>
     <div class="sb-item sb-channel" data-channel="movilidad" onclick="switchChannel('movilidad')">
       <span class="sb-icon">♿</span> <span class="sb-label">Movilidad</span>
@@ -452,6 +456,19 @@
         <div class="erp-card" id="erpIcomPieCard" style="display:none">
           <h2>Peso por Unidad de Negocio</h2>
           <div id="erpIcomPieChart"></div>
+        </div>
+
+        <!-- Juan Manuel, 27/07/2026: "Entre peso por unidad de negocio y
+             unidades de negocio, necesito armar un grafico de barras con
+             todos los meses del año (enero a Diciembre, solo los meses
+             cerrados y mes en curso con color, el resto grises donde se
+             muestre el peso % de cada unidad de negocio)." Mismo gating que
+             la torta (ver erpUpdateChannelSpecificUI) -- exclusivo de ICOM.
+             Datos: erpFetchIcomMonthlyWeights (byUnidadNegocio por mes,
+             cacheado en IndexedDB para los meses cerrados). -->
+        <div class="erp-card" id="erpIcomMonthlyChartCard" style="display:none">
+          <h2>Peso por Unidad de Negocio — por mes</h2>
+          <div id="erpIcomMonthlyChart"><span class="pm-empty">Cargando…</span></div>
         </div>
 
         <!-- Juan Manuel, 27/07/2026: "vamos a agregar Vendedores (encima de
@@ -672,7 +689,9 @@ const CHANNELS = {
   cirugia_estetica: { label: 'Cirugía Estética',  readyPanes: ['erp'] },
   cirugia_general:  { label: 'Cirugía General',   readyPanes: ['erp'] },
 };
-let currentChannel = 'minorista';
+// Juan Manuel, 27/07/2026: "Al iniciar la app debe ingresar a ventas en
+// vivo ICOM." -- antes arrancaba en 'minorista'.
+let currentChannel = 'icom';
 
 // Apps que siguen dependiendo de que su unidad tenga ESE pane conectado de
 // verdad (ver CHANNELS[x].readyPanes) -- Stocks queda afuera a propósito,
@@ -1957,6 +1976,164 @@ function erpRenderIcomPieChart(){
     + '</div>';
 }
 
+// Juan Manuel, 27/07/2026: "Entre peso por unidad de negocio y unidades de
+// negocio, necesito armar un grafico de barras con todos los meses del año
+// (enero a Diciembre, solo los meses cerrados y mes en curso con color, el
+// resto grises donde se muestre el peso % de cada unidad de negocio)."
+//
+// Trae, para cada mes CERRADO del año en curso (enero hasta el mes anterior
+// al actual) más el mes en curso (a la fecha de hoy), el total por UNIDAD
+// DE NEGOCIO -- mismo campo `byUnidadNegocio` que ya devuelve
+// /api/oppen-invoices para la vista ICOM sin filtrar por unidad (ver
+// erpRemapDataForIcomView más abajo, que usa la misma fuente para los
+// pills/torta). Los meses CERRADOS se cachean en la misma IndexedDB
+// compartida con Seguimiento/Stocks bajo una clave propia (nunca cambian,
+// no hace falta volver a pedirlos en el próximo login); el mes EN CURSO se
+// pide siempre fresco, porque sigue acumulando facturas durante el día.
+// Un mes que falla (error de red/oppen.io) no tira abajo el resto: se
+// loguea y se sigue con los demás -- ese mes queda sin datos (se ve gris,
+// igual que un mes futuro, hasta el próximo intento).
+let erpIcomMonthlyWeights = {}; // { "01": {minorista:{unidades,totalNeto,facturas}, movilidad:{...}, ...}, "02": {...}, ... }
+let erpIcomMonthlyWeightsPromise = null; // guardia de "una sola vuelta a la vez", mismo criterio que erpAutoHealClosedMonths
+
+function erpIcomMonthlyWeightsCacheKey(year, monthNum){
+  return 'icom_peso_mensual_'+year+'_'+String(monthNum).padStart(2,'0');
+}
+
+function erpFetchIcomMonthlyWeights(){
+  if(erpIcomMonthlyWeightsPromise) return erpIcomMonthlyWeightsPromise;
+  erpIcomMonthlyWeightsPromise = erpFetchIcomMonthlyWeightsImpl().finally(()=>{ erpIcomMonthlyWeightsPromise = null; });
+  return erpIcomMonthlyWeightsPromise;
+}
+
+async function erpFetchIcomMonthlyWeightsImpl(){
+  const now = new Date();
+  const year = now.getFullYear();
+  const currentMonthNum = now.getMonth() + 1; // 1-12
+
+  for(let m = 1; m <= currentMonthNum; m++){
+    const mm = String(m).padStart(2,'0');
+    const isCurrentMonth = (m === currentMonthNum);
+    const cacheKey = erpIcomMonthlyWeightsCacheKey(year, m);
+
+    if(!isCurrentMonth){
+      try{
+        const cached = await pmIdbGet(cacheKey);
+        if(cached && cached.byUnidadNegocio){
+          erpIcomMonthlyWeights[mm] = cached.byUnidadNegocio;
+          if(currentChannel === 'icom') erpRenderIcomMonthlyBarChart();
+          continue; // mes cerrado ya cacheado -- no hace falta volver a pedirlo
+        }
+      }catch(e){ /* seguimos y lo pedimos fresco */ }
+    }
+
+    const from = year+'-'+mm+'-01';
+    const lastDayOfMonth = new Date(year, m, 0).getDate();
+    const to = isCurrentMonth ? erpTodayStr() : (year+'-'+mm+'-'+String(lastDayOfMonth).padStart(2,'0'));
+    try{
+      // unit='icom' -- mismo criterio que erpInvoicesUrl: pide TODO
+      // mezclado (sin ?unidadNegocio=), así byUnidadNegocio trae el
+      // desglose de las 4 unidades para ese mes en una sola llamada.
+      const data = await erpFetchInvoicesChunk({from, to}, 'icom');
+      const byUnidadNegocio = data.byUnidadNegocio || {};
+      erpIcomMonthlyWeights[mm] = byUnidadNegocio;
+      if(!isCurrentMonth){
+        try{ await pmIdbSet(cacheKey, {byUnidadNegocio}); }catch(e){ /* no crítico, se reintentará el próximo login */ }
+      }
+      // Repinta incrementalmente mes a mes -- no hace falta esperar a que
+      // termine todo el año para que el usuario vea los primeros meses.
+      if(currentChannel === 'icom') erpRenderIcomMonthlyBarChart();
+    }catch(e){
+      console.error('erpFetchIcomMonthlyWeights: no se pudo traer el mes '+mm+'/'+year+':', e);
+      // seguimos con el resto de los meses -- uno que falla no debe tirar abajo todo el gráfico
+    }
+  }
+}
+
+const ERP_MESES_ABREV = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+// Dibuja el gráfico de barras 100%-apiladas de #erpIcomMonthlyChart: 12
+// columnas (Ene-Dic), cada una con el peso % de cada unidad de negocio ese
+// mes -- meses cerrados y el mes en curso EN COLOR (mismo ICOM_PIE_COLORS
+// que la torta, mismo orden fijo ICOM_UNIT_LABELS así el color siempre
+// identifica a la misma unidad), meses futuros en gris neutro sin desglose
+// (todavía no pasaron, no hay nada que mostrar). Etiqueta directa (%) solo
+// en franjas ≥12% (evita amontonar texto en columnas angostas) + leyenda
+// siempre presente -- mismo criterio de la torta para el WARN de contraste
+// de aqua/amarillo detectado por la skill de dataviz.
+function erpRenderIcomMonthlyBarChart(){
+  const container = document.getElementById('erpIcomMonthlyChart');
+  if(!container) return;
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const currentMonthNum = now.getMonth() + 1;
+  const barHeight = 160;
+  const unitKeys = Object.keys(ICOM_UNIT_LABELS); // mismo orden que ICOM_PIE_ORDER
+
+  const bars = ERP_MESES_ABREV.map((label, idx) => {
+    const monthNum = idx + 1;
+    const mm = String(monthNum).padStart(2,'0');
+    const isFuture = monthNum > currentMonthNum;
+    const isCurrent = monthNum === currentMonthNum;
+    const byUnidad = erpIcomMonthlyWeights[mm];
+
+    if(isFuture || !byUnidad){
+      return { label, isCurrent, isFuture, segments: null };
+    }
+    const rows = unitKeys.map(key => {
+      const v = byUnidad[key];
+      return { unitLabel: ICOM_UNIT_LABELS[key], totalNeto: (v && v.totalNeto) || 0 };
+    }).filter(r => r.totalNeto > 0);
+    const total = rows.reduce((s,r)=>s+r.totalNeto, 0);
+    const segments = total > 0 ? rows.map(r => ({
+      unitLabel: r.unitLabel,
+      color: ICOM_PIE_COLORS[r.unitLabel] || '#9aa0a6',
+      frac: r.totalNeto / total,
+      totalNeto: r.totalNeto,
+    })) : [];
+    return { label, isCurrent, isFuture, segments };
+  });
+
+  const columnsHtml = bars.map(b => {
+    let barInner;
+    if(!b.segments){
+      barInner = '<div style="width:100%;height:100%;background:#e3e3e0;border-radius:4px" title="'
+        + (b.isFuture ? 'Todavía no llegó' : 'Cargando…') + '"></div>';
+    } else if(!b.segments.length){
+      barInner = '<div style="width:100%;height:100%;background:#e3e3e0;border-radius:4px" title="Sin facturas"></div>';
+    } else {
+      barInner = b.segments.map((s, i) => {
+        const heightPx = Math.max(1, Math.round(s.frac * barHeight));
+        const pct = Math.round(s.frac * 100);
+        const showLabel = s.frac >= 0.12;
+        return '<div style="height:'+heightPx+'px;background:'+s.color+';display:flex;align-items:center;justify-content:center;'
+          + (i > 0 ? 'border-top:2px solid #faf9f7;' : '')
+          + '" title="'+s.unitLabel+': '+pct+'% ('+erpFmtMoney(s.totalNeto)+')">'
+          + (showLabel ? '<span style="font-size:10px;font-weight:700;color:#fff;paint-order:stroke;-webkit-text-stroke:2px rgba(0,0,0,.3)">'+pct+'%</span>' : '')
+          + '</div>';
+      }).join('');
+    }
+    return '<div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:0">'
+      + '<div style="width:100%;max-width:44px;height:'+barHeight+'px;display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#f2f2ef">'
+      + barInner
+      + '</div>'
+      + '<span style="font-size:11px;color:'+(b.isCurrent?'#1a3d70':'#888')+';font-weight:'+(b.isCurrent?'700':'400')+'">'+b.label+(b.isCurrent?' •':'')+'</span>'
+      + '</div>';
+  }).join('');
+
+  const legend = unitKeys.map(key => {
+    const label = ICOM_UNIT_LABELS[key];
+    return '<div style="display:flex;align-items:center;gap:6px">'
+      + '<span style="width:11px;height:11px;border-radius:3px;background:'+(ICOM_PIE_COLORS[label]||'#9aa0a6')+';flex-shrink:0"></span>'
+      + '<span style="font-size:12px;color:#333">'+erpCanalIcon(label)+' '+label+'</span>'
+      + '</div>';
+  }).join('');
+
+  container.innerHTML = '<div style="display:flex;gap:10px;align-items:flex-end;overflow-x:auto;padding-bottom:4px">'+columnsHtml+'</div>'
+    + '<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #eee">'+legend+'</div>';
+}
+
 // Juan Manuel, 27/07/2026: "Ahi se desplegara un ventas en vivo pero los
 // canales son las unidades de negocio". erpInvoicesUrl ya pidió TODO
 // mezclado para 'icom' (sin ?unidadNegocio=) -- acá se reagrupa esa
@@ -2021,6 +2198,11 @@ function erpUpdateChannelSpecificUI(channel){
   const isIcom = channel === 'icom';
   const pieCard = document.getElementById('erpIcomPieCard');
   if(pieCard) pieCard.style.display = isIcom ? '' : 'none';
+  // Juan Manuel, 27/07/2026: "Entre peso por unidad de negocio y unidades
+  // de negocio, necesito armar un grafico de barras con todos los meses
+  // del año" -- mismo gating que la torta, exclusivo de la vista ICOM.
+  const monthlyChartCard = document.getElementById('erpIcomMonthlyChartCard');
+  if(monthlyChartCard) monthlyChartCard.style.display = isIcom ? '' : 'none';
   const canalesTitle = document.getElementById('erpCanalesTitle');
   if(canalesTitle){
     canalesTitle.innerHTML = isIcom
@@ -2090,6 +2272,10 @@ function erpSwitchToChannelView(channel){
   erpRenderDateRangeLabel();
   erpRenderCanalGroupBtns();
   erpFetchViewData(today, today); // pide fresco para currentChannel (ya está seteado por switchChannel antes de llamar acá)
+  // Juan Manuel, 27/07/2026: "grafico de barras con todos los meses del
+  // año" -- exclusivo de ICOM, se dispara al entrar a esa unidad (además
+  // de al arrancar la app si ICOM ya es el default, ver erpInit).
+  if(channel === 'icom') erpFetchIcomMonthlyWeights();
 }
 
 // Cuál de los 4 botones rápidos (o ninguno, si el usuario tipeó un rango a
@@ -2920,7 +3106,15 @@ function erpRenderAll(){
   erpRenderSkuTable();
   // Juan Manuel, 27/07/2026: gráfico de torta solo en la vista ICOM (ver
   // erpUpdateChannelSpecificUI, que muestra/oculta #erpIcomPieCard).
-  if(currentChannel === 'icom') erpRenderIcomPieChart();
+  if(currentChannel === 'icom'){
+    erpRenderIcomPieChart();
+    // Gráfico de barras mensual (Ene-Dic, peso % por unidad) -- usa datos
+    // propios (erpIcomMonthlyWeights, ver erpFetchIcomMonthlyWeights), no
+    // depende de ERP_VIEW_DATA, así que se repinta acá para reflejar
+    // filtros/resize, pero el contenido en sí solo cambia cuando termina un
+    // fetch mensual nuevo.
+    erpRenderIcomMonthlyBarChart();
+  }
   if(ERP_VENDEDORES_CHANNELS.includes(currentChannel)){
     erpRenderVendInstPills();
     erpRenderVendClientePills();
@@ -3663,11 +3857,24 @@ function erpInit(){
   const today = erpTodayStr();
   if(fromInput){ fromInput.max = today; fromInput.value = erpViewFrom; }
   if(toInput){ toInput.max = today; toInput.value = erpViewTo; }
-  erpUpdateChannelSpecificUI(currentChannel); // defensivo: currentChannel arranca en 'minorista', pero si algún día cambia el default, esto lo mantiene consistente
+  erpUpdateChannelSpecificUI(currentChannel); // defensivo: se mantiene consistente si el default vuelve a cambiar
+  // Juan Manuel, 27/07/2026: ICOM pasó a ser el canal por defecto -- a
+  // diferencia de Minorista (que mostraba TODAS las apps por casualidad,
+  // ya que su scope es "all"+"minorista"), ICOM oculta Dashboard/
+  // Seguimiento/Forecast/Base de Productos (ver data-channels en el
+  // sidebar), así que hay que aplicar esa visibilidad ACÁ, al arrancar --
+  // antes nunca hacía falta porque switchChannel() era el único lugar que
+  // la tocaba, y el HTML estático ya coincidía con Minorista de arranque.
+  updateAppVisibilityForChannel();
   erpRenderQuickRangeButtons(); // resalta "Hoy" desde el arranque
   erpRenderDateRangeLabel(); // "22/07/2026" en el botón del calendario, desde el arranque
   erpRenderCanalGroupBtns(); // resalta ON-LINE/OFF-LINE desde el arranque (no depende de que la carga de datos haya terminado)
   erpFetchViewData(erpViewFrom, erpViewTo); // carga inicial: hoy
+  // Juan Manuel, 27/07/2026: ICOM es el canal por defecto ahora -- si el
+  // usuario arranca ahí (el caso normal), hay que traer el gráfico de
+  // barras mensual también en el arranque, no solo al clickear ICOM (ver
+  // mismo llamado en erpSwitchToChannelView).
+  if(currentChannel === 'icom') erpFetchIcomMonthlyWeights();
   erpStartGlobalPolling(); // no hace nada si ya arrancó en el login
 }
 
