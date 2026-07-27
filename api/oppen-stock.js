@@ -26,9 +26,14 @@
 //   valor cada vez que alguien sumaba $$ por canal (confirmado por el
 //   usuario viendo el desglose de un SKU: la suma de "unidades por almacén"
 //   no coincidía con el "Total disponible" real). Por eso ahora se reporta
-//   UNA sola vez, como canal "Canal Online":
-//     DEPO-CEN   → Canal Online (pool central compartido, se reporta 1 sola vez)
-//     MLFULL     → Mercado Libre Full (depósito Full propio, bajo volumen, SIN overlap con Canal Online)
+//   UNA sola vez, como canal "Bella Vista" (Juan Manuel, 27/07/2026 --
+//   "Lo que hoy se ve como 'Canal Online' en realidad es Bell Vista.
+//   Renombralo" -- el pool físico de DEPO-CEN es el mismo depósito/almacén
+//   de la sucursal Bella Vista, ya conocida por ese nombre en Facturación
+//   vía OFFICE_CANAL_MAP/BELL-OFI en oppen-invoices.js -- se renombra acá
+//   para que ambas apps hablen del mismo lugar con el mismo nombre):
+//     DEPO-CEN   → Bella Vista (pool central compartido, se reporta 1 sola vez)
+//     MLFULL     → Mercado Libre Full (depósito Full propio, bajo volumen, SIN overlap con Bella Vista)
 //   Canal propio:
 //     SANUS      → Sanus
 //   Excluidos del disponible para vender (no son stock vendible):
@@ -36,8 +41,14 @@
 //     de ciudad/sucursal — MDP, LAPLATA, POSADAS, BAHIAB, CGUEMES también son
 //     puntos de muestras, NO sucursales de venta (confirmado con el usuario:
 //     "las sucursales son solo las 3 identificadas, Central, JCP y ProSalud").
+//   Esmeralda (Juan Manuel, 27/07/2026 -- "Buscar y sumar el deposito de
+//   'Esmeralda' puede estar como Esm"): mismo código ESME (y su variante
+//   con sufijo "-99") ya usado como sucursal real en oppen-invoices.js
+//   (OFFICE_CANAL_MAP: ESME/EME-99/ESME-99 → Esmeralda) -- acá se clasifica
+//   igual, con la etiqueta corta "Esm" para la tabla de Stocks:
+//     ESME, EME-99, ESME-99 → Esm
 //   Sin clasificar todavía (cuentan en el total general, sin canal asignado):
-//     ESME, ALFA, RIPETTA, LOBRUTTO, ESTETICA-INTEGRAL, MEDICALPLASTIC,
+//     ALFA, RIPETTA, LOBRUTTO, ESTETICA-INTEGRAL, MEDICALPLASTIC,
 //     MONTA, SBERNAL — bajo volumen cada uno, quedan en byDepoSinMapear hasta
 //     que se confirme qué son.
 //
@@ -129,7 +140,13 @@ const DEPO_CANAL_MAP = {
   'ICOM-JCP': 'JCP',
   'PRO-SALUD': 'ProSalud',
   'SANUS': 'Sanus',
-  'MLFULL': 'Mercado Libre Full', // depósito Full propio de Mercado Libre (bajo volumen, ~21 registros vistos) — SIN overlap con Canal Online
+  'MLFULL': 'Mercado Libre Full', // depósito Full propio de Mercado Libre (bajo volumen, ~21 registros vistos) — SIN overlap con Bella Vista
+  // Juan Manuel, 27/07/2026 -- "Buscar y sumar el deposito de 'Esmeralda'
+  // puede estar como Esm": mismos 3 códigos (con sufijo "-99") ya
+  // confirmados para Esmeralda en oppen-invoices.js (OFFICE_CANAL_MAP).
+  'ESME': 'Esm',
+  'EME-99': 'Esm',
+  'ESME-99': 'Esm',
 };
 // Depósitos que NO son stock disponible para vender: mercadería en tránsito,
 // alquileres, muestras (varias con nombres de ciudad/sucursal que en
@@ -141,13 +158,14 @@ const EXCLUDED_DEPOS = new Set([
 ]);
 // DEPO-CEN es compartido: alimenta Tienda Online completo, y la porción de
 // Mercado Libre que no sale del depósito Full (MLFULL, ya mapeado arriba).
-// Se reporta como un único canal ("Canal Online") — el cliente YA NO tiene
+// Se reporta como un único canal ("Bella Vista", Juan Manuel 27/07/2026 --
+// ver nota completa al principio del archivo) — el cliente YA NO tiene
 // que repartirlo/duplicarlo entre dos canales de venta (ver comentario
 // arriba); si algún consumidor necesita saber "cuánto puede vender el canal
 // Mercado Libre en total" (Full + pool compartido), lo reconstruye sumando
-// 'Mercado Libre Full' + 'Canal Online' él mismo.
+// 'Mercado Libre Full' + 'Bella Vista' él mismo.
 const DEPO_CEN = 'DEPO-CEN';
-const DEPO_CEN_CANAL = 'Canal Online';
+const DEPO_CEN_CANAL = 'Bella Vista';
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
