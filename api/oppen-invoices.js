@@ -395,8 +395,24 @@ module.exports = async function handler(req, res) {
         // así que se calculan UNA vez por factura acá, antes del loop de
         // items -- ver comentario en la clasificación de Vendedores más
         // arriba.
-        const vendedorCliente = normalizeVendedor(inv.SalesMan);
-        const vendedorInstitucion = normalizeVendedor(inv.SalesManInstitution);
+        // Juan Manuel, 27/07/2026: "En cirugia: el vendedor es la columna
+        // 'Visitador Medico'" -- campo real confirmado contra producción
+        // (endpoint temporal de diagnóstico, ya borrado): "MedicalSalesRepresentative".
+        // Sólo aplica a Cirugía Estética (confirmado con el usuario): ahí
+        // SalesMan/SalesManInstitution NO traen los códigos de vendedor
+        // reales (ej. SalesMan puede traer un código de mostrador como
+        // "SHW4"), mientras que MedicalSalesRepresentative sí trae los
+        // códigos cortos del diccionario (NK/AG/MP/etc). El usuario pidió
+        // explícitamente que ESTE campo reemplace a los DOS selectores
+        // (Vendedor Institución y Vendedor) para Cirugía Estética -- para
+        // Cirugía General y Movilidad se sigue usando SalesMan/
+        // SalesManInstitution como antes, sin cambios.
+        const vendedorCliente = unidadNegocio === 'cirugia_estetica'
+          ? normalizeVendedor(inv.MedicalSalesRepresentative)
+          : normalizeVendedor(inv.SalesMan);
+        const vendedorInstitucion = unidadNegocio === 'cirugia_estetica'
+          ? normalizeVendedor(inv.MedicalSalesRepresentative)
+          : normalizeVendedor(inv.SalesManInstitution);
         const cliente = inv.CustName ? String(inv.CustName).trim() : 'Sin Cliente';
 
         // Juan Manuel, 27/07/2026: "En Cirugia Estetica hay ventas con

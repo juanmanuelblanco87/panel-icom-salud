@@ -315,7 +315,7 @@
       <div class="sb-item active" data-pane="erp" data-channels="all" onclick="switchPane('erp')">
         <span class="sb-icon">📡</span> <span class="sb-label">Ventas en Vivo</span>
       </div>
-      <div class="sb-item" data-pane="dashboard" data-channels="all" onclick="switchPane('dashboard')">
+      <div class="sb-item" data-pane="dashboard" data-channels="minorista,movilidad,cirugia_estetica,cirugia_general" onclick="switchPane('dashboard')">
         <span class="sb-icon">📊</span> <span class="sb-label">Dashboard</span>
       </div>
       <div class="sb-item" data-pane="seguimiento" data-channels="minorista" onclick="switchPane('seguimiento')">
@@ -489,8 +489,11 @@
 
         <div class="erp-card" style="padding-bottom:14px">
           <h2 id="erpCanalesTitle">Canales <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+          <!-- Juan Manuel, 27/07/2026: "En canales quitar el 'actualizar ahora'
+               para todas las apps" -- el refresco automático de fondo
+               (erpFetchNow/erpStartGlobalPolling, poll cada 5 min) sigue
+               andando igual, solo se quita el botón manual. -->
           <div class="erp-actions" style="margin-bottom:12px">
-            <button class="pm-btn primary" onclick="erpFetchNow()">⟳ Actualizar ahora</button>
             <!-- Juan Manuel, 27/07/2026: "Quitar el filtro de On-line / Off-line
                  para la App ICOM, Cirugía Estética, Movilidad y Cirugía General,
                  solo aplica en Minorista" -- ON-LINE/OFF-LINE agrupa canales
@@ -665,10 +668,19 @@ let currentChannel = 'minorista';
 // es compartido y no depende de ninguna unidad.
 const CHANNEL_SPECIFIC_PANES = ['erp', 'dashboard'];
 
+// Juan Manuel, 27/07/2026: "En la unidad de negocios de 'Icom' quita el
+// dashboard. Solo deja el ventas en vivo y Stocks." -- data-channels ahora
+// puede traer una lista separada por comas (además de "all" o un canal
+// suelto), para poder excluir un canal puntual (ICOM) sin tener que listar
+// "all menos uno" a mano en cada lugar donde se lee este atributo.
+function erpPaneScopeMatches(scope, channel){
+  if(scope === 'all') return true;
+  return scope.split(',').map(s=>s.trim()).includes(channel);
+}
 function updateAppVisibilityForChannel(){
   document.querySelectorAll('.sb-item[data-pane]').forEach(item=>{
     const scope = item.getAttribute('data-channels') || 'all';
-    item.style.display = (scope === 'all' || scope === currentChannel) ? '' : 'none';
+    item.style.display = erpPaneScopeMatches(scope, currentChannel) ? '' : 'none';
   });
 }
 
@@ -699,7 +711,7 @@ function switchChannel(channel){
   // volvemos a "Ventas en Vivo" en vez de dejar la pantalla como estaba.
   const activeNav = document.querySelector('.sb-item[data-pane].active');
   const activeScope = activeNav ? (activeNav.getAttribute('data-channels') || 'all') : 'all';
-  const stillValid = activeScope === 'all' || activeScope === channel;
+  const stillValid = erpPaneScopeMatches(activeScope, channel);
   switchPane(stillValid && activeNav ? activeNav.getAttribute('data-pane') : 'erp');
 
   if(CHANNELS[channel].readyPanes.includes('erp')){
