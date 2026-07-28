@@ -5,6 +5,9 @@
     },
     "api/oppen-item-cost.js": {
       "maxDuration": 30
+    },
+    "api/oppen-invoices.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [

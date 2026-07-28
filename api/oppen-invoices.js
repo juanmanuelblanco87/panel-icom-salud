@@ -19,6 +19,16 @@
 //   shell). Sin ese parámetro, agrega TODAS las unidades mezcladas (mismo
 //   comportamiento de siempre).
 //
+// - maxDuration (ver vercel.json): un mes CALENDARIO completo con las 4
+//   unidades mezcladas puede necesitar bastantes páginas de oppen.io
+//   (Juan Manuel, 28/07/2026 -- confirmado con un pedido real: un mes
+//   completo daba timeout total sin ninguna respuesta) -- por eso este
+//   endpoint tiene el mismo maxDuration:30 que ya tenían oppen-stock.js/
+//   oppen-item-cost.js. El cliente (Stocks, ver
+//   fetchUnMesUnidadNegocio/fetchVentas12mUnidadNegocioParaReparto en
+//   B64_STOCKS.html) además asume que un mes puntual PUEDE seguir fallando
+//   igual y lo tolera (se saltea ese mes en vez de romper todo el cálculo).
+//
 // Variables de entorno requeridas en Vercel (Project Settings → Environment Variables):
 //   OPPEN_USER_API = usuario de API del proyecto de Oppen (Juan Manuel,
 //     24/07/2026: se creó un proyecto nuevo en Oppen que da acceso a las 4
