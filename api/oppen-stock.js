@@ -42,11 +42,12 @@
 //     puntos de muestras, NO sucursales de venta (confirmado con el usuario:
 //     "las sucursales son solo las 3 identificadas, Central, JCP y ProSalud").
 //   Esmeralda (Juan Manuel, 27/07/2026 -- "Buscar y sumar el deposito de
-//   'Esmeralda' puede estar como Esm"): mismo código ESME (y su variante
-//   con sufijo "-99") ya usado como sucursal real en oppen-invoices.js
+//   'Esmeralda' puede estar como Esm"; renombrado a "Esmeralda" completo el
+//   28/07/2026 a pedido del usuario): mismo código ESME (y su variante con
+//   sufijo "-99") ya usado como sucursal real en oppen-invoices.js
 //   (OFFICE_CANAL_MAP: ESME/EME-99/ESME-99 → Esmeralda) -- acá se clasifica
-//   igual, con la etiqueta corta "Esm" para la tabla de Stocks:
-//     ESME, EME-99, ESME-99 → Esm
+//   con el mismo nombre para la tabla de Stocks:
+//     ESME, EME-99, ESME-99 → Esmeralda
 //   Sin clasificar todavía (cuentan en el total general, sin canal asignado):
 //     ALFA, RIPETTA, LOBRUTTO, ESTETICA-INTEGRAL, MEDICALPLASTIC,
 //     MONTA, SBERNAL — bajo volumen cada uno, quedan en byDepoSinMapear hasta
@@ -144,9 +145,9 @@ const DEPO_CANAL_MAP = {
   // Juan Manuel, 27/07/2026 -- "Buscar y sumar el deposito de 'Esmeralda'
   // puede estar como Esm": mismos 3 códigos (con sufijo "-99") ya
   // confirmados para Esmeralda en oppen-invoices.js (OFFICE_CANAL_MAP).
-  'ESME': 'Esm',
-  'EME-99': 'Esm',
-  'ESME-99': 'Esm',
+  'ESME': 'Esmeralda',
+  'EME-99': 'Esmeralda',
+  'ESME-99': 'Esmeralda',
 };
 // Depósitos que NO son stock disponible para vender: mercadería en tránsito,
 // alquileres, muestras (varias con nombres de ciudad/sucursal que en
