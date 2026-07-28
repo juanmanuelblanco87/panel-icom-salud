@@ -18,6 +18,13 @@
 //   las facturas de una unidad (pensado para el sync lazy por canal del
 //   shell). Sin ese parámetro, agrega TODAS las unidades mezcladas (mismo
 //   comportamiento de siempre).
+// - ?soloUnidadNegocio=1 (28/07/2026): respuesta liviana, sin bySku/
+//   byCanalSku/byCanal/invoicesByCanal/totals/rows -- pensado para leer
+//   bySkuUnidadNegocio de meses ya cerrados (backfill de la base estática de
+//   12 meses para Stocks) sin bajar el detalle completo de facturas, que
+//   para un mes entero puede pesar tanto que un cliente HTTP con límite de
+//   tamaño de respuesta (no fue un problema del navegador real, que sí
+//   recibe el JSON completo) lo corta antes de llegar a ese campo.
 //
 // - maxDuration (ver vercel.json): un mes CALENDARIO completo con las 4
 //   unidades mezcladas puede necesitar bastantes páginas de oppen.io
@@ -500,6 +507,28 @@ module.exports = async function handler(req, res) {
     const unidadNegocioFilterRaw = url.searchParams.get('unidadNegocio');
     const unidadNegocioFilter = UNIDAD_KEYS.includes(unidadNegocioFilterRaw) ? unidadNegocioFilterRaw : null;
 
+    // Modo liviano (?soloUnidadNegocio=1), agregado 28/07/2026 -- Juan Manuel
+    // pidió guardar una base ESTÁTICA en el repo con SKU + venta de los
+    // últimos 12 meses por unidad de negocio (ver bySkuUnidadNegocio abajo),
+    // así que hubo que traer 11 meses cerrados uno por uno para el backfill
+    // inicial. Al intentar leer esos meses con la herramienta de fetch de
+    // este mismo asistente (no un browser real) se descubrió que la
+    // respuesta COMPLETA de un mes (con bySku detallado + rows con el
+    // detalle de cada línea de factura) es tan grande que se corta a la
+    // mitad ANTES de llegar a bySkuUnidadNegocio -- ese campo queda casi al
+    // final del objeto (ver el orden más abajo en res.json), después de
+    // bySku/byCanalSku/byUnidadNegocio, así que cualquier truncamiento del
+    // lado que sea (proxy, herramienta, lo que fuere) se lo come. No tiene
+    // nada que ver con caché vieja ni con que el campo no se calcule -- se
+    // calcula siempre igual, sólo que el JSON entero pesa demasiado. Este
+    // flag no cambia NADA del cálculo de arriba (sigue procesando todas las
+    // facturas igual) -- solo hace que la respuesta final, más abajo, omita
+    // bySku/byCanalSku/byCanal/invoicesByCanal/totals/rows (los campos
+    // pesados que Stocks no necesita para el reparto), dejando una
+    // respuesta chica y liviana con SOLO lo que hace falta para
+    // bySkuUnidadNegocio/byUnidadNegocio.
+    const soloUnidadNegocio = url.searchParams.get('soloUnidadNegocio') === '1';
+
     let offset = 0;
     let hasMore = true;
     let invoicesProcessed = 0; // cuenta TODO lo que devuelve oppen.io en el rango de fechas, sin filtrar por unidad (para detectar si el rango está vacío)
@@ -682,7 +711,19 @@ module.exports = async function handler(req, res) {
       { unidades: 0, totalNeto: 0 }
     );
 
-    res.status(200).json({
+    // ?soloUnidadNegocio=1 (ver comentario junto a su parseo más arriba):
+    // respuesta chica, sin los campos pesados que Stocks no necesita para
+    // el reparto por unidad de negocio.
+    res.status(200).json(soloUnidadNegocio ? {
+      ok: true,
+      updatedAt: new Date().toISOString(),
+      month: fromDate.slice(5, 7),
+      invoicesProcessed: invoicesEnUnidad,
+      invoicesEnRango: invoicesProcessed,
+      unidadNegocioFilter,
+      byUnidadNegocio,
+      bySkuUnidadNegocio,
+    } : {
       ok: true,
       updatedAt: new Date().toISOString(),
       month: fromDate.slice(5, 7),
