@@ -45,6 +45,13 @@
 //   bySku: { "8": { nombre: "...", unidades: ..., totalNeto: ... }, ... },
 //   byCanalSku: { "ICOM-CEN": { "8": { unidades, totalNeto } } },
 //   byUnidadNegocio: { minorista: { unidades, totalNeto, facturas }, movilidad: {...}, ... }, // IOMA no entra acá a propósito
+//   bySkuUnidadNegocio: { "8": { minorista: { unidades, totalNeto }, movilidad: {...}, ... } },
+//     // por SKU, cuánto vendió cada unidad de negocio -- usado por Stocks
+//     // (28/07/2026) para repartir el stock de un depósito COMPARTIDO entre
+//     // varias unidades de negocio (ver DEPO_UNIDAD_MAP/skuUnidadNegocioSplit
+//     // en B64_STOCKS.html): si un SKU en Bella Vista solo lo vende una
+//     // unidad, ese SKU es 100% de esa unidad; si lo venden varias, el stock
+//     // se reparte proporcional a cuánto vendió cada una.
 //   rows: [ { sku, f, u, fecha:"DD/MM/YYYY", office, canal, unidadNegocio, desc,
 //             costoUnit, vendedorCliente, vendedorInstitucion, cliente, sernr }, ... ]
 //          // detalle por línea de factura, consumido por Seguimiento (ver
@@ -493,6 +500,7 @@ module.exports = async function handler(req, res) {
     const byCanalSku = {};  // canal -> sku -> {unidades, totalNeto}
     const invoicesByCanal = {}; // canal -> cantidad de facturas (para el KPI "Facturas procesadas" filtrado)
     const byUnidadNegocio = {}; // unidad -> {unidades, totalNeto, facturas} -- IOMA (unidadNegocio null) NO entra acá, a propósito
+    const bySkuUnidadNegocio = {}; // sku -> unidad -> {unidades, totalNeto} -- ver comentario junto a su uso más abajo (inventario por unidad de negocio en Stocks)
     const rows = [];        // detalle por línea, para alimentar Seguimiento (applyParsedSales)
 
     while (hasMore) {
@@ -595,6 +603,23 @@ module.exports = async function handler(req, res) {
           if (unidadNegocio) {
             byUnidadNegocio[unidadNegocio].unidades += qty;
             byUnidadNegocio[unidadNegocio].totalNeto += neto;
+
+            // Juan Manuel, 28/07/2026 -- "En Stocks tenemos que armar el
+            // inventario por Unidades de negocio... Dividir los Skus de
+            // Bella Vista que son compartidos de los exclusivos de unidades
+            // de negocio... los compartidos se asignan porcentualmente a
+            // las ventas": para repartir el stock de un depósito compartido
+            // (Bella Vista) entre las unidades que lo usan, hace falta saber
+            // qué fracción de la VENTA de cada SKU corresponde a cada
+            // unidad de negocio -- esto no existía todavía (bySku/byCanalSku
+            // no distinguen unidad de negocio). bySkuUnidadNegocio es esa
+            // pieza: por SKU, cuánto vendió cada unidad -- el cliente
+            // (Stocks) la usa para decidir "este SKU es 100% de una unidad"
+            // o "hay que repartirlo proporcional a la venta de cada una".
+            if (!bySkuUnidadNegocio[sku]) bySkuUnidadNegocio[sku] = {};
+            if (!bySkuUnidadNegocio[sku][unidadNegocio]) bySkuUnidadNegocio[sku][unidadNegocio] = { unidades: 0, totalNeto: 0 };
+            bySkuUnidadNegocio[sku][unidadNegocio].unidades += qty;
+            bySkuUnidadNegocio[sku][unidadNegocio].totalNeto += neto;
           }
 
           if (canal) {
@@ -664,6 +689,7 @@ module.exports = async function handler(req, res) {
       bySku,
       byCanalSku,
       byUnidadNegocio,
+      bySkuUnidadNegocio,
       rows,
     });
   } catch (err) {
