@@ -1518,7 +1518,7 @@ function erpBroadcastSyncStatus(kind, ok, label){
 // Los call sites que SÍ deben seguir a la unidad activa (erpFetchViewData,
 // disparado por el date-range picker y por erpSwitchToChannelView) pasan
 // currentChannel ellos mismos, explícitamente.
-function erpInvoicesUrl(params, unit){
+function erpInvoicesUrl(params, unit, bustCache){
   const sp = new URLSearchParams(params || {});
   // 'icom' es la vista agregada (ver comentario en CHANNELS) -- ahí NO se
   // filtra por unidad, se pide todo mezclado y erpRemapDataForIcomView
@@ -1526,6 +1526,15 @@ function erpInvoicesUrl(params, unit){
   if(unit !== 'icom'){
     sp.set('unidadNegocio', unit || 'minorista');
   }
+  // bustCache (Juan Manuel, 28/07/2026 -- pedido de cachear meses cerrados
+  // en el borde de Vercel, ver api/oppen-invoices.js/isFullyClosedPastMonth):
+  // un mes cerrado ahora se cachea ahí por 24hs -- el botón "🔄 Actualizar"
+  // (erpForceRefreshIcomMonthlyWeights) necesita poder saltarse ESE caché
+  // también (no solo el de IndexedDB del navegador), o el usuario apretaría
+  // el botón y seguiría viendo el dato viejo hasta que venza. Un parámetro
+  // extra en la URL alcanza: para Vercel es una URL distinta, así que no
+  // hay hit de caché — sí pega directo a oppen.io de nuevo.
+  if(bustCache) sp.set('_cb', String(Date.now()));
   return '/api/oppen-invoices?' + sp.toString();
 }
 
@@ -1851,17 +1860,17 @@ function erpMergeViewData(results){
 // si falla (oppen.io a veces devuelve un error de conexión transitorio —
 // confirmado en producción, ver comentario más arriba — que en general se
 // resuelve solo con un segundo intento unos segundos después).
-async function erpFetchInvoicesChunk(c, unit, attempt){
+async function erpFetchInvoicesChunk(c, unit, attempt, bustCache){
   attempt = attempt || 1;
   try{
-    const res = await fetch(erpInvoicesUrl({from:c.from, to:c.to}, unit), {cache:'no-store'});
+    const res = await fetch(erpInvoicesUrl({from:c.from, to:c.to}, unit, bustCache), {cache:'no-store'});
     const d = await res.json();
     if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
     return d;
   }catch(e){
     if(attempt < 2){
       await new Promise(r=>setTimeout(r, 1500));
-      return erpFetchInvoicesChunk(c, unit, attempt+1);
+      return erpFetchInvoicesChunk(c, unit, attempt+1, bustCache);
     }
     throw new Error((e.message || 'Error desconocido del proxy') + ' (rango '+c.from+' a '+c.to+')');
   }
@@ -2180,7 +2189,12 @@ async function erpFetchIcomMonthlyWeightsImpl(forceRefreshAll){
       // unit='icom' -- mismo criterio que erpInvoicesUrl: pide TODO
       // mezclado (sin ?unidadNegocio=), así byUnidadNegocio trae el
       // desglose de las 4 unidades para ese mes en una sola llamada.
-      const data = await erpFetchInvoicesChunk({from, to}, 'icom');
+      // forceRefreshAll también tiene que saltarse el caché de EDGE de
+      // Vercel para meses cerrados (ver isFullyClosedPastMonth/bustCache) --
+      // si no, el botón "🔄 Actualizar" podría seguir mostrando el dato
+      // viejo hasta que venza ese caché (hasta 24hs), no solo el de
+      // IndexedDB de este navegador.
+      const data = await erpFetchInvoicesChunk({from, to}, 'icom', undefined, forceRefreshAll && !isCurrentMonth);
       const byUnidadNegocio = data.byUnidadNegocio || {};
       erpIcomMonthlyWeights[mm] = byUnidadNegocio;
       if(!isCurrentMonth){

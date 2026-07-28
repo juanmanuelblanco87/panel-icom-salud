@@ -108,6 +108,30 @@ function firstDayOfCurrentMonth() {
   return `${y}-${m}-01`;
 }
 
+// Juan Manuel, 28/07/2026 -- "Estos datos necesitamos guardarlos en alguna
+// base interna de la app para no recargar cada vez que alguien abre por
+// primera vez la app": el gráfico mensual de ICOM (erpFetchIcomMonthlyWeights,
+// en el shell) ya cachea los meses cerrados en IndexedDB -- pero eso es un
+// caché POR NAVEGADOR/DISPOSITIVO: cualquier persona (o el mismo Juan Manuel
+// en otra PC) que abre la app por primera vez tiene que volver a pedirle a
+// oppen.io los ~6-7 meses cerrados del año, uno por uno, sin importar que
+// otra persona ya los haya pedido minutos antes. En vez de armar una base de
+// datos nueva (que exigiría dar de alta un servicio de storage en Vercel),
+// usamos el cache HTTP compartido que YA da la red de Vercel gratis: un mes
+// COMPLETAMENTE CERRADO (el `to` pedido cae antes del mes en curso) es un
+// dato que ya no cambia -- así que esa respuesta se puede cachear en el
+// borde de Vercel con Cache-Control, y la comparte automáticamente CUALQUIER
+// usuario/dispositivo que pida ese mismo rango de fechas, no hace falta que
+// cada navegador lo vuelva a pedir por su cuenta. El mes EN CURSO (o
+// cualquier pedido sin `to`, que es el comportamiento por defecto) sigue
+// siendo `no-store` como siempre, porque ese sí cambia todo el día.
+function isFullyClosedPastMonth(toDate) {
+  if (!toDate) return false;
+  const t = new Date(toDate + 'T00:00:00Z');
+  if (isNaN(t.getTime())) return false;
+  return t.getTime() < new Date(firstDayOfCurrentMonth() + 'T00:00:00Z').getTime();
+}
+
 async function fetchInvoicesPage(token, offset, limit, fromDate, toDate) {
   const params = new URLSearchParams({
     Status: '1',
@@ -436,6 +460,17 @@ module.exports = async function handler(req, res) {
     const url = new URL(req.url, 'http://x');
     const fromDate = url.searchParams.get('from') || firstDayOfCurrentMonth();
     const toDate = url.searchParams.get('to') || null;
+
+    // Un mes ya cerrado no vuelve a cambiar -- dejamos que la red de Vercel
+    // (CDN/edge) guarde esta respuesta y se la sirva a CUALQUIER usuario que
+    // pida el mismo rango, sin volver a golpear a oppen.io cada vez (ver nota
+    // completa junto a isFullyClosedPastMonth). s-maxage es lo que respeta el
+    // CDN de Vercel; stale-while-revalidate deja servir la versión vieja
+    // mientras se refresca en segundo plano si alguna vez se pide de nuevo
+    // después de vencido, para no dejar a nadie esperando el escaneo completo.
+    if (isFullyClosedPastMonth(toDate)) {
+      res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=604800');
+    }
     const LIMIT = 200;
 
     // Filtro opcional por unidad de negocio (ver OPERATION_TYPE_UNIT_MAP más
