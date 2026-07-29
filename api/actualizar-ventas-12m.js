@@ -95,6 +95,17 @@ async function leerBlobActual() {
 }
 
 module.exports = async function handler(req, res) {
+  // CORS -- el seed inicial (ver seed_uploader_tool.html) y, más adelante,
+  // cualquier disparo manual se hacen desde un archivo local (origin
+  // "null") o desde otro origen, no necesariamente same-origin. Sin estos
+  // headers el POST con Content-Type: application/json dispara un
+  // preflight OPTIONS que el navegador bloquea (aparece como "Failed to
+  // fetch" del lado del cliente, sin más detalle) -- hay que responder el
+  // preflight explícitamente ANTES que cualquier otra cosa.
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   try {
     const url = new URL(req.url, 'https://' + req.headers.host);
     const secret = url.searchParams.get('secret');
