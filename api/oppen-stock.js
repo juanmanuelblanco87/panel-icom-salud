@@ -55,17 +55,28 @@
 //     TRANSITO  → Tránsito (antes excluido del todo -- ahora visible, sin
 //                 asignar a ninguna unidad de negocio en Stocks)
 //     NOCONFORME → No apto para Venta (ídem, visible sin asignar)
+//     MUESTRAS  → No apto para Venta (Juan Manuel, 29/07/2026, 8vo pedido --
+//                 ver corrección debajo: antes excluido del todo, la tabla de
+//                 referencia real confirma que es stock real, no vendible
+//                 pero SÍ visible, mismo bucket que NOCONFORME)
 //   Sin clasificar todavía (cuentan en el total general, sin canal asignado
 //   -- Stocks los agrupa como "Consignación", 100% Cirugía General):
-//     ALFA, RIPETTA, LOBRUTTO, ESTETICA-INTEGRAL, MEDICALPLASTIC, SBERNAL —
-//     bajo volumen cada uno, quedan en byDepoSinMapear hasta que se
-//     confirme qué son puntualmente.
-//   Excluidos del disponible para vender (no son stock vendible en absoluto
-//   -- puntos de muestra/exhibición, no sucursales ni depósitos de venta;
-//   sin cambios en este pedido):
-//     MUESTRAS, EVENTOS, y — aunque tienen nombre de ciudad/sucursal — MDP,
-//     LAPLATA, POSADAS, BAHIAB, CGUEMES (confirmado con el usuario: "las
-//     sucursales son solo las 3 identificadas, Central, JCP y ProSalud").
+//     ALFA, RIPETTA, LOBRUTTO, ESTETICA-INTEGRAL, MEDICALPLASTIC, SBERNAL,
+//     EVENTOS, MDP, LAPLATA, POSADAS, BAHIAB, CGUEMES — confirmado contra la
+//     tabla de referencia real del usuario (29/07/2026, 8vo pedido) que
+//     TODOS estos van a "Consignación" → 100% Cirugía General; quedan en
+//     byDepoSinMapear sin necesidad de un mapeo explícito uno por uno.
+//   Ya NO hay depósitos excluidos del disponible para vender: los 7 que
+//   antes estaban acá (MUESTRAS, EVENTOS, MDP, LAPLATA, POSADAS, BAHIAB,
+//   CGUEMES — "confirmado con el usuario: las sucursales son solo las 3
+//   identificadas, Central, JCP y ProSalud") resultaron ser una confusión
+//   entre "no son sucursales de venta propias" (correcto) y "su stock no
+//   cuenta" (incorrecto) — la tabla de referencia real (Juan Manuel,
+//   29/07/2026, 8vo pedido: "el total no cuadra... chequealo vs la
+//   siguiente tabla") trae un Importe Actual > 0 para casi todos ellos, unos
+//   $438M en total que el panel venía escondiendo del todo (ni en el KPI
+//   "Total AR$ Stocks" ni en ninguna tabla de desglose). Ver DEPO_CANAL_MAP /
+//   EXCLUDED_DEPOS más abajo para la reclasificación puntual de cada uno.
 //
 // Variables de entorno requeridas (compartidas con oppen-invoices.js):
 //   OPPEN_USER_API, OPPEN_PASS_API
@@ -165,11 +176,27 @@ function cleanSku(artCode) {
 //   TRANSITO  → 'Tránsito' (mercadería en tránsito -- Stocks lo muestra
 //               como fila propia, sin asignar a ninguna unidad de negocio)
 //   NOCONFORME → 'No apto para Venta' (ídem, fila propia sin asignar)
-// Los 3 últimos DEJAN de estar en EXCLUDED_DEPOS -- antes ese stock no
-// contaba ni en "Total AR$ Stocks"; ahora es visible y clasificado. El
-// resto de EXCLUDED_DEPOS (MUESTRAS, EVENTOS, MDP, LAPLATA, POSADAS,
-// BAHIAB, CGUEMES) sigue igual: son puntos de muestra/exhibición, no
-// mercadería disponible para vender, y el usuario no pidió cambiarlos.
+//
+// Juan Manuel, 29/07/2026 (8vo pedido, mismo día — "el total no cuadra vs lo
+// que yo veo en la base de Stocks", con una tabla de referencia real Almacén
+// → Unidad de Negocio → Importe Actual): esa tabla confirma que MUESTRAS,
+// EVENTOS, MDP, LAPLATA, POSADAS, BAHIAB y CGUEMES SÍ tienen que contar como
+// stock real (con valores puntuales no nulos para casi todos) — la exclusión
+// total de estos 7 depósitos (ver "confirmado con el usuario" más abajo,
+// decisión de una sesión anterior) resultó ser sobre si contaban como
+// SUCURSALES DE VENTA propias (correcto: no lo son, solo Central/JCP/
+// ProSalud lo son) — pero de ahí NUNCA debió seguirse que su STOCK quedara
+// invisible del todo (ni en el KPI de "Total AR$ Stocks" ni en ninguna tabla
+// de desglose): son ~$438M de stock real que el panel venía escondiendo por
+// completo. Corrección, según la tabla de referencia:
+//   MUESTRAS   → 'No apto para Venta' (mismo bucket que NOCONFORME — no es
+//                stock vendible, pero SÍ es stock real que hay que mostrar)
+//   EVENTOS, MDP, LAPLATA, POSADAS, BAHIAB, CGUEMES → sin mapear a propósito
+//                (mismo criterio que ALFA/RIPETTA/LOBRUTTO/ESTETICA-INTEGRAL/
+//                MEDICALPLASTIC/SBERNAL, ver más abajo: caen en
+//                byDepoSinMapear del lado del cliente, que Stocks agrupa como
+//                "Consignación" → 100% Cirugía General, exactamente como
+//                pide la tabla de referencia para estos 6 depósitos)
 const DEPO_CANAL_MAP = {
   'ICOM-CEN': 'Central',
   'ICOM-JCP': 'JCP',
@@ -186,14 +213,17 @@ const DEPO_CANAL_MAP = {
   'MONTA': 'Montañeses',
   'TRANSITO': 'Tránsito',
   'NOCONFORME': 'No apto para Venta',
+  'MUESTRAS': 'No apto para Venta',
 };
-// Depósitos que NO son stock disponible para vender: muestras (varias con
-// nombres de ciudad/sucursal que en realidad son puntos de muestras, no
-// sucursales de venta — confirmado con el usuario) y eventos/exhibición.
-const EXCLUDED_DEPOS = new Set([
-  'MUESTRAS', 'EVENTOS',
-  'MDP', 'LAPLATA', 'POSADAS', 'BAHIAB', 'CGUEMES',
-]);
+// Juan Manuel, 29/07/2026 (8vo pedido): ya no queda ningún depósito
+// confirmado que deba excluirse por completo del stock disponible — los 7
+// que estaban acá (MUESTRAS, EVENTOS, MDP, LAPLATA, POSADAS, BAHIAB,
+// CGUEMES) se re-clasificaron arriba (MUESTRAS) o se dejan caer en
+// byDepoSinMapear/"Consignación" (el resto), ver comentario grande arriba.
+// Se deja el Set vacío (en vez de borrar todo el mecanismo) para que quede
+// fácil volver a excluir un depósito puntual si en el futuro se confirma que
+// corresponde.
+const EXCLUDED_DEPOS = new Set([]);
 // DEPO-CEN es compartido: alimenta Tienda Online completo, y la porción de
 // Mercado Libre que no sale del depósito Full (MLFULL, ya mapeado arriba).
 // Se reporta como un único canal ("Bella Vista", Juan Manuel 27/07/2026 --
