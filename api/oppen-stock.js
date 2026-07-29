@@ -36,11 +36,6 @@
 //     MLFULL     → Mercado Libre Full (depósito Full propio, bajo volumen, SIN overlap con Bella Vista)
 //   Canal propio:
 //     SANUS      → Sanus
-//   Excluidos del disponible para vender (no son stock vendible):
-//     TRANSITO, ALQ, MUESTRAS, NOCONFORME, EVENTOS, y — aunque tienen nombre
-//     de ciudad/sucursal — MDP, LAPLATA, POSADAS, BAHIAB, CGUEMES también son
-//     puntos de muestras, NO sucursales de venta (confirmado con el usuario:
-//     "las sucursales son solo las 3 identificadas, Central, JCP y ProSalud").
 //   Esmeralda (Juan Manuel, 27/07/2026 -- "Buscar y sumar el deposito de
 //   'Esmeralda' puede estar como Esm"; renombrado a "Esmeralda" completo el
 //   28/07/2026 a pedido del usuario): mismo código ESME (y su variante con
@@ -48,10 +43,29 @@
 //   (OFFICE_CANAL_MAP: ESME/EME-99/ESME-99 → Esmeralda) -- acá se clasifica
 //   con el mismo nombre para la tabla de Stocks:
 //     ESME, EME-99, ESME-99 → Esmeralda
-//   Sin clasificar todavía (cuentan en el total general, sin canal asignado):
-//     ALFA, RIPETTA, LOBRUTTO, ESTETICA-INTEGRAL, MEDICALPLASTIC,
-//     MONTA, SBERNAL — bajo volumen cada uno, quedan en byDepoSinMapear hasta
-//     que se confirme qué son.
+//   Depósitos con reglas de negocio propias (Juan Manuel, 29/07/2026, 2do
+//   pedido del día -- "Los 'Sin ventas recientes' me parece muy alto...
+//   corroborá" + el detalle de qué es cada depósito), clasificados a partir
+//   de re-verificar por qué "Sin venta reciente" daba tan alto en Stocks:
+//     ALQ       → Alquiler (mercadería de alquiler; Stocks lo asigna 100% a
+//                 Minorista)
+//     MONTA     → Montañeses (antes "sin canal reconocible", inflando "Sin
+//                 venta reciente" sin ser realmente stock sin vender;
+//                 Stocks lo asigna 100% a Movilidad)
+//     TRANSITO  → Tránsito (antes excluido del todo -- ahora visible, sin
+//                 asignar a ninguna unidad de negocio en Stocks)
+//     NOCONFORME → No apto para Venta (ídem, visible sin asignar)
+//   Sin clasificar todavía (cuentan en el total general, sin canal asignado
+//   -- Stocks los agrupa como "Consignación", 100% Cirugía General):
+//     ALFA, RIPETTA, LOBRUTTO, ESTETICA-INTEGRAL, MEDICALPLASTIC, SBERNAL —
+//     bajo volumen cada uno, quedan en byDepoSinMapear hasta que se
+//     confirme qué son puntualmente.
+//   Excluidos del disponible para vender (no son stock vendible en absoluto
+//   -- puntos de muestra/exhibición, no sucursales ni depósitos de venta;
+//   sin cambios en este pedido):
+//     MUESTRAS, EVENTOS, y — aunque tienen nombre de ciudad/sucursal — MDP,
+//     LAPLATA, POSADAS, BAHIAB, CGUEMES (confirmado con el usuario: "las
+//     sucursales son solo las 3 identificadas, Central, JCP y ProSalud").
 //
 // Variables de entorno requeridas (compartidas con oppen-invoices.js):
 //   OPPEN_USER_API, OPPEN_PASS_API
@@ -136,6 +150,26 @@ function cleanSku(artCode) {
 // Mapeo depósito -> canal, y lista de depósitos que NO cuentan como stock
 // vendible (todo esto confirmado contra la operación real, revisando
 // 130.608 registros de Stock — no son suposiciones).
+//
+// Juan Manuel, 29/07/2026 (2do pedido -- "Los 'Sin ventas recientes' me
+// parece muy alto... corroborá"): re-verificando el bucket "Sin venta
+// reciente" de Stocks se confirmó que buena parte de ese número NO era "sin
+// venta" de verdad -- era stock de depósitos como MONTA, que ni siquiera
+// tenían un canal asignado acá (caía en "sin canal reconocible", y de ahí
+// Stocks lo mandaba a "Sin venta reciente"), y ALQ/TRANSITO/NOCONFORME, que
+// directamente estaban EXCLUDED (ni contaban en el total). Se agregan 4
+// mapeos nuevos, confirmados con el usuario:
+//   ALQ       → 'Alquiler' (mercadería de alquiler -- Stocks lo asigna
+//               100% a Minorista)
+//   MONTA     → 'Montañeses' (Stocks lo asigna 100% a Movilidad)
+//   TRANSITO  → 'Tránsito' (mercadería en tránsito -- Stocks lo muestra
+//               como fila propia, sin asignar a ninguna unidad de negocio)
+//   NOCONFORME → 'No apto para Venta' (ídem, fila propia sin asignar)
+// Los 3 últimos DEJAN de estar en EXCLUDED_DEPOS -- antes ese stock no
+// contaba ni en "Total AR$ Stocks"; ahora es visible y clasificado. El
+// resto de EXCLUDED_DEPOS (MUESTRAS, EVENTOS, MDP, LAPLATA, POSADAS,
+// BAHIAB, CGUEMES) sigue igual: son puntos de muestra/exhibición, no
+// mercadería disponible para vender, y el usuario no pidió cambiarlos.
 const DEPO_CANAL_MAP = {
   'ICOM-CEN': 'Central',
   'ICOM-JCP': 'JCP',
@@ -148,13 +182,16 @@ const DEPO_CANAL_MAP = {
   'ESME': 'Esmeralda',
   'EME-99': 'Esmeralda',
   'ESME-99': 'Esmeralda',
+  'ALQ': 'Alquiler',
+  'MONTA': 'Montañeses',
+  'TRANSITO': 'Tránsito',
+  'NOCONFORME': 'No apto para Venta',
 };
-// Depósitos que NO son stock disponible para vender: mercadería en tránsito,
-// alquileres, muestras (varias con nombres de ciudad/sucursal que en
-// realidad son puntos de muestras, no sucursales de venta — confirmado con
-// el usuario), no conformes, y eventos/exhibición.
+// Depósitos que NO son stock disponible para vender: muestras (varias con
+// nombres de ciudad/sucursal que en realidad son puntos de muestras, no
+// sucursales de venta — confirmado con el usuario) y eventos/exhibición.
 const EXCLUDED_DEPOS = new Set([
-  'TRANSITO', 'ALQ', 'MUESTRAS', 'NOCONFORME', 'EVENTOS',
+  'MUESTRAS', 'EVENTOS',
   'MDP', 'LAPLATA', 'POSADAS', 'BAHIAB', 'CGUEMES',
 ]);
 // DEPO-CEN es compartido: alimenta Tienda Online completo, y la porción de
