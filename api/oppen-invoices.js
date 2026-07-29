@@ -30,11 +30,22 @@
 //   unidades mezcladas puede necesitar bastantes páginas de oppen.io
 //   (Juan Manuel, 28/07/2026 -- confirmado con un pedido real: un mes
 //   completo daba timeout total sin ninguna respuesta) -- por eso este
-//   endpoint tiene el mismo maxDuration:30 que ya tenían oppen-stock.js/
-//   oppen-item-cost.js. El cliente (Stocks, ver
-//   fetchUnMesUnidadNegocio/fetchVentas12mUnidadNegocioParaReparto en
-//   B64_STOCKS.html) además asume que un mes puntual PUEDE seguir fallando
-//   igual y lo tolera (se saltea ese mes en vez de romper todo el cálculo).
+//   endpoint tenía maxDuration:30, igual que oppen-stock.js/oppen-item-cost.js.
+//   El cliente (Stocks, ver fetchUnMesUnidadNegocio/
+//   fetchVentas12mUnidadNegocioParaReparto en B64_STOCKS.html) además asume
+//   que un mes puntual PUEDE seguir fallando igual y lo tolera (se saltea ese
+//   mes en vez de romper todo el cálculo).
+//
+//   Juan Manuel, 29/07/2026 (4to pedido, mismo día): "Sigue sin traer los
+//   datos de venta ni cálculos de DOH" -- confirmado con pedidos reales
+//   contra producción que el pedido de 30 días con las 4 unidades mezcladas
+//   (usado por fetchVentas30d en Stocks) puede necesitar los 30s completos
+//   para paginar todas las facturas de oppen.io, y a veces ni siquiera eso
+//   alcanza -- subido a maxDuration:60 para darle más margen real al
+//   paginado. Ver también B64_STOCKS.html (fetchVentas30dConReintentosIniciales):
+//   el timeout del lado del cliente ahora es más generoso que este límite del
+//   servidor, para no cortar de este lado un pedido que el servidor todavía
+//   podría terminar bien.
 //
 // Variables de entorno requeridas en Vercel (Project Settings → Environment Variables):
 //   OPPEN_USER_API = usuario de API del proyecto de Oppen (Juan Manuel,

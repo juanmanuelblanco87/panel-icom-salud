@@ -7,7 +7,7 @@
       "maxDuration": 30
     },
     "api/oppen-invoices.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "api/actualizar-ventas-12m.js": {
       "maxDuration": 30
