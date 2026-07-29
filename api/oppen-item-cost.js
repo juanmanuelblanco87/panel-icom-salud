@@ -43,7 +43,10 @@
 //   nextOffset: 500,
 //   recordsInPage: 500,
 //   fx: { rate: 1515, fecha: '2026-07-24T12:00:00.000Z'|null, source: 'oficial'|'manual' } | null,
-//   rows: [ { sku, costo } ]   // costo: SIEMPRE en ARS (ver conversión de moneda abajo), o 0 si no hay dato
+//   rows: [ { sku, costo, nombre } ]   // costo: SIEMPRE en ARS (ver conversión
+//     de moneda abajo), o 0 si no hay dato. nombre: el campo `Name` real de
+//     ItemCost (Juan Manuel, 29/07/2026, 9no pedido -- ver comentario grande
+//     junto a su extracción más abajo), '' si esa fila no lo trae.
 // }
 //
 // CONVERSIÓN DE MONEDA (Juan Manuel, 24/07/2026 — captura de pantalla del
@@ -223,7 +226,20 @@ module.exports = async function handler(req, res) {
           console.warn(`oppen-item-cost: SKU ${sku} tiene OperativeCostCurrency desconocida ("${row.OperativeCostCurrency}"), se deja sin costo.`);
         }
       }
-      rows.push({ sku, costo });
+      // Juan Manuel, 29/07/2026 (9no pedido -- "el nombre de 15565 sigue sin
+      // aparecer, lo mismo que varios más"): confirmado con un endpoint de
+      // diagnóstico que ItemCost trae un campo `Name` con el nombre real del
+      // artículo (ej. "MALLA-J&J ETHICON- PROLENE 15X15 CM" para el Code
+      // "1-XYPMH1") -- lo veníamos pidiendo SOLO por el costo y descartando
+      // este campo. A diferencia de Invoice (it.Name, que puede llegar vacío
+      // si esa línea de factura puntual no lo trae, dejando el SKU "atascado"
+      // para siempre si esa fue la primera vez que se vio, ver
+      // registerSkuInCatalog en Seguimiento), ItemCost es una fila POR
+      // ARTÍCULO (no por línea de factura) — así que si tiene Name acá, es
+      // una fuente mucho más confiable y estable para completar el catálogo,
+      // sin depender de qué línea de factura llegó primero.
+      const nombre = String(row.Name || '').trim();
+      rows.push({ sku, costo, nombre });
     }
     if (usdSinConvertir > 0) {
       console.error(`oppen-item-cost: ${usdSinConvertir} artículo(s) en USD sin tipo de cambio disponible en esta página — quedaron con costo:0.`);

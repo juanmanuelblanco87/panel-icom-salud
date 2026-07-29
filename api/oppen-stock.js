@@ -244,16 +244,6 @@ module.exports = async function handler(req, res) {
     const url = new URL(req.url, 'http://x');
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '500', 10), 500);
-    // Diagnóstico TEMPORAL (Juan Manuel, 29/07/2026 -- "el nombre de 15565
-    // sigue sin aparecer, lo mismo que varios más"): para confirmar si la
-    // entidad Stock de oppen.io trae algún campo de nombre/descripción de
-    // artículo que hoy estamos ignorando (hoy Stock solo se usa para
-    // ArtCode/StockDepo/Qty -- el nombre solo se ingesta hoy vía Invoice,
-    // it.Name, que puede llegar vacío). Con debugRawFields=1 se devuelve,
-    // ADEMÁS de la respuesta normal, las claves y el objeto crudo de la
-    // primera fila de esta página -- para inspeccionar qué trae realmente
-    // la API sin adivinar. Se saca en cuanto se confirme el campo correcto.
-    const debugRawFields = url.searchParams.get('debugRawFields') === '1';
 
     const page = await fetchStockPage(token, offset, limit);
     const rawRows = page.data || [];
@@ -283,10 +273,6 @@ module.exports = async function handler(req, res) {
       depoCounts,
       rows,
     };
-    if (debugRawFields && rawRows.length) {
-      responseBody.debugRawFieldsKeys = Object.keys(rawRows[0]);
-      responseBody.debugRawFieldsSample = rawRows[0];
-    }
 
     res.status(200).json(responseBody);
   } catch (err) {
