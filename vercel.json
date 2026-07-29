@@ -8,6 +8,12 @@
     },
     "api/oppen-invoices.js": {
       "maxDuration": 30
+    },
+    "api/actualizar-ventas-12m.js": {
+      "maxDuration": 30
+    },
+    "api/ventas-12m-sku-unidad.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
