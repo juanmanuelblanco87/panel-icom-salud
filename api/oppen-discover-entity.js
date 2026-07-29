@@ -57,13 +57,42 @@ module.exports = async function handler(req, res) {
   try {
     const url = new URL(req.url, 'http://x');
     const entity = url.searchParams.get('entity');
+    // Juan Manuel, 29/07/2026 (sesión de diagnóstico continuada): probar
+    // nombres de entidad a ciegas (Item, Article, Producto, etc.) devolvió
+    // 403 "Invalid record: <nombre>" para los 13 candidatos -- el sandbox de
+    // este agente tampoco puede llegar directo al Swagger público de oppen.io
+    // (bloqueado por proxy/robots). Se agrega ?rawPath=/lo/que/sea para poder
+    // pedir, CON el mismo token ya autenticado acá (que si funciona contra
+    // oppen.io), cualquier path -- en particular el propio spec de Swagger
+    // (/docs/swagger.json y variantes) -- y ver la lista real de entidades
+    // sin tener que adivinar una por una.
+    const rawPath = url.searchParams.get('rawPath');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '3', 10), 10);
-    if (!entity) {
-      res.status(400).json({ ok: false, error: 'Falta el parámetro ?entity=NombreDeEntidad' });
+    if (!entity && !rawPath) {
+      res.status(400).json({ ok: false, error: 'Falta el parámetro ?entity=NombreDeEntidad o ?rawPath=/algo' });
       return;
     }
 
     const token = await getToken();
+
+    if (rawPath) {
+      const upstreamRes = await fetch(`${BASE_URL}${rawPath}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const status = upstreamRes.status;
+      const text = await upstreamRes.text().catch(() => '');
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch (e) { /* no era JSON, se devuelve como texto */ }
+      res.status(200).json({
+        ok: upstreamRes.ok,
+        rawPath,
+        upstreamStatus: status,
+        bodyIsJson: parsed !== null,
+        body: parsed !== null ? parsed : text.slice(0, 8000), // recortado por las dudas de que sea HTML gigante
+      });
+      return;
+    }
+
     const params = new URLSearchParams({ __limit__: String(limit), __offset__: '0' });
     const upstreamRes = await fetch(`${BASE_URL}/${entity}?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
