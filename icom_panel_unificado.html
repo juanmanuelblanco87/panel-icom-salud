@@ -473,7 +473,7 @@
                flex-wrap en pantallas angostas (donde las dos mitades pasan
                a apilarse una debajo de la otra). -->
           <div style="display:flex;flex-wrap:wrap">
-            <div style="flex:1;min-width:280px;padding-right:28px">
+            <div style="flex:1;min-width:280px;padding-right:16px">
               <!-- Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "En el
                    grafico de tortas de la izquierda en el titulo hay que
                    colocar '- y la fecha que se halla colocado, en este
@@ -486,7 +486,7 @@
               <h2>Peso por Unidad de Negocio<span id="erpIcomPieChartPeriodo"></span></h2>
               <div id="erpIcomPieChart"></div>
             </div>
-            <div style="flex:1;min-width:280px;border-left:1px solid #e6e8ee;padding-left:28px">
+            <div style="flex:1;min-width:280px;border-left:1px solid #e6e8ee;padding-left:16px">
               <h2>Peso por Unidad de Negocio — Acumulado Año</h2>
               <div id="erpIcomYearPieChart"></div>
             </div>
@@ -1988,7 +1988,7 @@ function erpBuildIcomPieChartHtml(totalsByLabel){
   const ordered = ICOM_PIE_ORDER.map(label => rows.find(([c])=>c === label)).filter(Boolean);
   rows.forEach(r=>{ if(!ICOM_PIE_ORDER.includes(r[0])) ordered.push(r); });
 
-  const size = 220, cx = size/2, cy = size/2, r = 90;
+  const size = 170, cx = size/2, cy = size/2, r = 70;
   let angleStart = -Math.PI/2; // arranca a las 12
   const slices = [];
   ordered.forEach(([canal, totalNeto])=>{
@@ -2068,9 +2068,31 @@ function erpBuildIcomPieChartHtml(totalsByLabel){
     + '<strong style="color:#1a3d70">Total:</strong> '+erpFmtMoney(total)
     + '</div>';
 
-  return '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
+  // Juan Manuel, 29/07/2026 (2do pedido, mismo día): "el cuadro de la
+  // derecha se pega mucho al borde, revisa la manera de centrar ambos
+  // cuadros un poco mas a la izquierda para que no pase eso" -- antes la
+  // leyenda tenía flex:1, así que se ESTIRABA para ocupar todo el ancho
+  // disponible de su mitad de card; como la columna de $/% queda alineada
+  // a la derecha (text-align:right), ese estiramiento empujaba los montos
+  // justo contra el borde de la card -- en la mitad izquierda no se nota
+  // tanto porque ese borde es el divisor interno (con su propio
+  // padding-left:28px), pero en la mitad derecha ese borde YA es el borde
+  // real de la card. Sacar el flex:1 de la leyenda (dejarla en su ancho
+  // natural) NO ALCANZA solo: medido en el ancho real de la card (contenedor
+  // .erp-wrap, max-width:1100px), la torta de "Acumulado Año" (montos de
+  // hasta 10 cifras, ej. "$ 4.550.622.557") ya ocupa TODO el ancho
+  // disponible junto al SVG de 220px -- sacar el flex:1 sin más hacía que
+  // la leyenda se fuera a una línea nueva debajo de la torta (probado con
+  // Playwright a los anchos reales de la card, ver measure_iter2.js de la
+  // sesión) -- un quiebre de layout peor que el problema original. Se achica
+  // un poco la torta (220px -> 170px) y el gap/separador (24px -> 14px,
+  // divisor 28px -> 16px, ver los dos <div> que envuelven a este helper)
+  // para liberar el espacio real que hace falta -- así la leyenda entra
+  // siempre en la misma línea que la torta (en las DOS mitades) Y le queda
+  // margen antes del borde de la card, en vez de tocarlo o desbordarlo.
+  return '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">'
     + '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+svgSlices+svgLabels+'</svg>'
-    + '<div style="flex:1;min-width:200px">'+legend+'</div>'
+    + '<div style="min-width:200px">'+legend+'</div>'
     + '</div>'
     + totalRow;
 }
