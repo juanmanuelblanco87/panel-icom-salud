@@ -16,7 +16,7 @@
 // ventas-12m-sku-unidad.js) -- toda escritura pasa por
 // api/exhibiciones-guardar.js, que valida los controles de integridad antes
 // de tocar el blob.
-const { head } = require('@vercel/blob');
+const { get } = require('@vercel/blob');
 
 const BLOB_PATHNAME = 'exhibiciones_db.json';
 
@@ -26,10 +26,26 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   try {
-    let info;
-    try {
-      info = await head(BLOB_PATHNAME);
-    } catch (e) {
+    // Juan Manuel, 30/07/2026 y 31/07/2026 (2 reportes seguidos: "cargué la
+    // imagen... no queda guardada" y después "si actualizo la app me deja
+    // guardar 1 pero cuando intento guardar el segundo cambio no lo hace"):
+    // el primer intento de arreglo (bajar el Cache-Control de ESTE endpoint
+    // a no-store) no alcanzaba, porque el problema real está un nivel más
+    // abajo: `head(BLOB_PATHNAME)` + `fetch(info.url)` le pega a la URL
+    // pública del blob, que Vercel sirve a través de su CDN cacheada hasta
+    // 1 MES por defecto (cacheControlMaxAge de put(), nunca seteado acá) --
+    // pisar el mismo pathname con allowOverwrite:true NO invalida esa caché
+    // de inmediato ("puede tardar hasta 60s... o más" según la doc de
+    // Vercel), así que la 1ra escritura se veía bien (blob recién creado,
+    // sin nada cacheado todavía) pero la 2da y siguientes quedaban
+    // "guardadas" en el blob real pero invisibles en la relectura, porque
+    // esa relectura seguía sirviendo la versión cacheada de la 1ra escritura.
+    // Fix: usar get(pathname, {useCache:false}) en vez de head()+fetch(url)
+    // -- lee directo del origen, sin pasar por el CDN, garantizando
+    // contenido siempre fresco (documentado en "Consistent reads" de
+    // Vercel Blob). Ver misma nota en api/exhibiciones-guardar.js#leerDb.
+    const result = await get(BLOB_PATHNAME, { access: 'public', useCache: false });
+    if (!result || result.statusCode !== 200 || !result.stream) {
       // Blob todavía no sembrado (antes de correr la migración inicial del
       // Excel) -- devolver una base vacía en vez de un error, para que el
       // cliente pueda arrancar igual (mostrando "todavía no hay datos").
@@ -37,23 +53,8 @@ module.exports = async function handler(req, res) {
       res.status(200).json({ espacios: [], asignaciones: [], historial: [], sucursales: [], generatedAt: null });
       return;
     }
-    const blobRes = await fetch(info.url, { cache: 'no-store' });
-    if (!blobRes.ok) throw new Error('No se pudo leer el blob (HTTP ' + blobRes.status + ')');
-    const text = await blobRes.text();
+    const text = await new Response(result.stream).text();
     res.setHeader('Content-Type', 'application/json');
-    // Juan Manuel, 30/07/2026: "cargué la imagen, le di guardar, pero no
-    // queda guardada" -- el guardado (exhibiciones-guardar.js) sí persistía
-    // bien en el blob, pero la relectura inmediata que hace el cliente
-    // justo después (recargarDesdeServidor, o simplemente recargar la
-    // página) podía pegarle al CACHE DE BORDE de Vercel (s-maxage=15
-    // anterior), que ignora el `cache:'no-store'` del lado del cliente --
-    // ese header solo evita el caché del NAVEGADOR, no el de Vercel/CDN. En
-    // una ventana de hasta ~15-75s después de cualquier alta/edición
-    // (imagen, medidas, asignación), esto podía devolver una versión
-    // vieja -- SIN la imagen recién subida -- pisando el estado local
-    // recién guardado. Mismo criterio que ya usan oppen-invoices/
-    // oppen-item-cost/oppen-stock (datos que cambian con el uso normal de
-    // la app, no una vez al mes como ventas-12m): sin cache de borde acá.
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).send(text);
   } catch (e) {

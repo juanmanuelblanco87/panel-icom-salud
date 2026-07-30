@@ -27,7 +27,7 @@
 // Stocks/Seguimiento no llevan su propio secreto por llamada. La única
 // acción protegida con MAINTENANCE_SECRET es "seed" (carga inicial masiva
 // desde el Excel, pensada para correr UNA sola vez).
-const { put, head } = require('@vercel/blob');
+const { put, get } = require('@vercel/blob');
 
 const BLOB_PATHNAME = 'exhibiciones_db.json';
 
@@ -39,17 +39,28 @@ const MACRO_CATEGORIAS = [
 const SUCURSALES = ['ICOM', 'PRO SALUD', 'JCP'];
 const EPS = 1e-6;
 
+// Juan Manuel, 31/07/2026 ("si actualizo la app me deja guardar 1 pero
+// cuando intento guardar el segundo cambio no lo hace"): esta función hace
+// lectura-modificación-escritura sobre el blob -- el intento de arreglo
+// anterior (fetch(info.url, {cache:'no-store'})) NO alcanzaba, porque
+// head()+fetch(url) le pega a la URL pública del blob, servida por el CDN
+// de Vercel y cacheada hasta 1 MES por defecto (cacheControlMaxAge de
+// put(), nunca configurado acá). Pisar el mismo pathname con
+// allowOverwrite:true no invalida esa caché al instante (la doc de Vercel
+// dice "puede tardar hasta 60s, o más"), así que la 1ra escritura se veía
+// bien (blob recién creado, nada cacheado todavía) pero la 2da leía la
+// versión cacheada de la 1ra, la "modificaba" encima de datos viejos, y la
+// volvía a escribir -- efectivamente descartando el cambio anterior sin
+// avisar. Fix real: get(pathname, {useCache:false}) en vez de
+// head()+fetch(url) -- lee directo del origen, sin CDN de por medio,
+// garantizando SIEMPRE la última versión escrita (ver "Consistent reads" en
+// la documentación de Vercel Blob).
 async function leerDb() {
   try {
-    const info = await head(BLOB_PATHNAME);
-    // Mismo cuidado que api/exhibiciones-data.js (30/07/2026, ver esa nota):
-    // esta función hace lectura-modificación-escritura sobre el blob, así
-    // que si esta lectura viniera de una copia cacheada vieja, la escritura
-    // de acá pisaría (con datos desactualizados) cualquier cambio guardado
-    // segundos antes por otro pedido. no-store evita esa ventana.
-    const r = await fetch(info.url, { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return await r.json();
+    const result = await get(BLOB_PATHNAME, { access: 'public', useCache: false });
+    if (!result || result.statusCode !== 200 || !result.stream) throw new Error('blob no encontrado');
+    const text = await new Response(result.stream).text();
+    return JSON.parse(text);
   } catch (e) {
     return { espacios: [], asignaciones: [], historial: [], sucursales: [] };
   }
@@ -57,8 +68,13 @@ async function leerDb() {
 
 async function escribirDb(db) {
   db.generatedAt = new Date().toISOString();
+  // cacheControlMaxAge en el mínimo permitido (60s) como defensa en
+  // profundidad -- el fix real es leerDb() de arriba (get con
+  // useCache:false, que ignora esta caché igual), pero bajar el default de
+  // "1 mes" a "60s" acota el daño de cualquier otro lector que en el futuro
+  // vuelva a usar head()/fetch(url) contra la URL pública del blob.
   await put(BLOB_PATHNAME, JSON.stringify(db), {
-    access: 'public', addRandomSuffix: false, contentType: 'application/json', allowOverwrite: true,
+    access: 'public', addRandomSuffix: false, contentType: 'application/json', allowOverwrite: true, cacheControlMaxAge: 60,
   });
 }
 
