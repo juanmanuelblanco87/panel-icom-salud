@@ -42,11 +42,16 @@ const EPS = 1e-6;
 async function leerDb() {
   try {
     const info = await head(BLOB_PATHNAME);
-    const r = await fetch(info.url);
+    // Mismo cuidado que api/exhibiciones-data.js (30/07/2026, ver esa nota):
+    // esta función hace lectura-modificación-escritura sobre el blob, así
+    // que si esta lectura viniera de una copia cacheada vieja, la escritura
+    // de acá pisaría (con datos desactualizados) cualquier cambio guardado
+    // segundos antes por otro pedido. no-store evita esa ventana.
+    const r = await fetch(info.url, { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } catch (e) {
-    return { espacios: [], asignaciones: [], historial: [] };
+    return { espacios: [], asignaciones: [], historial: [], sucursales: [] };
   }
 }
 
@@ -154,6 +159,7 @@ module.exports = async function handler(req, res) {
     db.espacios = db.espacios || [];
     db.asignaciones = db.asignaciones || [];
     db.historial = db.historial || [];
+    db.sucursales = db.sucursales || []; // {value, fachadaUrl, planoUrl} -- 1 por sucursal (punto 6, 30/07/2026)
 
     if (action === 'upsertEspacio') {
       const espacio = body.payload;
@@ -211,10 +217,16 @@ module.exports = async function handler(req, res) {
       const idx = db.espacios.findIndex((e) => e.id === id);
       if (idx === -1) { res.status(404).json({ ok: false, error: 'El espacio ' + id + ' no existe.' }); return; }
       const ahora = new Date().toISOString();
+      // Sucursal del espacio, ANTES de borrarlo -- se graba en cada fila de
+      // historial (ver punto 4, 30/07/2026: "el Historial debería estar por
+      // Sucursal") para que el filtro por sucursal del cliente siga
+      // funcionando incluso después de que este espacio ya no exista en
+      // db.espacios (no se puede resolver por join una vez borrado).
+      const sucursalDelEspacio = db.espacios[idx].sucursal;
       // Las asignaciones vigentes de este espacio pasan al historial como
       // "baja" (nunca se borra historial, solo se cierra vigencia).
       db.asignaciones.filter((a) => a.idEspacio === id).forEach((a) => {
-        db.historial.push({ ...a, vigenteHasta: ahora, usuario: usuario || 'desconocido', fecha: ahora, accion: 'baja' });
+        db.historial.push({ ...a, sucursal: sucursalDelEspacio, vigenteHasta: ahora, usuario: usuario || 'desconocido', fecha: ahora, accion: 'baja' });
       });
       db.asignaciones = db.asignaciones.filter((a) => a.idEspacio !== id);
       db.espacios.splice(idx, 1);
@@ -249,22 +261,47 @@ module.exports = async function handler(req, res) {
       }
 
       const ahora = new Date().toISOString();
+      // Sucursal del espacio grabada en cada fila de historial (ver misma
+      // nota en deleteEspacio) -- permite filtrar Historial por sucursal
+      // aunque el espacio se borre más adelante.
+      const sucursalDelEspacio = espacio ? espacio.sucursal : undefined;
       // Cierra vigencia de las filas actuales de este espacio (pasan a
       // historial con vigenteHasta=ahora) y agrega las nuevas como vigentes.
       db.asignaciones.filter((a) => a.idEspacio === idEspacio).forEach((a) => {
-        db.historial.push({ ...a, vigenteHasta: ahora, usuario: usuario || 'desconocido', fecha: ahora, accion: 'edicion' });
+        db.historial.push({ ...a, sucursal: sucursalDelEspacio, vigenteHasta: ahora, usuario: usuario || 'desconocido', fecha: ahora, accion: 'edicion' });
       });
       db.asignaciones = db.asignaciones.filter((a) => a.idEspacio !== idEspacio);
       filasLimpias.forEach((f) => {
         db.asignaciones.push({ idEspacio, macroCategoria: f.macroCategoria, unidadesAsignadas: f.unidadesAsignadas });
         db.historial.push({
-          idEspacio, macroCategoria: f.macroCategoria, unidadesAsignadas: f.unidadesAsignadas,
+          idEspacio, macroCategoria: f.macroCategoria, unidadesAsignadas: f.unidadesAsignadas, sucursal: sucursalDelEspacio,
           vigenteDesde: ahora, vigenteHasta: null, usuario: usuario || 'desconocido', fecha: ahora, accion: 'edicion',
         });
       });
 
       await escribirDb(db);
       res.status(200).json({ ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones) });
+      return;
+    }
+
+    // Punto 6, 30/07/2026: fachada/plano por sucursal -- upsert simple por
+    // "value" (ICOM|PRO SALUD|JCP), guardando solo los campos que vienen en
+    // el payload (fachadaUrl y/o planoUrl) sin pisar el otro.
+    if (action === 'upsertSucursalMeta') {
+      const { value, fachadaUrl, planoUrl } = body.payload || {};
+      if (!value) { res.status(400).json({ ok: false, error: 'payload.value (sucursal) es obligatorio.' }); return; }
+      const idx = db.sucursales.findIndex((s) => s.value === value);
+      if (idx === -1) {
+        db.sucursales.push({ value, fachadaUrl: fachadaUrl || null, planoUrl: planoUrl || null });
+      } else {
+        db.sucursales[idx] = {
+          ...db.sucursales[idx],
+          fachadaUrl: fachadaUrl !== undefined ? fachadaUrl : db.sucursales[idx].fachadaUrl,
+          planoUrl: planoUrl !== undefined ? planoUrl : db.sucursales[idx].planoUrl,
+        };
+      }
+      await escribirDb(db);
+      res.status(200).json({ ok: true });
       return;
     }
 

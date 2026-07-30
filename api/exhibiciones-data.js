@@ -34,7 +34,7 @@ module.exports = async function handler(req, res) {
       // Excel) -- devolver una base vacía en vez de un error, para que el
       // cliente pueda arrancar igual (mostrando "todavía no hay datos").
       res.setHeader('Cache-Control', 'no-store');
-      res.status(200).json({ espacios: [], asignaciones: [], historial: [], generatedAt: null });
+      res.status(200).json({ espacios: [], asignaciones: [], historial: [], sucursales: [], generatedAt: null });
       return;
     }
     const blobRes = await fetch(info.url, { cache: 'no-store' });
