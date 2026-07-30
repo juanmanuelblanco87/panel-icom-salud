@@ -37,15 +37,24 @@ module.exports = async function handler(req, res) {
       res.status(200).json({ espacios: [], asignaciones: [], historial: [], generatedAt: null });
       return;
     }
-    const blobRes = await fetch(info.url);
+    const blobRes = await fetch(info.url, { cache: 'no-store' });
     if (!blobRes.ok) throw new Error('No se pudo leer el blob (HTTP ' + blobRes.status + ')');
     const text = await blobRes.text();
     res.setHeader('Content-Type', 'application/json');
-    // Los datos de Exhibiciones cambian con el uso normal de la app (altas,
-    // reasignaciones), no una vez por mes como ventas-12m -- cache corto de
-    // borde para no pegarle a Blob en cada carga, pero sin quedarse
-    // desactualizado por horas.
-    res.setHeader('Cache-Control', 'public, s-maxage=15, stale-while-revalidate=60');
+    // Juan Manuel, 30/07/2026: "cargué la imagen, le di guardar, pero no
+    // queda guardada" -- el guardado (exhibiciones-guardar.js) sí persistía
+    // bien en el blob, pero la relectura inmediata que hace el cliente
+    // justo después (recargarDesdeServidor, o simplemente recargar la
+    // página) podía pegarle al CACHE DE BORDE de Vercel (s-maxage=15
+    // anterior), que ignora el `cache:'no-store'` del lado del cliente --
+    // ese header solo evita el caché del NAVEGADOR, no el de Vercel/CDN. En
+    // una ventana de hasta ~15-75s después de cualquier alta/edición
+    // (imagen, medidas, asignación), esto podía devolver una versión
+    // vieja -- SIN la imagen recién subida -- pisando el estado local
+    // recién guardado. Mismo criterio que ya usan oppen-invoices/
+    // oppen-item-cost/oppen-stock (datos que cambian con el uso normal de
+    // la app, no una vez al mes como ventas-12m): sin cache de borde acá.
+    res.setHeader('Cache-Control', 'no-store');
     res.status(200).send(text);
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
