@@ -36,8 +36,40 @@ const MACRO_CATEGORIAS = [
   'Ostomía y Heridas', 'Descartable Médico y Cirugía', 'Incontinencia e Higiene',
   'Audiología', 'Alquileres y Servicios', 'Farmacia y Diabetes',
 ];
-const SUCURSALES = ['ICOM', 'PRO SALUD', 'JCP'];
+// Juan Manuel, 31/07/2026 (punto 2, "+ sucursal"): las 3 sucursales de
+// siempre (ICOM/PRO SALUD/JCP) tienen un "canal" real en oppen.io (usado por
+// el cruce con venta del lado del cliente), así que quedan fijas acá.
+// Sucursales nuevas creadas con la acción "crearSucursal" NO tienen un canal
+// real de facturación (no existe en oppen.io) -- entran a db.sucursales y
+// participan de Espacios/Asignaciones/Historial/Información como cualquier
+// otra, pero sin cruce con venta (KPIs de venta muestran "Sin datos"), ver
+// misma decisión del lado del cliente en exhibiciones_app.html.
+const SUCURSALES_BASE = ['ICOM', 'PRO SALUD', 'JCP'];
 const EPS = 1e-6;
+
+// Todas las sucursales válidas para validar ESPACIO.sucursal: las 3 fijas +
+// cualquier sucursal nueva ya creada (persistida en db.sucursales).
+function sucursalesValidas(db) {
+  const extras = (db.sucursales || []).map((s) => s.value).filter((v) => !SUCURSALES_BASE.includes(v));
+  return SUCURSALES_BASE.concat(extras);
+}
+
+// Deriva un "value" (clave interna, análoga a ICOM/PRO SALUD/JCP) a partir
+// del nombre que tipeó el usuario -- mayúsculas, sin acentos, sin espacios
+// repetidos -- y le agrega un sufijo numérico si ya existe otra sucursal con
+// el mismo value (para no pisar una existente).
+function normalizarValueSucursal(nombre) {
+  return String(nombre).trim().toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ');
+}
+function generarValueUnico(nombre, existentes) {
+  const base = normalizarValueSucursal(nombre);
+  if (!existentes.includes(base)) return base;
+  let i = 2;
+  while (existentes.includes(base + ' ' + i)) i++;
+  return base + ' ' + i;
+}
 
 // Juan Manuel, 31/07/2026 ("si actualizo la app me deja guardar 1 pero
 // cuando intento guardar el segundo cambio no lo hace"): esta función hace
@@ -80,13 +112,14 @@ async function escribirDb(db) {
 
 // --- Controles de integridad ---------------------------------------------
 
-// 6.4: medidas obligatorias.
-function validarMedidas(espacio) {
+// 6.4: medidas obligatorias. sucursalesOk: lista de sucursales válidas en
+// este momento (las 3 fijas + cualquier alta nueva -- ver sucursalesValidas).
+function validarMedidas(espacio, sucursalesOk) {
   const errores = [];
   if (!(espacio.largo > 0)) errores.push('LARGO debe ser mayor a 0.');
   if (!(espacio.alto > 0)) errores.push('ALTO debe ser mayor a 0.');
   if (!(espacio.cant > 0)) errores.push('CANT debe ser mayor a 0.');
-  if (!SUCURSALES.includes(espacio.sucursal)) errores.push('SUCURSAL debe ser una de: ' + SUCURSALES.join(', ') + '.');
+  if (!sucursalesOk.includes(espacio.sucursal)) errores.push('SUCURSAL debe ser una de: ' + sucursalesOk.join(', ') + '.');
   return errores;
 }
 
@@ -119,9 +152,10 @@ function validarAsignacion(espacio, filas) {
 }
 
 // 6.2, informativo -- nunca bloquea. Devuelve el desvío en cm2 por sucursal.
-function calcularCuadrePorSucursal(espacios, asignaciones) {
+// sucursalesOk: ver sucursalesValidas (las 3 fijas + altas nuevas).
+function calcularCuadrePorSucursal(espacios, asignaciones, sucursalesOk) {
   const porSucursal = {};
-  SUCURSALES.forEach((s) => { porSucursal[s] = { supVisualTotal: 0, supCategoriaTotal: 0 }; });
+  sucursalesOk.forEach((s) => { porSucursal[s] = { supVisualTotal: 0, supCategoriaTotal: 0 }; });
   espacios.forEach((e) => {
     if (!porSucursal[e.sucursal]) return;
     porSucursal[e.sucursal].supVisualTotal += (e.largo || 0) * (e.alto || 0) * (e.cant || 0);
@@ -175,12 +209,13 @@ module.exports = async function handler(req, res) {
     db.espacios = db.espacios || [];
     db.asignaciones = db.asignaciones || [];
     db.historial = db.historial || [];
-    db.sucursales = db.sucursales || []; // {value, fachadaUrl, planoUrl} -- 1 por sucursal (punto 6, 30/07/2026)
+    db.sucursales = db.sucursales || []; // {value, fachadaUrl, planoUrl, ...} -- 1 por sucursal (punto 6, 30/07/2026 + punto 1/2, 31/07/2026)
+    const SUCURSALES_OK = sucursalesValidas(db);
 
     if (action === 'upsertEspacio') {
       const espacio = body.payload;
       if (!espacio || !espacio.id) { res.status(400).json({ ok: false, error: 'payload.id es obligatorio.' }); return; }
-      const erroresMedidas = validarMedidas(espacio);
+      const erroresMedidas = validarMedidas(espacio, SUCURSALES_OK);
       if (erroresMedidas.length) {
         res.status(422).json({ ok: false, errores: erroresMedidas });
         return;
@@ -224,7 +259,7 @@ module.exports = async function handler(req, res) {
         }
       }
       await escribirDb(db);
-      res.status(200).json({ ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones) });
+      res.status(200).json({ ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones, SUCURSALES_OK) });
       return;
     }
 
@@ -247,7 +282,7 @@ module.exports = async function handler(req, res) {
       db.asignaciones = db.asignaciones.filter((a) => a.idEspacio !== id);
       db.espacios.splice(idx, 1);
       await escribirDb(db);
-      res.status(200).json({ ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones) });
+      res.status(200).json({ ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones, SUCURSALES_OK) });
       return;
     }
 
@@ -296,28 +331,84 @@ module.exports = async function handler(req, res) {
       });
 
       await escribirDb(db);
-      res.status(200).json({ ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones) });
+      res.status(200).json({ ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones, SUCURSALES_OK) });
       return;
     }
 
-    // Punto 6, 30/07/2026: fachada/plano por sucursal -- upsert simple por
-    // "value" (ICOM|PRO SALUD|JCP), guardando solo los campos que vienen en
-    // el payload (fachadaUrl y/o planoUrl) sin pisar el otro.
+    // Punto 6, 30/07/2026 (fachada/plano) + punto 1, 31/07/2026
+    // ("Información" del local): upsert simple por "value", guardando solo
+    // los campos que vienen en el payload sin pisar el resto -- mismo
+    // criterio para fachadaUrl/planoUrl (imagen) que para
+    // dirección/horario/m2Salon/empleados (texto/JSON).
     if (action === 'upsertSucursalMeta') {
-      const { value, fachadaUrl, planoUrl } = body.payload || {};
+      const { value, ...resto } = body.payload || {};
       if (!value) { res.status(400).json({ ok: false, error: 'payload.value (sucursal) es obligatorio.' }); return; }
+      const CAMPOS_PERMITIDOS = ['fachadaUrl', 'planoUrl', 'direccion', 'horario', 'm2Salon', 'empleados', 'label'];
+      const camposAAplicar = {};
+      CAMPOS_PERMITIDOS.forEach((c) => { if (resto[c] !== undefined) camposAAplicar[c] = resto[c]; });
       const idx = db.sucursales.findIndex((s) => s.value === value);
       if (idx === -1) {
-        db.sucursales.push({ value, fachadaUrl: fachadaUrl || null, planoUrl: planoUrl || null });
+        db.sucursales.push({
+          value, fachadaUrl: null, planoUrl: null, direccion: null, horario: null, m2Salon: null, empleados: [],
+          googlePuntuacion: null, googleFechaActualizacion: null, googleHistorial: [],
+          ...camposAAplicar,
+        });
       } else {
-        db.sucursales[idx] = {
-          ...db.sucursales[idx],
-          fachadaUrl: fachadaUrl !== undefined ? fachadaUrl : db.sucursales[idx].fachadaUrl,
-          planoUrl: planoUrl !== undefined ? planoUrl : db.sucursales[idx].planoUrl,
-        };
+        db.sucursales[idx] = { ...db.sucursales[idx], ...camposAAplicar };
       }
       await escribirDb(db);
       res.status(200).json({ ok: true });
+      return;
+    }
+
+    // Punto 1, 31/07/2026 ("Puntuación Google... por ahora lo colocamos a
+    // mano y que exista la fecha de última actualización y guarde registro
+    // del histórico"): a diferencia de upsertSucursalMeta (que solo
+    // sobrescribe), acá cada guardado AGREGA una fila al historial en vez de
+    // solo pisar el valor actual.
+    if (action === 'actualizarPuntuacionGoogle') {
+      const { value, puntuacion } = body.payload || {};
+      if (!value) { res.status(400).json({ ok: false, error: 'payload.value (sucursal) es obligatorio.' }); return; }
+      const n = Number(puntuacion);
+      if (!(n >= 0 && n <= 5)) { res.status(422).json({ ok: false, error: 'La puntuación debe ser un número entre 0 y 5.' }); return; }
+      const ahora = new Date().toISOString();
+      let idx = db.sucursales.findIndex((s) => s.value === value);
+      if (idx === -1) {
+        db.sucursales.push({
+          value, fachadaUrl: null, planoUrl: null, direccion: null, horario: null, m2Salon: null, empleados: [],
+          googlePuntuacion: null, googleFechaActualizacion: null, googleHistorial: [],
+        });
+        idx = db.sucursales.length - 1;
+      }
+      db.sucursales[idx].googleHistorial = db.sucursales[idx].googleHistorial || [];
+      db.sucursales[idx].googleHistorial.push({ valor: n, fecha: ahora });
+      db.sucursales[idx].googlePuntuacion = n;
+      db.sucursales[idx].googleFechaActualizacion = ahora;
+      await escribirDb(db);
+      res.status(200).json({ ok: true, sucursal: db.sucursales[idx] });
+      return;
+    }
+
+    // Punto 2, 31/07/2026 ("+ sucursal"): alta real de una sucursal nueva --
+    // pide solo nombre/dirección/m2 (el resto -- horario, empleados,
+    // fachada, plano, puntuación Google -- se completa después desde
+    // "Información"). Ver nota grande arriba de SUCURSALES_BASE sobre por
+    // qué una sucursal nueva no tiene "canal" real de facturación.
+    if (action === 'crearSucursal') {
+      const { nombre, direccion, m2 } = body.payload || {};
+      if (!nombre || !String(nombre).trim()) { res.status(400).json({ ok: false, error: 'El nombre de la sucursal es obligatorio.' }); return; }
+      if (!direccion || !String(direccion).trim()) { res.status(400).json({ ok: false, error: 'La dirección es obligatoria.' }); return; }
+      if (!(Number(m2) > 0)) { res.status(400).json({ ok: false, error: 'M² debe ser mayor a 0.' }); return; }
+      const value = generarValueUnico(nombre, SUCURSALES_OK);
+      const nueva = {
+        value, label: String(nombre).trim(), canal: null,
+        direccion: String(direccion).trim(), horario: null, m2Salon: Number(m2), empleados: [],
+        fachadaUrl: null, planoUrl: null,
+        googlePuntuacion: null, googleFechaActualizacion: null, googleHistorial: [],
+      };
+      db.sucursales.push(nueva);
+      await escribirDb(db);
+      res.status(200).json({ ok: true, sucursal: nueva });
       return;
     }
 
