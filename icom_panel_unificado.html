@@ -1569,13 +1569,64 @@ function erpInvoicesUrl(params, unit, bustCache){
   return '/api/oppen-invoices?' + sp.toString();
 }
 
+// Juan Manuel, 03/08/2026 ("es un timeout general, no importa donde abra,
+// tarda y aparece ese cartel sistemáticamente" -- capturas de "La página no
+// responde" Y de los pills "💲 Cargando…"/"📦 Sincronizando…" trabados para
+// siempre): NINGÚN fetch() de este archivo tenía timeout -- si una sola
+// llamada a /api/oppen-invoices, /api/oppen-stock o /api/oppen-item-cost se
+// quedaba colgada (oppen.io a veces tarda o no responde, ver comentario de
+// erpFetchInvoicesChunk más abajo), el navegador esperaba esa promesa PARA
+// SIEMPRE: el pill quedaba en "Cargando…"/"Sincronizando…" sin límite, sin
+// error, sin reintento -- exactamente lo que se ve en las capturas. Peor
+// todavía: erpFetchNow (poll cada 5 min, ERP_POLL_MS) y erpFetchStockNow
+// (poll cada 30 min, STOCK_POLL_MS) se vuelven a disparar solos vía
+// setInterval SIN esperar a que el ciclo anterior termine -- si un ciclo
+// quedaba colgado, el siguiente arrancaba igual encima, acumulando
+// conexiones abiertas hacia el mismo origen (icomdash-p2aa.vercel.app) para
+// siempre, sesión tras sesión. El navegador limita cuántas conexiones
+// simultáneas tolera por origen -- esas conexiones colgadas terminan
+// bloqueando TODO lo demás que necesite pegarle a ese mismo origen (cambiar
+// de pane, cargar Ventas en Vivo de otra unidad, etc.), lo que calza con el
+// síntoma reportado ("no importa donde abra") y con la CPU baja (~20%, nada
+// haciendo un loop -- son conexiones esperando, no cómputo).
+// Fix de 2 partes:
+//  1. erpFetchConTimeout(): wrapper con AbortController -- cualquier fetch
+//     que tarde más de `timeoutMs` se aborta solo y rechaza la promesa (en
+//     vez de quedar pendiente para siempre), liberando la conexión y
+//     dejando que el catch de cada función muestre "⚠ error" en el pill.
+//  2. Guardas de "ya hay un ciclo en vuelo" en erpFetchNow y
+//     erpFetchStockNow (ver erpFetchNowPromise/erpStockFetchPromise más
+//     abajo) -- si el ciclo anterior todavía no terminó cuando el
+//     setInterval (o un disparador manual) pide otro, NO arrancamos uno
+//     nuevo encima: devolvemos la MISMA promesa en curso.
+const ERP_FETCH_TIMEOUT_MS = 25000; // 25s -- generoso para una sola página/invocación del ERP, pero nunca "para siempre"
+async function erpFetchConTimeout(url, opts, timeoutMs){
+  const ctrl = new AbortController();
+  const ms = timeoutMs || ERP_FETCH_TIMEOUT_MS;
+  const timer = setTimeout(()=>ctrl.abort(), ms);
+  try{
+    return await fetch(url, Object.assign({}, opts, {signal: ctrl.signal}));
+  }catch(e){
+    if(e && e.name === 'AbortError') throw new Error('Tiempo de espera agotado ('+Math.round(ms/1000)+'s) consultando '+url);
+    throw e;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+let erpFetchNowPromise = null;
 async function erpFetchNow(){
+  if(erpFetchNowPromise) return erpFetchNowPromise; // ya hay un ciclo en vuelo -- no lo duplicamos, ver nota grande arriba
+  erpFetchNowPromise = erpFetchNowImpl().finally(()=>{ erpFetchNowPromise = null; });
+  return erpFetchNowPromise;
+}
+async function erpFetchNowImpl(){
   try{
     // Fijo a 'minorista' -- ver comentario en erpInvoicesUrl. Este poll de 5
     // min es EXCLUSIVO de Minorista (Seguimiento/Dashboard/Forecast dependen
     // de él vía erpBroadcastToApps más abajo, y esos 3 son, por ahora,
     // conceptos propios de Minorista).
-    const res = await fetch(erpInvoicesUrl({}, 'minorista'), {cache:'no-store'});
+    const res = await erpFetchConTimeout(erpInvoicesUrl({}, 'minorista'), {cache:'no-store'});
     const data = await res.json();
     if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
     ERP_DATA = data;
@@ -1894,7 +1945,7 @@ function erpMergeViewData(results){
 async function erpFetchInvoicesChunk(c, unit, attempt, bustCache){
   attempt = attempt || 1;
   try{
-    const res = await fetch(erpInvoicesUrl({from:c.from, to:c.to}, unit, bustCache), {cache:'no-store'});
+    const res = await erpFetchConTimeout(erpInvoicesUrl({from:c.from, to:c.to}, unit, bustCache), {cache:'no-store'});
     const d = await res.json();
     if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
     return d;
@@ -1922,7 +1973,7 @@ async function erpFetchViewData(fromStr, toStr){
     if(chunks.length <= 1){
       // Rango de ≤1 mes calendario: un solo pedido, exactamente como antes
       // (mismo comportamiento ya probado, cero cambios para el caso común).
-      const res = await fetch(erpInvoicesUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'});
+      const res = await erpFetchConTimeout(erpInvoicesUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'});
       data = await res.json();
       if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
     }else{
@@ -3499,7 +3550,7 @@ async function erpFetchMonthRows(y, m){
   const to = y+'-'+m+'-'+String(lastDay).padStart(2,'0');
   // Fijo a 'minorista' -- ver comentario en erpInvoicesUrl. Este backfill
   // alimenta Seguimiento/Forecast, que son conceptos propios de Minorista.
-  const res = await fetch(erpInvoicesUrl({from:from, to:to}, 'minorista'), {cache:'no-store'});
+  const res = await erpFetchConTimeout(erpInvoicesUrl({from:from, to:to}, 'minorista'), {cache:'no-store'});
   const data = await res.json();
   if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
   return data;
@@ -4071,7 +4122,7 @@ async function erpFetchItemCostNow(){
   const overrideQs = (fxOverride>0) ? ('&fxOverride='+encodeURIComponent(fxOverride)) : '';
   try{
     while(hasMore && pages < MAX_PAGES){
-      const res = await fetch('/api/oppen-item-cost?offset='+offset+'&limit=500'+overrideQs, {cache:'no-store'});
+      const res = await erpFetchConTimeout('/api/oppen-item-cost?offset='+offset+'&limit=500'+overrideQs, {cache:'no-store'});
       const page = await res.json();
       if(!page.ok){ console.log('erpFetchItemCostNow: página con error:', page.error); break; }
       if(page.fx) fx = page.fx;
@@ -4091,7 +4142,13 @@ async function erpFetchItemCostNow(){
   return {costoBySku, nombreBySku, fx};
 }
 
+let erpStockFetchPromise = null;
 async function erpFetchStockNow(){
+  if(erpStockFetchPromise) return erpStockFetchPromise; // ya hay un ciclo en vuelo -- no lo duplicamos, ver nota grande junto a erpFetchConTimeout
+  erpStockFetchPromise = erpFetchStockNowImpl().finally(()=>{ erpStockFetchPromise = null; });
+  return erpStockFetchPromise;
+}
+async function erpFetchStockNowImpl(){
   // Pagina del lado del CLIENTE: muchas llamadas cortas a /api/oppen-stock
   // (cada una trae y clasifica una sola página), en vez de que el servidor
   // loopee las 650+ páginas en una sola invocación — eso podía chocar con el
@@ -4108,7 +4165,7 @@ async function erpFetchStockNow(){
 
   try{
     while(hasMore && pages < MAX_PAGES){
-      const res = await fetch('/api/oppen-stock?offset='+offset+'&limit=500', {cache:'no-store'});
+      const res = await erpFetchConTimeout('/api/oppen-stock?offset='+offset+'&limit=500', {cache:'no-store'});
       const page = await res.json();
       if(!page.ok){ console.log('erpFetchStockNow: página con error:', page.error); break; }
 
