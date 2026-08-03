@@ -33,6 +33,26 @@
 // que lee el cliente (api/stock-snapshot.js) y se borra el progreso
 // intermedio.
 //
+// CONCURRENCIA (agregado tras probar en producción -- ver historial de
+// commits del mismo día): llamar a este endpoint 2 veces casi al mismo
+// tiempo (por ejemplo, reintentar a mano sin esperar a que la llamada
+// anterior termine de verdad del lado del servidor -- WebFetch puede cortar
+// la LECTURA de la respuesta bastante antes de que Vercel termine de
+// ejecutar la función) hace que 2 invocaciones lean/escriban el MISMO
+// progreso a la vez, sin ningún tipo de bloqueo -- la que escribe último
+// gana y puede pisar el trabajo de la otra, perdiendo SKUs ya escaneados
+// (confirmado en vivo: una corrida reportó nSkus:16154 pero el snapshot
+// final quedó vacío, consistente con una 2da invocación más lenta
+// terminando después y pisándolo con datos incompletos). Fix: un lock
+// simple por lease (state.lockedUntil) -- cualquier invocación que empieza
+// reserva el lock ANTES de tocar oppen.io; si otra invocación ve el lock
+// todavía vigente, no hace ningún trabajo y devuelve busy:true para que el
+// llamador reintente en un ratito. No es 100% infalible (2 invocaciones
+// podrían leer "sin lock" en el mismo instante exacto), pero reduce la
+// ventana de carrera de "todo el escaneo" a una fracción de segundo -- more
+// que suficiente si la tarea programada llama de a una, esperando cada
+// respuesta antes de la siguiente (como debe hacerlo).
+//
 // Parámetros opcionales (?secret=... siempre requerido):
 //   reset=1      -- ignora cualquier progreso guardado y arranca de cero
 //                   (útil para forzar un re-escaneo completo a mano).
@@ -44,6 +64,7 @@ const {
 } = require('./_stock-store');
 
 const PROGRESO_STALE_MS = 3 * 60 * 60 * 1000; // 3 horas -- un progreso más viejo que esto se considera una corrida abandonada, se arranca de cero
+const LOCK_BUFFER_MS = 10_000; // margen sobre chunkMs para el lease del lock
 
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -77,7 +98,19 @@ module.exports = async function handler(req, res) {
       };
     }
 
+    // Lock por lease: si otra invocación ya está trabajando (lockedUntil en
+    // el futuro), no tocamos nada -- ni oppen.io ni el progreso guardado --
+    // y le pedimos al llamador que reintente en un ratito.
+    if (state.lockedUntil && Date.now() < state.lockedUntil) {
+      res.status(200).json({
+        ok: true, completo: false, busy: true, retryAfterMs: state.lockedUntil - Date.now(),
+      });
+      return;
+    }
+
     const startTime = Date.now();
+    state.lockedUntil = startTime + chunkMs + LOCK_BUFFER_MS;
+    await escribirProgreso(state); // reservamos el lock ANTES de arrancar a trabajar
 
     if (state.phase === 'stock') {
       const r = await escanearStockCompleto({
@@ -87,6 +120,11 @@ module.exports = async function handler(req, res) {
       state.depoCounts = r.depoCounts;
       state.stockOffset = r.nextOffset;
       if (r.completo) state.phase = 'itemcost'; // Stock terminado -- la próxima llamada arranca ItemCost
+      // Soltamos el lock apenas termina ESTE pedacito de trabajo (no hace
+      // falta mantenerlo reservado hasta que venza LOCK_BUFFER_MS) -- así un
+      // llamador que respeta el patrón normal (esperar la respuesta antes de
+      // volver a llamar) nunca choca contra su propio lock.
+      state.lockedUntil = null;
       await escribirProgreso(state);
       res.status(200).json({
         ok: true,
@@ -117,6 +155,7 @@ module.exports = async function handler(req, res) {
     state.itemCostOffset = r.nextOffset;
 
     if (!r.completo) {
+      state.lockedUntil = null; // ver nota junto a la fase "stock" -- soltamos apenas termina este pedacito
       await escribirProgreso(state);
       res.status(200).json({
         ok: true,
@@ -163,6 +202,17 @@ module.exports = async function handler(req, res) {
     });
   } catch (err) {
     console.error('actualizar-stock-diario error:', err);
+    // Soltamos el lock también en el camino de error -- si no, un pedacito
+    // que falló (ej. oppen.io devolvió un error real) dejaría el progreso
+    // bloqueado hasta que venza LOCK_BUFFER_MS, aunque ya no haya ningún
+    // trabajo real en curso.
+    try {
+      const state = await leerProgreso();
+      if (state && state.lockedUntil) {
+        state.lockedUntil = null;
+        await escribirProgreso(state);
+      }
+    } catch (e2) { /* si esto también falla, el lock igual expira solo tras LOCK_BUFFER_MS */ }
     res.status(500).json({ ok: false, error: String(err.message || err) });
   }
 };
