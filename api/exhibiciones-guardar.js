@@ -1,8 +1,7 @@
 // api/exhibiciones-guardar.js
 //
 // Única puerta de ESCRITURA para la app Exhibiciones (ver
-// api/exhibiciones-data.js para lectura). Guarda todo en el mismo blob
-// (exhibiciones_db.json) con un patrón de leer-modificar-escribir.
+// api/exhibiciones-data.js para lectura).
 //
 // Corre acá (server-side) los 4 controles de integridad de la
 // especificación funcional de Juan Manuel (30/07/2026) que DEBEN bloquear
@@ -28,35 +27,32 @@
 // acción protegida con MAINTENANCE_SECRET es "seed" (carga inicial masiva
 // desde el Excel, pensada para correr UNA sola vez).
 //
-// Juan Manuel, 03/08/2026 ("sigue sin guardar las imágenes, después de
-// cargar 1 o 2 deja de guardarlas"): el patrón leer-modificar-escribir de
-// arriba, tal cual estaba, es inseguro frente a 2 guardados casi
-// simultáneos (ej. subir una foto al espacio E01 y, sin esperar a que
-// termine, abrir el espacio E02 y subir OTRA foto) -- los 2 requests leen
-// la MISMA versión vieja del blob, cada uno la modifica con SU cambio nada
-// más, y el que termina de escribir último pisa por completo el blob
-// entero, incluido el cambio del otro, sin ningún error visible.
+// Juan Manuel, 03/08/2026 ("sigue sin guardar las imágenes... a veces se
+// suben, a veces no, es aleatorio" -- confirmado con un video: subir la
+// foto de un espacio funcionaba, pero guardar la asignación de categorías
+// del MISMO espacio 2 segundos después la borraba sola): el guardado ya NO
+// vive en un solo blob JSON compartido para espacios+asignaciones+
+// historial+sucursales -- cada acción lee y escribe SOLO el dominio de
+// datos que le corresponde (ver api/_exhibiciones-store.js para la
+// explicación completa de la causa real y el fix). Antes, "subir foto"
+// (que solo debería tocar espacios) y "guardar asignación" (que solo
+// debería tocar asignaciones/historial) terminaban compitiendo por el
+// MISMO archivo entero igual, porque las 2 leían/escribían el JSON
+// completo -- ahora ya no comparten ningún archivo de escritura entre sí.
 //
-// Un primer intento de fix acá mismo usó escritura CONDICIONAL (`ifMatch`
-// con el ETag de @vercel/blob) para que el propio servicio rechace
-// escrituras basadas en una lectura vieja -- funcionó perfecto en un test
-// local (mockeando @vercel/blob), pero en producción real terminó
-// rechazando TODAS las escrituras siempre (503 "demasiadas escrituras
-// simultáneas" en cada intento, incluso sin nadie más escribiendo al mismo
-// tiempo -- ver reporte de Juan Manuel subiendo el plano de Pro Salud 5
-// veces seguidas, siempre falló). No se pudo confirmar la causa exacta sin
-// poder probar contra el Blob real desde este entorno (curl/fetch a
-// icomdash-p2aa.vercel.app está bloqueado acá), así que se REVIRTIÓ esa
-// parte -- volvió a la escritura simple de siempre (sin ifMatch) para no
-// dejar el guardado roto en producción. La protección real contra la
-// carrera ahora es del lado del CLIENTE: exhibiciones_app.html serializa
-// todos los guardados de ESTA pestaña con una cola (ver
-// colaEscrituraExhibiciones), así que 2 subidas de imagen ya no salen
-// nunca en paralelo desde el mismo navegador -- que es como se dispara el
-// bug en la práctica (subir una foto y, sin esperar, subir otra).
-const { put, get } = require('@vercel/blob');
-
-const BLOB_PATHNAME = 'exhibiciones_db.json';
+// (Antes de este fix hubo un intento con escritura CONDICIONAL -- `ifMatch`
+// con el ETag de @vercel/blob -- que funcionó perfecto contra un mock local
+// pero rompió TODOS los guardados en producción real sin poder diagnosticar
+// la causa exacta desde este entorno, y se tuvo que revertir. Este fix no
+// depende de ifMatch ni de ningún mecanismo nuevo de @vercel/blob -- separa
+// los datos para que la mayoría de los guardados dejen de competir entre
+// sí directamente, usando las mismas primitivas get()/put() ya probadas en
+// producción.)
+const {
+  leerEspacios, escribirEspacios,
+  leerAsignaciones, escribirAsignaciones,
+  leerSucursales, escribirSucursales,
+} = require('./_exhibiciones-store');
 
 const MACRO_CATEGORIAS = [
   'Movilidad', 'Ortopedia y Rehabilitación', 'Electromedicina y Diagnóstico',
@@ -67,7 +63,7 @@ const MACRO_CATEGORIAS = [
 // siempre (ICOM/PRO SALUD/JCP) tienen un "canal" real en oppen.io (usado por
 // el cruce con venta del lado del cliente), así que quedan fijas acá.
 // Sucursales nuevas creadas con la acción "crearSucursal" NO tienen un canal
-// real de facturación (no existe en oppen.io) -- entran a db.sucursales y
+// real de facturación (no existe en oppen.io) -- entran a sucursales.json y
 // participan de Espacios/Asignaciones/Historial/Información como cualquier
 // otra, pero sin cruce con venta (KPIs de venta muestran "Sin datos"), ver
 // misma decisión del lado del cliente en exhibiciones_app.html.
@@ -75,9 +71,9 @@ const SUCURSALES_BASE = ['ICOM', 'PRO SALUD', 'JCP'];
 const EPS = 1e-6;
 
 // Todas las sucursales válidas para validar ESPACIO.sucursal: las 3 fijas +
-// cualquier sucursal nueva ya creada (persistida en db.sucursales).
-function sucursalesValidas(db) {
-  const extras = (db.sucursales || []).map((s) => s.value).filter((v) => !SUCURSALES_BASE.includes(v));
+// cualquier sucursal nueva ya creada. `sucursales`: array (ver leerSucursales()).
+function sucursalesValidas(sucursales) {
+  const extras = (sucursales || []).map((s) => s.value).filter((v) => !SUCURSALES_BASE.includes(v));
   return SUCURSALES_BASE.concat(extras);
 }
 
@@ -98,66 +94,9 @@ function generarValueUnico(nombre, existentes) {
   return base + ' ' + i;
 }
 
-// Juan Manuel, 31/07/2026 ("si actualizo la app me deja guardar 1 pero
-// cuando intento guardar el segundo cambio no lo hace"): esta función hace
-// lectura-modificación-escritura sobre el blob -- el intento de arreglo
-// anterior (fetch(info.url, {cache:'no-store'})) NO alcanzaba, porque
-// head()+fetch(url) le pega a la URL pública del blob, servida por el CDN
-// de Vercel y cacheada hasta 1 MES por defecto (cacheControlMaxAge de
-// put(), nunca configurado acá). Pisar el mismo pathname con
-// allowOverwrite:true no invalida esa caché al instante (la doc de Vercel
-// dice "puede tardar hasta 60s, o más"), así que la 1ra escritura se veía
-// bien (blob recién creado, nada cacheado todavía) pero la 2da leía la
-// versión cacheada de la 1ra, la "modificaba" encima de datos viejos, y la
-// volvía a escribir -- efectivamente descartando el cambio anterior sin
-// avisar. Fix real: get(pathname, {useCache:false}) en vez de
-// head()+fetch(url) -- lee directo del origen, sin CDN de por medio,
-// garantizando SIEMPRE la última versión escrita (ver "Consistent reads" en
-// la documentación de Vercel Blob).
-async function leerDb() {
-  try {
-    const result = await get(BLOB_PATHNAME, { access: 'public', useCache: false });
-    if (!result || result.statusCode !== 200 || !result.stream) {
-      return { espacios: [], asignaciones: [], historial: [], sucursales: [] };
-    }
-    const text = await new Response(result.stream).text();
-    return JSON.parse(text);
-  } catch (e) {
-    return { espacios: [], asignaciones: [], historial: [], sucursales: [] };
-  }
-}
-
-async function escribirDb(db) {
-  db.generatedAt = new Date().toISOString();
-  // cacheControlMaxAge en el mínimo permitido (60s) como defensa en
-  // profundidad -- el fix real es leerDb() de arriba (get con
-  // useCache:false, que ignora esta caché igual), pero bajar el default de
-  // "1 mes" a "60s" acota el daño de cualquier otro lector que en el futuro
-  // vuelva a usar head()/fetch(url) contra la URL pública del blob.
-  await put(BLOB_PATHNAME, JSON.stringify(db), {
-    access: 'public', addRandomSuffix: false, contentType: 'application/json', allowOverwrite: true, cacheControlMaxAge: 60,
-  });
-}
-
 // Error "real" (validación de negocio) -- se propaga tal cual al cliente.
 function httpError(status, body) {
   return Object.assign(new Error('httpError'), { __httpError: true, status, body });
-}
-
-// Lectura + acción + escritura, SIN ningún mecanismo de concurrencia acá
-// (ver nota grande arriba de por qué -- el intento con ifMatch se revirtió
-// por romper en producción real). `aplicarAccion(db)` muta `db` in-place y
-// devuelve {status, body} para la respuesta HTTP de éxito, o tira
-// httpError() para un error de validación real.
-async function ejecutarAccion(aplicarAccion) {
-  const db = await leerDb();
-  db.espacios = db.espacios || [];
-  db.asignaciones = db.asignaciones || [];
-  db.historial = db.historial || [];
-  db.sucursales = db.sucursales || [];
-  const resultado = await aplicarAccion(db);
-  await escribirDb(db);
-  return resultado;
 }
 
 // --- Controles de integridad ---------------------------------------------
@@ -226,25 +165,36 @@ function calcularCuadrePorSucursal(espacios, asignaciones, sucursalesOk) {
   return resultado;
 }
 
-// --- Acciones (cada una recibe `db` ya leído y la muta in-place) --------
+// --- Acciones --------------------------------------------------------
+// Cada una lee SOLO los dominios que necesita, escribe SOLO los que
+// modifica, y devuelve {status, body} para la respuesta HTTP de éxito (o
+// tira httpError() para un error de validación real).
 
-function accionUpsertEspacio(db, espacio) {
+// Sube/edita un espacio -- incluye guardar la referencia a la foto
+// (imagenUrl) después de subirla a Blob (ver api/exhibiciones-imagen.js).
+// Solo lee/escribe espacios.json; asignaciones.json se lee (nunca se
+// escribe acá) solo para poder recalcular 6.1/6.2 en la respuesta.
+async function accionUpsertEspacio(payload) {
+  const espacio = payload;
   if (!espacio || !espacio.id) throw httpError(400, { ok: false, error: 'payload.id es obligatorio.' });
-  const SUCURSALES_OK = sucursalesValidas(db);
+
+  const sucursales = await leerSucursales();
+  const SUCURSALES_OK = sucursalesValidas(sucursales);
   const erroresMedidas = validarMedidas(espacio, SUCURSALES_OK);
   if (erroresMedidas.length) throw httpError(422, { ok: false, errores: erroresMedidas });
 
-  const idx = db.espacios.findIndex((e) => e.id === espacio.id);
+  const espacios = await leerEspacios();
+  const idx = espacios.findIndex((e) => e.id === espacio.id);
   const esAlta = idx === -1;
   if (esAlta) {
-    db.espacios.push({
+    espacios.push({
       id: espacio.id, descripcion: espacio.descripcion || '', largo: espacio.largo, alto: espacio.alto,
       cant: espacio.cant, sucursal: espacio.sucursal, imagenUrl: espacio.imagenUrl || null,
       fechaRelevamiento: espacio.fechaRelevamiento || null,
     });
   } else {
-    const actual = db.espacios[idx];
-    db.espacios[idx] = {
+    const actual = espacios[idx];
+    espacios[idx] = {
       ...actual,
       descripcion: espacio.descripcion !== undefined ? espacio.descripcion : actual.descripcion,
       largo: espacio.largo !== undefined ? espacio.largo : actual.largo,
@@ -255,13 +205,16 @@ function accionUpsertEspacio(db, espacio) {
       fechaRelevamiento: espacio.fechaRelevamiento !== undefined ? espacio.fechaRelevamiento : actual.fechaRelevamiento,
     };
   }
+
   // Si cambió CANT, re-chequeamos 6.1 contra las asignaciones actuales de
-  // este espacio -- si el cambio de CANT rompe el cuadre, bloqueamos el
-  // guardado del espacio y pedimos ajustar la asignación en el mismo paso
-  // (evita quedar con un espacio "fantasma" descuadrado sin que nadie se
-  // entere).
-  const espacioFinal = db.espacios.find((e) => e.id === espacio.id);
-  const asignacionesDeEsteEspacio = db.asignaciones.filter((a) => a.idEspacio === espacio.id);
+  // este espacio (SOLO LECTURA -- esta acción nunca reescribe
+  // asignaciones.json) -- si el cambio de CANT rompe el cuadre, bloqueamos
+  // el guardado del espacio y pedimos ajustar la asignación en el mismo
+  // paso (evita quedar con un espacio "fantasma" descuadrado sin que nadie
+  // se entere).
+  const { asignaciones } = await leerAsignaciones();
+  const espacioFinal = espacios.find((e) => e.id === espacio.id);
+  const asignacionesDeEsteEspacio = asignaciones.filter((a) => a.idEspacio === espacio.id);
   if (asignacionesDeEsteEspacio.length > 0) {
     const erroresCuadre = validarAsignacion(espacioFinal, asignacionesDeEsteEspacio);
     if (erroresCuadre.length) {
@@ -271,37 +224,53 @@ function accionUpsertEspacio(db, espacio) {
       });
     }
   }
-  return { status: 200, body: { ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones, SUCURSALES_OK) } };
+
+  await escribirEspacios(espacios);
+  return { status: 200, body: { ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(espacios, asignaciones, SUCURSALES_OK) } };
 }
 
-function accionDeleteEspacio(db, payload) {
+// Borra un espacio -- es la única acción que necesita tocar 2 dominios
+// (espacios Y asignaciones/historial) porque borrar un espacio también
+// cierra sus asignaciones vigentes como "baja" en el historial.
+async function accionDeleteEspacio(payload) {
   const { id, usuario } = payload || {};
-  const idx = db.espacios.findIndex((e) => e.id === id);
+  const espacios = await leerEspacios();
+  const idx = espacios.findIndex((e) => e.id === id);
   if (idx === -1) throw httpError(404, { ok: false, error: 'El espacio ' + id + ' no existe.' });
   const ahora = new Date().toISOString();
-  // Sucursal del espacio, ANTES de borrarlo -- se graba en cada fila de
-  // historial (ver punto 4, 30/07/2026: "el Historial debería estar por
-  // Sucursal") para que el filtro por sucursal del cliente siga
-  // funcionando incluso después de que este espacio ya no exista en
-  // db.espacios (no se puede resolver por join una vez borrado).
-  const sucursalDelEspacio = db.espacios[idx].sucursal;
+  const sucursalDelEspacio = espacios[idx].sucursal;
+
+  const { asignaciones, historial } = await leerAsignaciones();
   // Las asignaciones vigentes de este espacio pasan al historial como
   // "baja" (nunca se borra historial, solo se cierra vigencia).
-  db.asignaciones.filter((a) => a.idEspacio === id).forEach((a) => {
-    db.historial.push({ ...a, sucursal: sucursalDelEspacio, vigenteHasta: ahora, usuario: usuario || 'desconocido', fecha: ahora, accion: 'baja' });
+  asignaciones.filter((a) => a.idEspacio === id).forEach((a) => {
+    historial.push({ ...a, sucursal: sucursalDelEspacio, vigenteHasta: ahora, usuario: usuario || 'desconocido', fecha: ahora, accion: 'baja' });
   });
-  db.asignaciones = db.asignaciones.filter((a) => a.idEspacio !== id);
-  db.espacios.splice(idx, 1);
-  const SUCURSALES_OK = sucursalesValidas(db);
-  return { status: 200, body: { ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones, SUCURSALES_OK) } };
+  const asignacionesRestantes = asignaciones.filter((a) => a.idEspacio !== id);
+  espacios.splice(idx, 1);
+
+  await escribirEspacios(espacios);
+  await escribirAsignaciones(asignacionesRestantes, historial);
+
+  const sucursales = await leerSucursales();
+  const SUCURSALES_OK = sucursalesValidas(sucursales);
+  return { status: 200, body: { ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(espacios, asignacionesRestantes, SUCURSALES_OK) } };
 }
 
-function accionGuardarAsignacion(db, payload) {
+// Guarda la asignación de categorías de un espacio -- solo lee/escribe
+// asignaciones.json; espacios.json se lee (nunca se escribe acá) solo para
+// validar el cuadre 6.1 contra las medidas actuales del espacio. Este es
+// justamente el guardado que, en el esquema viejo compartido, podía pisar
+// una foto recién subida al mismo espacio -- ya no puede, porque no
+// reescribe espacios.json.
+async function accionGuardarAsignacion(payload) {
   const { idEspacio, filas, usuario } = payload || {};
   if (!idEspacio || !Array.isArray(filas)) {
     throw httpError(400, { ok: false, error: 'payload debe traer {idEspacio, filas:[{macroCategoria,unidadesAsignadas}]}' });
   }
-  const espacio = db.espacios.find((e) => e.id === idEspacio);
+  const espacios = await leerEspacios();
+  const espacio = espacios.find((e) => e.id === idEspacio);
+
   // Filtramos filas en 0 (no aportan superficie, no hace falta
   // persistirlas) y agrupamos por si el cliente mandó la misma categoría
   // repetida.
@@ -317,50 +286,54 @@ function accionGuardarAsignacion(db, payload) {
   const errores = validarAsignacion(espacio, filasLimpias);
   if (errores.length) throw httpError(422, { ok: false, errores });
 
+  const { asignaciones, historial } = await leerAsignaciones();
   const ahora = new Date().toISOString();
-  // Sucursal del espacio grabada en cada fila de historial (ver misma nota
-  // en accionDeleteEspacio) -- permite filtrar Historial por sucursal
-  // aunque el espacio se borre más adelante.
   const sucursalDelEspacio = espacio ? espacio.sucursal : undefined;
   // Cierra vigencia de las filas actuales de este espacio (pasan a
   // historial con vigenteHasta=ahora) y agrega las nuevas como vigentes.
-  db.asignaciones.filter((a) => a.idEspacio === idEspacio).forEach((a) => {
-    db.historial.push({ ...a, sucursal: sucursalDelEspacio, vigenteHasta: ahora, usuario: usuario || 'desconocido', fecha: ahora, accion: 'edicion' });
+  asignaciones.filter((a) => a.idEspacio === idEspacio).forEach((a) => {
+    historial.push({ ...a, sucursal: sucursalDelEspacio, vigenteHasta: ahora, usuario: usuario || 'desconocido', fecha: ahora, accion: 'edicion' });
   });
-  db.asignaciones = db.asignaciones.filter((a) => a.idEspacio !== idEspacio);
+  const asignacionesRestantes = asignaciones.filter((a) => a.idEspacio !== idEspacio);
   filasLimpias.forEach((f) => {
-    db.asignaciones.push({ idEspacio, macroCategoria: f.macroCategoria, unidadesAsignadas: f.unidadesAsignadas });
-    db.historial.push({
+    asignacionesRestantes.push({ idEspacio, macroCategoria: f.macroCategoria, unidadesAsignadas: f.unidadesAsignadas });
+    historial.push({
       idEspacio, macroCategoria: f.macroCategoria, unidadesAsignadas: f.unidadesAsignadas, sucursal: sucursalDelEspacio,
       vigenteDesde: ahora, vigenteHasta: null, usuario: usuario || 'desconocido', fecha: ahora, accion: 'edicion',
     });
   });
 
-  const SUCURSALES_OK = sucursalesValidas(db);
-  return { status: 200, body: { ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(db.espacios, db.asignaciones, SUCURSALES_OK) } };
+  await escribirAsignaciones(asignacionesRestantes, historial);
+
+  const sucursales = await leerSucursales();
+  const SUCURSALES_OK = sucursalesValidas(sucursales);
+  return { status: 200, body: { ok: true, cuadrePorSucursal: calcularCuadrePorSucursal(espacios, asignacionesRestantes, SUCURSALES_OK) } };
 }
 
 // Punto 6, 30/07/2026 (fachada/plano) + punto 1, 31/07/2026 ("Información"
 // del local): upsert simple por "value", guardando solo los campos que
 // vienen en el payload sin pisar el resto -- mismo criterio para
 // fachadaUrl/planoUrl (imagen) que para dirección/horario/m2Salon/empleados
-// (texto/JSON).
-function accionUpsertSucursalMeta(db, payload) {
+// (texto/JSON). Solo lee/escribe sucursales.json.
+async function accionUpsertSucursalMeta(payload) {
   const { value, ...resto } = payload || {};
   if (!value) throw httpError(400, { ok: false, error: 'payload.value (sucursal) es obligatorio.' });
   const CAMPOS_PERMITIDOS = ['fachadaUrl', 'planoUrl', 'direccion', 'horario', 'm2Salon', 'empleados', 'label'];
   const camposAAplicar = {};
   CAMPOS_PERMITIDOS.forEach((c) => { if (resto[c] !== undefined) camposAAplicar[c] = resto[c]; });
-  const idx = db.sucursales.findIndex((s) => s.value === value);
+
+  const sucursales = await leerSucursales();
+  const idx = sucursales.findIndex((s) => s.value === value);
   if (idx === -1) {
-    db.sucursales.push({
+    sucursales.push({
       value, fachadaUrl: null, planoUrl: null, direccion: null, horario: null, m2Salon: null, empleados: [],
       googlePuntuacion: null, googleFechaActualizacion: null, googleHistorial: [],
       ...camposAAplicar,
     });
   } else {
-    db.sucursales[idx] = { ...db.sucursales[idx], ...camposAAplicar };
+    sucursales[idx] = { ...sucursales[idx], ...camposAAplicar };
   }
+  await escribirSucursales(sucursales);
   return { status: 200, body: { ok: true } };
 }
 
@@ -368,39 +341,44 @@ function accionUpsertSucursalMeta(db, payload) {
 // y que exista la fecha de última actualización y guarde registro del
 // histórico"): a diferencia de accionUpsertSucursalMeta (que solo
 // sobrescribe), acá cada guardado AGREGA una fila al historial en vez de
-// solo pisar el valor actual.
-function accionActualizarPuntuacionGoogle(db, payload) {
+// solo pisar el valor actual. Solo lee/escribe sucursales.json.
+async function accionActualizarPuntuacionGoogle(payload) {
   const { value, puntuacion } = payload || {};
   if (!value) throw httpError(400, { ok: false, error: 'payload.value (sucursal) es obligatorio.' });
   const n = Number(puntuacion);
   if (!(n >= 0 && n <= 5)) throw httpError(422, { ok: false, error: 'La puntuación debe ser un número entre 0 y 5.' });
   const ahora = new Date().toISOString();
-  let idx = db.sucursales.findIndex((s) => s.value === value);
+
+  const sucursales = await leerSucursales();
+  let idx = sucursales.findIndex((s) => s.value === value);
   if (idx === -1) {
-    db.sucursales.push({
+    sucursales.push({
       value, fachadaUrl: null, planoUrl: null, direccion: null, horario: null, m2Salon: null, empleados: [],
       googlePuntuacion: null, googleFechaActualizacion: null, googleHistorial: [],
     });
-    idx = db.sucursales.length - 1;
+    idx = sucursales.length - 1;
   }
-  db.sucursales[idx].googleHistorial = db.sucursales[idx].googleHistorial || [];
-  db.sucursales[idx].googleHistorial.push({ valor: n, fecha: ahora });
-  db.sucursales[idx].googlePuntuacion = n;
-  db.sucursales[idx].googleFechaActualizacion = ahora;
-  return { status: 200, body: { ok: true, sucursal: db.sucursales[idx] } };
+  sucursales[idx].googleHistorial = sucursales[idx].googleHistorial || [];
+  sucursales[idx].googleHistorial.push({ valor: n, fecha: ahora });
+  sucursales[idx].googlePuntuacion = n;
+  sucursales[idx].googleFechaActualizacion = ahora;
+  await escribirSucursales(sucursales);
+  return { status: 200, body: { ok: true, sucursal: sucursales[idx] } };
 }
 
 // Punto 2, 31/07/2026 ("+ sucursal"): alta real de una sucursal nueva --
 // pide solo nombre/dirección/m2 (el resto -- horario, empleados, fachada,
 // plano, puntuación Google -- se completa después desde "Información"). Ver
 // nota grande arriba de SUCURSALES_BASE sobre por qué una sucursal nueva no
-// tiene "canal" real de facturación.
-function accionCrearSucursal(db, payload) {
+// tiene "canal" real de facturación. Solo lee/escribe sucursales.json.
+async function accionCrearSucursal(payload) {
   const { nombre, direccion, m2 } = payload || {};
   if (!nombre || !String(nombre).trim()) throw httpError(400, { ok: false, error: 'El nombre de la sucursal es obligatorio.' });
   if (!direccion || !String(direccion).trim()) throw httpError(400, { ok: false, error: 'La dirección es obligatoria.' });
   if (!(Number(m2) > 0)) throw httpError(400, { ok: false, error: 'M² debe ser mayor a 0.' });
-  const SUCURSALES_OK = sucursalesValidas(db);
+
+  const sucursales = await leerSucursales();
+  const SUCURSALES_OK = sucursalesValidas(sucursales);
   const value = generarValueUnico(nombre, SUCURSALES_OK);
   const nueva = {
     value, label: String(nombre).trim(), canal: null,
@@ -408,17 +386,18 @@ function accionCrearSucursal(db, payload) {
     fachadaUrl: null, planoUrl: null,
     googlePuntuacion: null, googleFechaActualizacion: null, googleHistorial: [],
   };
-  db.sucursales.push(nueva);
+  sucursales.push(nueva);
+  await escribirSucursales(sucursales);
   return { status: 200, body: { ok: true, sucursal: nueva } };
 }
 
 const ACCIONES = {
-  upsertEspacio: (db, payload) => accionUpsertEspacio(db, payload),
-  deleteEspacio: (db, payload) => accionDeleteEspacio(db, payload),
-  guardarAsignacion: (db, payload) => accionGuardarAsignacion(db, payload),
-  upsertSucursalMeta: (db, payload) => accionUpsertSucursalMeta(db, payload),
-  actualizarPuntuacionGoogle: (db, payload) => accionActualizarPuntuacionGoogle(db, payload),
-  crearSucursal: (db, payload) => accionCrearSucursal(db, payload),
+  upsertEspacio: (payload) => accionUpsertEspacio(payload),
+  deleteEspacio: (payload) => accionDeleteEspacio(payload),
+  guardarAsignacion: (payload) => accionGuardarAsignacion(payload),
+  upsertSucursalMeta: (payload) => accionUpsertSucursalMeta(payload),
+  actualizarPuntuacionGoogle: (payload) => accionActualizarPuntuacionGoogle(payload),
+  crearSucursal: (payload) => accionCrearSucursal(payload),
 };
 
 module.exports = async function handler(req, res) {
@@ -444,8 +423,8 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ ok: false, error: 'payload debe traer {espacios:[], asignaciones:[], historial:[]}' });
         return;
       }
-      const db = { espacios, asignaciones, historial: historial || [], sucursales: [] };
-      await escribirDb(db);
+      await escribirEspacios(espacios);
+      await escribirAsignaciones(asignaciones, historial || []);
       res.status(200).json({ ok: true, seeded: true, nEspacios: espacios.length, nAsignaciones: asignaciones.length });
       return;
     }
@@ -454,7 +433,7 @@ module.exports = async function handler(req, res) {
     if (!fn) { res.status(400).json({ ok: false, error: 'action desconocida: ' + action }); return; }
 
     try {
-      const { status, body: respBody } = await ejecutarAccion((db) => fn(db, body.payload));
+      const { status, body: respBody } = await fn(body.payload);
       res.status(status).json(respBody);
     } catch (e) {
       if (e && e.__httpError) { res.status(e.status).json(e.body); return; }
