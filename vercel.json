@@ -14,6 +14,12 @@
     },
     "api/ventas-12m-sku-unidad.js": {
       "maxDuration": 15
+    },
+    "api/actualizar-exhibiciones-venta-12m.js": {
+      "maxDuration": 30
+    },
+    "api/exhibiciones-venta-12m.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
