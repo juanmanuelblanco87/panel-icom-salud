@@ -22,7 +22,7 @@
       "maxDuration": 15
     },
     "api/actualizar-stock-diario.js": {
-      "maxDuration": 300
+      "maxDuration": 60
     },
     "api/stock-fx-override.js": {
       "maxDuration": 60

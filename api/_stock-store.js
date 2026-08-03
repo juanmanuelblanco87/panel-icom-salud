@@ -14,20 +14,28 @@
 // compartido -- TODOS los clientes leen la MISMA foto (api/stock-
 // snapshot.js), sin pegarle a oppen.io ellos mismos.
 //
-// 2 archivos, mismo patrón de "un archivo por dominio" ya usado en
+// 3 archivos, mismo patrón de "un archivo por dominio" ya usado en
 // api/_exhibiciones-store.js (separar lo que se lee/escribe con frecuencias
 // y disparadores distintos):
 //   - stock_snapshot.json     -- { bySku, depoCounts, fx, completo, stats,
-//     generatedAt } -- el resultado del escaneo completo, recalculado 1 vez
-//     por día (o al instante, solo el costo, ver stock_fx_override abajo).
+//     generatedAt } -- el resultado FINAL, ya terminado, del escaneo
+//     completo -- lo único que lee el cliente (api/stock-snapshot.js).
 //   - stock_fx_override.json  -- { rate, updatedAt } -- tipo de cambio
 //     manual COMPARTIDO entre todos los usuarios (antes vivía en IndexedDB,
 //     por NAVEGADOR -- invisible para una tarea programada que corre del
 //     lado del servidor, ver api/stock-fx-override.js).
-const { put, get } = require('@vercel/blob');
+//   - stock_scan_progress.json -- estado INTERMEDIO del escaneo diario
+//     mientras está en curso (ver api/actualizar-stock-diario.js, agregado
+//     03/08/2026 tras confirmar en producción que una sola llamada HTTP no
+//     alcanza para escanear 654+200 páginas antes de que el LLAMADOR
+//     externo -- ej. WebFetch de una tarea programada -- corte la conexión
+//     por su propio timeout). Se borra solo cuando el escaneo completo
+//     termina.
+const { put, get, del } = require('@vercel/blob');
 
 const BLOB_SNAPSHOT = 'stock_snapshot.json';
 const BLOB_FX_OVERRIDE = 'stock_fx_override.json';
+const BLOB_PROGRESS = 'stock_scan_progress.json';
 
 // Mismo fix de "Consistent reads" ya documentado en api/_exhibiciones-
 // store.js: get() con useCache:false lee directo del origen, sin pasar por
@@ -69,7 +77,25 @@ async function escribirFxOverride(rate) {
   await escribirBlobJson(BLOB_FX_OVERRIDE, { rate: (Number(rate) > 0) ? Number(rate) : null });
 }
 
+// Progreso intermedio del escaneo diario retomable (ver comentario grande
+// arriba y api/actualizar-stock-diario.js).
+async function leerProgreso() {
+  return leerBlobJson(BLOB_PROGRESS);
+}
+async function escribirProgreso(data) {
+  await escribirBlobJson(BLOB_PROGRESS, data);
+}
+async function borrarProgreso() {
+  try {
+    await del(BLOB_PROGRESS);
+  } catch (e) {
+    // No hay progreso guardado (ya se había borrado, o nunca se escribió) --
+    // no es un error real, no hace falta hacer nada más.
+  }
+}
+
 module.exports = {
   leerSnapshot, escribirSnapshot,
   leerFxOverride, escribirFxOverride,
+  leerProgreso, escribirProgreso, borrarProgreso,
 };

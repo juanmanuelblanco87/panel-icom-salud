@@ -26,12 +26,28 @@
 // de oppen.io en producción" -- todo acá es estrictamente SECUENCIAL, nunca
 // en paralelo.
 //
-// Manejo de tiempo: cada función de escaneo recibe {startTime, maxMs} y
-// corta sola (completo:false) si se acerca a ese límite, en vez de arriesgar
-// que la función serverless entera se corte de golpe a mitad de una
-// escritura. Un snapshot parcial (con lo que se llegó a procesar) es mejor
-// que nada -- el próximo run diario vuelve a escanear todo desde cero, no
-// hace falta ninguna lógica de "reanudar" entre invocaciones distintas.
+// Manejo de tiempo -- REVISADO 03/08/2026, mismo día del pedido, tras
+// probar el primer run real en producción: la idea original (una sola
+// invocación HTTP escaneando TODO, con corte por tiempo como red de
+// seguridad "por si acaso") resultó FALSA en la práctica -- una tarea
+// programada real llama a este endpoint con una herramienta (WebFetch) que
+// tiene su PROPIO timeout de lectura, bastante más corto que los ~3-5
+// minutos que tarda escanear 654 + 200 páginas secuenciales contra oppen.io.
+// Confirmado en vivo: WebFetch cortó la conexión con "Read timeout" a los
+// pocos segundos, y como esta función solo escribía el resultado UNA vez al
+// final, el corte de conexión se llevó puesto TODO el trabajo -- el
+// snapshot quedó vacío después de varios minutos de espera, sin ningún
+// rastro de progreso.
+//
+// Por eso cada función de escaneo ahora es RETOMABLE: recibe {startOffset,
+// bySku/depoCounts (o costoBySku/nombreBySku/fx), startTime, maxMs} y
+// devuelve, además de completo/pages/recordsProcessed, un `nextOffset` para
+// que el LLAMADOR (api/actualizar-stock-diario.js) guarde ese progreso en un
+// blob entre invocaciones (ver stock_scan_progress en api/_stock-store.js) y
+// vuelva a llamar al mismo endpoint para el siguiente pedacito -- cada
+// invocación individual dura, a propósito, mucho menos que cualquier timeout
+// de herramienta razonable (maxMs por defecto bien chico, ver
+// actualizar-stock-diario.js).
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 
 let cachedToken = null;
@@ -102,27 +118,28 @@ async function fetchStockPage(token, offset, limit) {
   return res.json();
 }
 
-// Escanea TODO el catálogo de Stock, página por página, SECUENCIAL.
-async function escanearStockCompleto({ startTime, maxMs }) {
+// Escanea un PEDAZO del catálogo de Stock, arrancando en startOffset,
+// página por página, SECUENCIAL -- corta por tiempo (maxMs) mucho antes de
+// cualquier timeout externo razonable. bySku/depoCounts vienen del llamador
+// (acumulador entre llamadas sucesivas, ver api/actualizar-stock-diario.js)
+// y se devuelven mutados/actualizados.
+async function escanearStockCompleto({
+  startTime, maxMs, startOffset = 0, bySku = {}, depoCounts = {},
+}) {
   const token = await getToken();
-  let offset = 0;
+  let offset = startOffset;
   let hasMore = true;
   let pages = 0;
   let recordsProcessed = 0;
   const MAX_PAGES = 900; // margen sobre las ~654 páginas confirmadas del catálogo completo
-  const depoCounts = {};
-  const bySku = {}; // sku -> {qtyDisponible, qtyExcluida, byCanal, byDepoSinMapear, costo}
 
   while (hasMore && pages < MAX_PAGES) {
-    if (Date.now() - startTime > maxMs) {
-      console.warn(`escanearStockCompleto: se cortó por tiempo tras ${pages} páginas -- se guarda parcial, el próximo run diario vuelve a escanear todo.`);
-      break;
-    }
+    if (Date.now() - startTime > maxMs) break;
     let page;
     try {
       page = await fetchStockPage(token, offset, 500);
     } catch (e) {
-      console.error('escanearStockCompleto: error de página, se corta acá (queda parcial):', e);
+      console.error('escanearStockCompleto: error de página en offset ' + offset + ', se corta acá (se reintenta desde el mismo offset en la próxima llamada):', e);
       break;
     }
     const rawRows = page.data || [];
@@ -148,7 +165,9 @@ async function escanearStockCompleto({ startTime, maxMs }) {
     offset += 500;
     pages++;
   }
-  return { bySku, depoCounts, pages, recordsProcessed, completo: !hasMore };
+  return {
+    bySku, depoCounts, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
+  };
 }
 
 let cachedFx = null; // { rate, fecha }
@@ -186,31 +205,29 @@ async function fetchItemCostPage(token, offset, limit) {
   return res.json();
 }
 
-// Escanea TODO el catálogo de ItemCost, página por página, SECUENCIAL.
-// fxOverride (opcional): si viene (> 0), se usa TAL CUAL para convertir
-// costos en USD a ARS, sin siquiera consultar dolarapi.com (mismo criterio
-// que "PISAR A MANO" en oppen-item-cost.js).
-async function escanearItemCostCompleto({ fxOverride, startTime, maxMs }) {
+// Escanea un PEDAZO del catálogo de ItemCost, arrancando en startOffset,
+// página por página, SECUENCIAL. fxOverride (opcional): si viene (> 0), se
+// usa TAL CUAL para convertir costos en USD a ARS, sin siquiera consultar
+// dolarapi.com (mismo criterio que "PISAR A MANO" en oppen-item-cost.js).
+// costoBySku/nombreBySku/fx vienen del llamador (acumulador entre llamadas
+// sucesivas) y se devuelven mutados/actualizados.
+async function escanearItemCostCompleto({
+  fxOverride, startTime, maxMs, startOffset = 0, costoBySku = {}, nombreBySku = {}, fx = null,
+}) {
   const token = await getToken();
-  let offset = 0;
+  let offset = startOffset;
   let hasMore = true;
   let pages = 0;
   let recordsProcessed = 0;
   const MAX_PAGES = 200; // margen generoso sobre el tamaño esperado del catálogo de artículos
-  const costoBySku = {};
-  const nombreBySku = {};
-  let fx = null;
 
   while (hasMore && pages < MAX_PAGES) {
-    if (Date.now() - startTime > maxMs) {
-      console.warn(`escanearItemCostCompleto: se cortó por tiempo tras ${pages} páginas -- se guarda parcial.`);
-      break;
-    }
+    if (Date.now() - startTime > maxMs) break;
     let page;
     try {
       page = await fetchItemCostPage(token, offset, 500);
     } catch (e) {
-      console.error('escanearItemCostCompleto: error de página, se corta acá (queda parcial):', e);
+      console.error('escanearItemCostCompleto: error de página en offset ' + offset + ', se corta acá (se reintenta desde el mismo offset en la próxima llamada):', e);
       break;
     }
     const rawRows = page.data || [];
@@ -257,7 +274,7 @@ async function escanearItemCostCompleto({ fxOverride, startTime, maxMs }) {
     pages++;
   }
   return {
-    costoBySku, nombreBySku, fx, pages, recordsProcessed, completo: !hasMore,
+    costoBySku, nombreBySku, fx, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
   };
 }
 
