@@ -3905,8 +3905,6 @@ async function erpBackfillMonth(){
 }
 
 let erpGlobalStarted = false;
-const STOCK_POLL_MS = 30 * 60 * 1000; // 30 minutos — el stock cambia más lento que las ventas, y la consulta al ERP puede tardar bastante (no tiene filtro de fecha, es todo el catálogo)
-let stockPollTimer = null;
 
 // Botón de emergencia: si algo no reaccionó solo (por ejemplo, una pestaña
 // que quedó abierta desde ANTES de un despliegue nuevo, con código viejo
@@ -4036,14 +4034,27 @@ window.addEventListener('message', function(ev){
     // rate null/0 -- el tipo de cambio que se usa para convertir a ARS los
     // costos en USD de ItemCost (ver "PISAR A MANO" en api/oppen-item-cost.js
     // y Juan Manuel, 24/07/2026: "deja la opción de pisarlo a mano en el caso
-    // que este fallando"). Stocks nos manda este mensaje directo (es hijo
-    // nuestro, un nivel), lo guardamos en el mismo IndexedDB compartido y
-    // relanzamos un sync inmediato -- así no hay que esperar al próximo ciclo
-    // de polling (STOCK_POLL_MS) para verlo reflejado.
+    // que este fallando").
+    //
+    // Juan Manuel, 03/08/2026 ("El Stock se actualiza demasiado... que esta
+    // info este disponible para todos"): este valor pasó de vivir en
+    // IndexedDB (por navegador, invisible para la tarea programada que ahora
+    // corre del lado del servidor una vez por día) a un blob COMPARTIDO --
+    // ver api/stock-fx-override.js. Guardarlo ahí dispara, del lado del
+    // servidor, un re-escaneo rápido de SOLO ItemCost (no de Stock entero,
+    // que no depende del tipo de cambio) para que el costo actualizado se
+    // vea reflejado casi al instante, sin esperar el próximo ciclo diario de
+    // las 6am -- acá pedimos el snapshot de nuevo (erpFetchStockNow) para
+    // traer ese costo recién recalculado.
     (async ()=>{
       try{
         const rate = (Number(d.rate) > 0) ? Number(d.rate) : null;
-        await pmIdbSet(FX_OVERRIDE_IDB_KEY, rate);
+        const res = await erpFetchConTimeout('/api/stock-fx-override', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({rate}),
+        }, 60000);
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'No se pudo guardar el tipo de cambio.');
         await erpFetchStockNow();
         if(ev.source) ev.source.postMessage({type:'icom_set_fx_override_result', ok:true}, '*');
       }catch(e){
@@ -4073,75 +4084,41 @@ function erpStartGlobalPolling(){
     erpFetchNow();
     erpPollTimer = setInterval(erpFetchNow, ERP_POLL_MS);
   });
+  // Juan Manuel, 03/08/2026 ("El Stock se actualiza demasiado, quisiera que
+  // solo se actualice 1 vez a la mañana (6:00 am) y que esta info este
+  // disponible para todos los que se sumen a la app"): Stock ya NO pagina
+  // oppen.io del lado del cliente -- el escaneo completo corre 1 sola vez
+  // por día en el servidor (ver api/actualizar-stock-diario.js, tarea
+  // programada 6:00 AM Argentina) y acá solo se lee el resultado ya
+  // calculado (ver erpFetchStockNowImpl). Por eso alcanza con pedirlo 1 sola
+  // vez al abrir/recargar la página -- ya no hace falta ningún setInterval
+  // repitiéndolo cada 30 minutos (la foto del servidor no cambia más seguido
+  // que eso de todos modos; una pestaña que quede abierta muchas horas
+  // simplemente no se va a refrescar sola hasta que se recargue -- trade-off
+  // aceptado a pedido, ya que el dato de fondo tampoco cambia más seguido).
   erpFetchStockNow();
-  stockPollTimer = setInterval(erpFetchStockNow, STOCK_POLL_MS);
 }
 
-// Trae el costo REAL por artículo desde la entidad ItemCost del ERP (ver
-// api/oppen-item-cost.js) — SOLUCIÓN DE FONDO (Juan Manuel, 24/07/2026): el
-// "Costo Operativo" que se ve en oppen.io NO sale de la entidad Stock (esa
-// trae Cost vacío el 100% de las veces, confirmado) sino de una entidad
-// aparte, ItemCost, unida al artículo por Código — encontrada inspeccionando
-// la consulta real de la pantalla "Listado de Stock" de oppen.io. Es una
-// entidad más del mismo genericapi que ya usamos con nuestro usuario de
-// servicio (no la sesión del navegador), así que se puede automatizar igual
-// que Stock/Invoice. Pagina del lado del cliente, mismo patrón que
-// erpFetchStockNow -- pero es MUCHO más liviana (una fila por artículo, no
-// por SKU+depósito+lote/serie), así que termina rápido.
-// PISAR A MANO EL TIPO DE CAMBIO (Juan Manuel, 24/07/2026 — "coloca el tipo
-// de cambio con el que está calculando y deja la opción de pisarlo a mano
-// en el caso que este fallando"): el override se guarda en la misma
-// IndexedDB compartida con Seguimiento/Stocks (ver pmIdbGet/pmIdbSet más
-// arriba) bajo esta clave. Lo escribe icom_set_fx_override (más abajo, a
-// pedido de Stocks) y lo lee acá antes de cada sync -- así sobrevive un
-// refresh de página y se sigue aplicando en cada ciclo de polling, no solo
-// una vez.
-const FX_OVERRIDE_IDB_KEY = 'costo_fx_override';
-
-async function erpFetchItemCostNow(){
-  let offset = 0;
-  let hasMore = true;
-  let pages = 0;
-  let recordsProcessed = 0;
-  const MAX_PAGES = 200; // margen generoso sobre el tamaño esperado del catálogo de artículos
-  const costoBySku = {};
-  // Juan Manuel, 29/07/2026 (9no pedido -- "el nombre de 15565 sigue sin
-  // aparecer, lo mismo que varios más"): confirmado con un endpoint de
-  // diagnóstico que ItemCost trae un campo `Name` con el nombre REAL del
-  // artículo (ver api/oppen-item-cost.js) -- antes solo se leía r.costo de
-  // esta misma respuesta, descartando r.nombre sin usarlo para nada. A
-  // diferencia del nombre que llega por Invoice (it.Name, una línea de
-  // factura puntual que puede venir vacía la primera vez que se ve un SKU,
-  // dejándolo "atascado" para siempre con su propio número como nombre —
-  // ver registerSkuInCatalog en Seguimiento), ItemCost es una fila POR
-  // ARTÍCULO: mucho más confiable como fuente de nombre real.
-  const nombreBySku = {};
-  let fx = null; // { rate, fecha, source } de la última página que trajo un valor -- ver api/oppen-item-cost.js
-  let fxOverride = null;
-  try{ fxOverride = await pmIdbGet(FX_OVERRIDE_IDB_KEY); }catch(e){ console.log('erpFetchItemCostNow: error leyendo override de tipo de cambio (seguimos con el oficial):', e); }
-  const overrideQs = (fxOverride>0) ? ('&fxOverride='+encodeURIComponent(fxOverride)) : '';
-  try{
-    while(hasMore && pages < MAX_PAGES){
-      const res = await erpFetchConTimeout('/api/oppen-item-cost?offset='+offset+'&limit=500'+overrideQs, {cache:'no-store'});
-      const page = await res.json();
-      if(!page.ok){ console.log('erpFetchItemCostNow: página con error:', page.error); break; }
-      if(page.fx) fx = page.fx;
-      page.rows.forEach(r=>{
-        recordsProcessed++;
-        if(r.costo>0) costoBySku[r.sku] = r.costo;
-        if(r.nombre) nombreBySku[r.sku] = r.nombre;
-      });
-      hasMore = !!page.hasMore;
-      offset = page.nextOffset;
-      pages++;
-    }
-    console.log('erpFetchItemCostNow: '+(hasMore?'se cortó por el tope de páginas':'escaneo completo')+' — '+pages+' páginas, '+recordsProcessed+' artículos, '+Object.keys(costoBySku).length+' con costo real, '+Object.keys(nombreBySku).length+' con nombre real.'+(fx?(' Tipo de cambio USD→ARS usado: $'+fx.rate+' ('+fx.source+').'):''));
-  }catch(e){
-    console.log('erpFetchItemCostNow: error consultando /api/oppen-item-cost (seguimos sin costo/nombre real de ItemCost, no bloquea el resto del sync):', e);
-  }
-  return {costoBySku, nombreBySku, fx};
-}
-
+// Juan Manuel, 03/08/2026 ("El Stock se actualiza demasiado, quisiera que
+// solo se actualice 1 vez a la mañana (6:00 am) y que esta info este
+// disponible para todos los que se sumen a la app"): antes, ESTE bloque
+// paginaba oppen.io del lado del CLIENTE -- Stock completo (~654 páginas) +
+// ItemCost completo (~200 páginas, para el costo real y el nombre de cada
+// artículo, ver "Trae el costo REAL por artículo" en versiones anteriores de
+// este archivo) -- CADA pestaña de CADA usuario, cada 30 minutos
+// (STOCK_POLL_MS). Nada se compartía entre usuarios ni se calculaba una sola
+// vez: exactamente el síntoma reportado.
+//
+// Ahora ese escaneo completo (Stock + ItemCost, siempre secuencial contra
+// oppen.io, nunca en paralelo) corre UNA sola vez por día del lado del
+// SERVIDOR (tarea programada, 6:00 AM Argentina, ver
+// api/actualizar-stock-diario.js) y guarda el resultado en un blob
+// compartido -- este bloque ahora solo LEE esa foto ya calculada
+// (api/stock-snapshot.js), la misma para todos los usuarios. El tipo de
+// cambio manual ("PISAR A MANO", Juan Manuel 24/07/2026) pasó del mismo modo
+// de IndexedDB (por navegador) a un blob compartido (ver
+// api/stock-fx-override.js e icom_set_fx_override más arriba) -- ya no hace
+// falta leerlo acá antes de cada sync, el servidor ya lo aplica solo.
 let erpStockFetchPromise = null;
 async function erpFetchStockNow(){
   if(erpStockFetchPromise) return erpStockFetchPromise; // ya hay un ciclo en vuelo -- no lo duplicamos, ver nota grande junto a erpFetchConTimeout
@@ -4149,87 +4126,21 @@ async function erpFetchStockNow(){
   return erpStockFetchPromise;
 }
 async function erpFetchStockNowImpl(){
-  // Pagina del lado del CLIENTE: muchas llamadas cortas a /api/oppen-stock
-  // (cada una trae y clasifica una sola página), en vez de que el servidor
-  // loopee las 650+ páginas en una sola invocación — eso podía chocar con el
-  // límite de tiempo de la función serverless sin importar qué configuráramos
-  // en vercel.json. Acumulamos la agregación acá mismo, en el navegador.
   erpSetStockStatus('Sincronizando…', 'loading');
-  let offset = 0;
-  let hasMore = true;
-  let pages = 0;
-  let recordsProcessed = 0;
-  const MAX_PAGES = 900; // margen sobre las ~654 páginas confirmadas del catálogo completo
-  const depoCounts = {};
-  const bySku = {}; // sku -> {qtyDisponible, qtyExcluida, byCanal, byDepoSinMapear, costo}
+  let bySku = {};
+  let itemCostFx = null;
+  let snapshotGeneratedAt = null;
+  let snapshotCompleto = true;
 
   try{
-    while(hasMore && pages < MAX_PAGES){
-      const res = await erpFetchConTimeout('/api/oppen-stock?offset='+offset+'&limit=500', {cache:'no-store'});
-      const page = await res.json();
-      if(!page.ok){ console.log('erpFetchStockNow: página con error:', page.error); break; }
-
-      page.rows.forEach(r=>{
-        recordsProcessed++;
-        depoCounts[r.depo] = (depoCounts[r.depo]||0) + 1;
-        if(!bySku[r.sku]) bySku[r.sku] = {qtyDisponible:0, qtyExcluida:0, byCanal:{}, byDepoSinMapear:{}, costo:0};
-        const s = bySku[r.sku];
-        if(r.excluded){ s.qtyExcluida += r.qty; return; }
-        s.qtyDisponible += r.qty;
-        // El servidor (api/oppen-stock.js) ya reporta el pool compartido
-        // DEPO-CEN una sola vez, como canal "Bella Vista" (antes "Canal
-        // Online" -- Juan Manuel, 27/07/2026) — antes acá se duplicaba
-        // manualmente en 'Tienda Online' Y 'Mercado Libre', lo que hacía que
-        // sumar $$ por canal contara ese pool dos veces. Ya no hace falta
-        // ningún caso especial: cada fila tiene un solo canal.
-        if(r.canal){
-          s.byCanal[r.canal] = (s.byCanal[r.canal]||0) + r.qty;
-        }else{
-          s.byDepoSinMapear[r.depo] = (s.byDepoSinMapear[r.depo]||0) + r.qty;
-        }
-      });
-
-      hasMore = !!page.hasMore;
-      offset = page.nextOffset;
-      pages++;
-      // Progreso visible en la consola — útil para saber que no está "trabado".
-      if(pages % 10 === 0) console.log('erpFetchStockNow: '+pages+' páginas, '+recordsProcessed+' registros procesados...');
-    }
-
-    if(!hasMore){
-      console.log('erpFetchStockNow: escaneo completo — '+pages+' páginas, '+recordsProcessed+' registros.');
-    }else{
-      console.log('erpFetchStockNow: se cortó por el tope de '+MAX_PAGES+' páginas sin terminar — puede haber más stock sin procesar. Avisar si esto pasa seguido.');
-    }
-
-    // Costo real por artículo (ItemCost) -- se busca DESPUÉS del escaneo de
-    // Stock y se mezcla acá mismo, así un solo mensaje ('icom_erp_stock') le
-    // lleva a Seguimiento tanto la cantidad disponible como el costo real.
-    // Si esto falla, seguimos igual con costo:0 (mismo comportamiento que
-    // había antes de este fix) -- no bloqueamos la sincronización de stock
-    // por un problema puntual de ItemCost.
-    //
-    // Juan Manuel, 29/07/2026 (9no pedido): el mismo ItemCost también trae el
-    // NOMBRE real del artículo (ver erpFetchItemCostNow) -- se mezcla acá
-    // igual que el costo, como bySku[sku].nombre, para que Seguimiento
-    // (applyErpStock) pueda registrar/recuperar el nombre de cualquier SKU
-    // con stock, sin depender de que ese SKU se haya facturado alguna vez
-    // con un nombre real en la línea de factura.
-    let itemCostFx = null;
-    try{
-      const itemCostResult = await erpFetchItemCostNow();
-      const costoBySku = itemCostResult.costoBySku;
-      const nombreBySku = itemCostResult.nombreBySku;
-      itemCostFx = itemCostResult.fx;
-      Object.entries(costoBySku).forEach(([sku, costo])=>{
-        if(!bySku[sku]) bySku[sku] = {qtyDisponible:0, qtyExcluida:0, byCanal:{}, byDepoSinMapear:{}, costo:0};
-        bySku[sku].costo = costo;
-      });
-      Object.entries(nombreBySku).forEach(([sku, nombre])=>{
-        if(!bySku[sku]) bySku[sku] = {qtyDisponible:0, qtyExcluida:0, byCanal:{}, byDepoSinMapear:{}, costo:0};
-        bySku[sku].nombre = nombre;
-      });
-    }catch(e){ console.log('erpFetchStockNow: error mezclando costo/nombre de ItemCost:', e); }
+    const res = await erpFetchConTimeout('/api/stock-snapshot', {cache:'no-store'});
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'Respuesta inválida de /api/stock-snapshot');
+    bySku = data.bySku || {};
+    itemCostFx = data.fx || null;
+    snapshotGeneratedAt = data.generatedAt || null;
+    snapshotCompleto = data.completo !== false;
+    console.log('erpFetchStockNow: snapshot leído -- '+Object.keys(bySku).length+' SKUs, generado '+(snapshotGeneratedAt || '(nunca)')+(snapshotCompleto?'':' (PARCIAL -- el último escaneo diario se cortó antes de terminar)')+(itemCostFx?(' Tipo de cambio USD→ARS: $'+itemCostFx.rate+' ('+itemCostFx.source+').'):''));
 
     const segFrame = await erpWaitForFrame('#pane-seguimiento iframe', 8000);
     if(segFrame && segFrame.contentWindow){
@@ -4293,7 +4204,7 @@ async function erpFetchStockNowImpl(){
       erpRenderSkuTable();
     }, 1500);
   }catch(e){
-    console.error('Error consultando /api/oppen-stock:', e);
+    console.error('Error consultando /api/stock-snapshot:', e);
     erpSetStockStatus('⚠ error', 'err');
     erpBroadcastSyncStatus('stock', false, 'Stock: ⚠ error');
   }

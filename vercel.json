@@ -20,6 +20,15 @@
     },
     "api/exhibiciones-venta-12m.js": {
       "maxDuration": 15
+    },
+    "api/actualizar-stock-diario.js": {
+      "maxDuration": 300
+    },
+    "api/stock-fx-override.js": {
+      "maxDuration": 60
+    },
+    "api/stock-snapshot.js": {
+      "maxDuration": 10
     }
   },
   "rewrites": [
