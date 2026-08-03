@@ -1600,6 +1600,27 @@ function erpInvoicesUrl(params, unit, bustCache){
 //     setInterval (o un disparador manual) pide otro, NO arrancamos uno
 //     nuevo encima: devolvemos la MISMA promesa en curso.
 const ERP_FETCH_TIMEOUT_MS = 25000; // 25s -- generoso para una sola página/invocación del ERP, pero nunca "para siempre"
+// Juan Manuel, 03/08/2026: "me da timeout queriendo obtener info del ultimo
+// mes" -- confirmado con un rango de 1 mes calendario completo (01/07 a
+// 31/07) en la vista ICOM (agregada, las 4 unidades mezcladas). A diferencia
+// de lo que asume el comentario de ERP_FETCH_TIMEOUT_MS ("una sola página"),
+// /api/oppen-invoices pagina TODO el rango pedido puertas adentro de una
+// sola invocación (ver el comentario grande junto a erpDateChunksForRange:
+// un `while(hasMore)` secuencial, página por página, contra oppen.io) -- un
+// mes calendario completo son bastantes páginas, y mezclar las 4 unidades
+// (vista ICOM) multiplica el volumen por hasta 4x contra una sola unidad.
+// api/oppen-invoices.js ya tiene maxDuration:60 (ver vercel.json) -- 25s del
+// lado del cliente cortaba la espera mucho antes de que el servidor
+// terminara, aunque este siguiera trabajando de verdad (no colgado).
+// EXACTAMENTE el mismo problema (confirmado ahí el 28-29/07/2026, ver el
+// comentario grande junto a "maxDuration" en api/oppen-invoices.js) ya se
+// había resuelto para Stocks (fetchVentas30d/fetchUnMesUnidadNegocio en
+// B64_STOCKS.html) con un AbortController de 65s -- A PROPÓSITO más generoso
+// que el límite de 60s del servidor, "para no cortar de este lado un pedido
+// que el servidor todavía podría terminar bien". Ese mismo ajuste nunca se
+// había hecho acá (Ventas en Vivo, motor separado en el shell) -- se usa el
+// mismo valor (65s) por el mismo motivo, no un valor propio inventado.
+const ERP_INVOICES_RANGE_TIMEOUT_MS = 65000;
 async function erpFetchConTimeout(url, opts, timeoutMs){
   const ctrl = new AbortController();
   const ms = timeoutMs || ERP_FETCH_TIMEOUT_MS;
@@ -1945,7 +1966,7 @@ function erpMergeViewData(results){
 async function erpFetchInvoicesChunk(c, unit, attempt, bustCache){
   attempt = attempt || 1;
   try{
-    const res = await erpFetchConTimeout(erpInvoicesUrl({from:c.from, to:c.to}, unit, bustCache), {cache:'no-store'});
+    const res = await erpFetchConTimeout(erpInvoicesUrl({from:c.from, to:c.to}, unit, bustCache), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
     const d = await res.json();
     if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
     return d;
@@ -1972,8 +1993,9 @@ async function erpFetchViewData(fromStr, toStr){
     let data;
     if(chunks.length <= 1){
       // Rango de ≤1 mes calendario: un solo pedido, exactamente como antes
-      // (mismo comportamiento ya probado, cero cambios para el caso común).
-      const res = await erpFetchConTimeout(erpInvoicesUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'});
+      // (mismo comportamiento ya probado, cero cambios para el caso común
+      // salvo el timeout -- ver ERP_INVOICES_RANGE_TIMEOUT_MS más arriba).
+      const res = await erpFetchConTimeout(erpInvoicesUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
       data = await res.json();
       if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
     }else{
@@ -3573,7 +3595,10 @@ async function erpFetchMonthRows(y, m){
   const to = y+'-'+m+'-'+String(lastDay).padStart(2,'0');
   // Fijo a 'minorista' -- ver comentario en erpInvoicesUrl. Este backfill
   // alimenta Seguimiento/Forecast, que son conceptos propios de Minorista.
-  const res = await erpFetchConTimeout(erpInvoicesUrl({from:from, to:to}, 'minorista'), {cache:'no-store'});
+  // Mismo timeout extendido que erpFetchViewData/erpFetchInvoicesChunk (ver
+  // ERP_INVOICES_RANGE_TIMEOUT_MS) -- es el mismo endpoint paginando un mes
+  // calendario completo, el mismo riesgo de superar los 25s por defecto.
+  const res = await erpFetchConTimeout(erpInvoicesUrl({from:from, to:to}, 'minorista'), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
   const data = await res.json();
   if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
   return data;
