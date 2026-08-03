@@ -2522,12 +2522,34 @@ function erpRenderIcomYearPieChart(){
 // unidades, ver OPERATION_TYPE_UNIT_MAP) no generan ningún pill acá -- pero
 // SIGUEN sumando en `totals` (sin tocar), mismo criterio que ya usa
 // byUnidadNegocio en el servidor.
+//
+// BUG CONFIRMADO (Juan Manuel, 03/08/2026): tocar una pill de "Unidades de
+// Negocio" (ej. destildar "Cirugía Estética") NO cascadeaba a ninguna tabla
+// de abajo (Por Macro Categoría, Por SKU, KPIs) -- seguían mostrando el
+// total de las 4 unidades mezcladas, aunque la pill sí se pintaba
+// destildada/gris. Causa: esta función solo remapeaba los AGREGADOS
+// (byCanal/byCanalSku, para que las pills mostraran los montos correctos
+// por unidad) pero dejaba `data.rows` INTACTO -- cada fila individual
+// seguía con su `canal` ORIGINAL (el canal de Office real, ej. "Central"/
+// "Bella Vista"/null -- un concepto de Minorista, sin relación con la
+// unidad de negocio). erpRowPassesFilters/erpComputeCanalTotals (el motor
+// de filtro que ya sabe leer canal/marca/macro/vendedor, reusado acá a
+// propósito) filtran mirando `row.canal` contra erpCanalExcluded -- que acá
+// contiene labels de UNIDAD ("Cirugía Estética", "Movilidad", etc.). Como
+// esas labels nunca coinciden con el canal de Office real de la fila, el
+// filtro nunca sacaba ninguna fila. Fix: además de los agregados, se pisa
+// `canal` en cada fila devuelta con la label de SU unidad (mismo criterio
+// que ya usan byCanal/byCanalSku) para que ese mismo motor de filtro
+// funcione también acá. Las facturas IOMA (sin unidad, sin pill propia)
+// quedan con canal:null -- se excluyen en cuanto CUALQUIER pill de unidad
+// esté tocada, mismo criterio "sin canal reconocible" que ya aplica la
+// vista normal por canal (erpRowPassesFilters).
 function erpRemapDataForIcomView(data){
   const byCanal = {};
   const byCanalSku = {};
-  (data.rows || []).forEach(r=>{
+  const rows = (data.rows || []).map(r=>{
     const unit = r.unidadNegocio;
-    if(!unit) return; // IOMA u otro caso sin clasificar -- no se le asigna pill
+    if(!unit) return Object.assign({}, r, {canal: null}); // IOMA u otro caso sin clasificar -- no se le asigna pill
     const label = ICOM_UNIT_LABELS[unit] || unit;
     if(!byCanal[label]) byCanal[label] = {unidades:0, totalNeto:0};
     byCanal[label].unidades += (r.u||0);
@@ -2536,12 +2558,13 @@ function erpRemapDataForIcomView(data){
     if(!byCanalSku[label][r.sku]) byCanalSku[label][r.sku] = {unidades:0, totalNeto:0};
     byCanalSku[label][r.sku].unidades += (r.u||0);
     byCanalSku[label][r.sku].totalNeto += (r.f||0);
+    return Object.assign({}, r, {canal: label});
   });
   const invoicesByCanal = {};
   Object.entries(data.byUnidadNegocio || {}).forEach(([unit, v])=>{
     invoicesByCanal[ICOM_UNIT_LABELS[unit] || unit] = v.facturas || 0;
   });
-  return Object.assign({}, data, {byCanal, byCanalSku, invoicesByCanal});
+  return Object.assign({}, data, {rows, byCanal, byCanalSku, invoicesByCanal});
 }
 
 // Se llama cada vez que switchChannel() cambia a una unidad con "Ventas en
