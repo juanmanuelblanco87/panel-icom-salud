@@ -30,16 +30,31 @@
 //
 // Juan Manuel, 03/08/2026 ("sigue sin guardar las imágenes, después de
 // cargar 1 o 2 deja de guardarlas"): el patrón leer-modificar-escribir de
-// arriba, tal cual estaba, era inseguro frente a 2 guardados casi
+// arriba, tal cual estaba, es inseguro frente a 2 guardados casi
 // simultáneos (ej. subir una foto al espacio E01 y, sin esperar a que
 // termine, abrir el espacio E02 y subir OTRA foto) -- los 2 requests leen
 // la MISMA versión vieja del blob, cada uno la modifica con SU cambio nada
 // más, y el que termina de escribir último pisa por completo el blob
-// entero, incluido el cambio del otro, sin ningún error visible (la UI del
-// que "perdió la carrera" ya había mostrado la imagen como guardada,
-// optimista, así que recién se notaba al recargar). Fix: ver
-// ejecutarConReintentoDeConcurrencia más abajo.
-const { put, get, BlobPreconditionFailedError } = require('@vercel/blob');
+// entero, incluido el cambio del otro, sin ningún error visible.
+//
+// Un primer intento de fix acá mismo usó escritura CONDICIONAL (`ifMatch`
+// con el ETag de @vercel/blob) para que el propio servicio rechace
+// escrituras basadas en una lectura vieja -- funcionó perfecto en un test
+// local (mockeando @vercel/blob), pero en producción real terminó
+// rechazando TODAS las escrituras siempre (503 "demasiadas escrituras
+// simultáneas" en cada intento, incluso sin nadie más escribiendo al mismo
+// tiempo -- ver reporte de Juan Manuel subiendo el plano de Pro Salud 5
+// veces seguidas, siempre falló). No se pudo confirmar la causa exacta sin
+// poder probar contra el Blob real desde este entorno (curl/fetch a
+// icomdash-p2aa.vercel.app está bloqueado acá), así que se REVIRTIÓ esa
+// parte -- volvió a la escritura simple de siempre (sin ifMatch) para no
+// dejar el guardado roto en producción. La protección real contra la
+// carrera ahora es del lado del CLIENTE: exhibiciones_app.html serializa
+// todos los guardados de ESTA pestaña con una cola (ver
+// colaEscrituraExhibiciones), así que 2 subidas de imagen ya no salen
+// nunca en paralelo desde el mismo navegador -- que es como se dispara el
+// bug en la práctica (subir una foto y, sin esperar, subir otra).
+const { put, get } = require('@vercel/blob');
 
 const BLOB_PATHNAME = 'exhibiciones_db.json';
 
@@ -103,86 +118,46 @@ async function leerDb() {
   try {
     const result = await get(BLOB_PATHNAME, { access: 'public', useCache: false });
     if (!result || result.statusCode !== 200 || !result.stream) {
-      return { db: { espacios: [], asignaciones: [], historial: [], sucursales: [] }, etag: null };
+      return { espacios: [], asignaciones: [], historial: [], sucursales: [] };
     }
     const text = await new Response(result.stream).text();
-    return { db: JSON.parse(text), etag: result.blob.etag };
+    return JSON.parse(text);
   } catch (e) {
-    return { db: { espacios: [], asignaciones: [], historial: [], sucursales: [] }, etag: null };
+    return { espacios: [], asignaciones: [], historial: [], sucursales: [] };
   }
 }
 
-// etagEsperado: si viene, la escritura es CONDICIONAL (ifMatch) -- ver nota
-// grande en ejecutarConReintentoDeConcurrencia. Si el blob todavía no
-// existe (etagEsperado null, primera escritura de todas), se escribe sin
-// condición.
-async function escribirDb(db, etagEsperado) {
+async function escribirDb(db) {
   db.generatedAt = new Date().toISOString();
   // cacheControlMaxAge en el mínimo permitido (60s) como defensa en
   // profundidad -- el fix real es leerDb() de arriba (get con
   // useCache:false, que ignora esta caché igual), pero bajar el default de
   // "1 mes" a "60s" acota el daño de cualquier otro lector que en el futuro
   // vuelva a usar head()/fetch(url) contra la URL pública del blob.
-  const opts = {
+  await put(BLOB_PATHNAME, JSON.stringify(db), {
     access: 'public', addRandomSuffix: false, contentType: 'application/json', allowOverwrite: true, cacheControlMaxAge: 60,
-  };
-  if (etagEsperado) opts.ifMatch = etagEsperado;
-  await put(BLOB_PATHNAME, JSON.stringify(db), opts);
+  });
 }
 
-// Error "real" (validación de negocio) -- se propaga tal cual al cliente,
-// SIN reintentar (reintentar un 400/422 no lo va a arreglar).
+// Error "real" (validación de negocio) -- se propaga tal cual al cliente.
 function httpError(status, body) {
   return Object.assign(new Error('httpError'), { __httpError: true, status, body });
 }
 
-// Juan Manuel, 03/08/2026: reintento con escritura CONDICIONAL para que 2
-// guardados casi simultáneos (ej. subir una foto al espacio E01 y, sin
-// esperar, abrir E02 y subir OTRA) no se pisen en silencio. `aplicarAccion
-// (db)` recibe una lectura FRESCA del blob en cada intento, la muta
-// in-place según la acción pedida, y devuelve {status, body} para la
-// respuesta HTTP de éxito (o tira httpError() para un error de validación
-// real, que se propaga de inmediato sin reintentar).
-//
-// Primer intento de fix (ya revertido) usaba un contador `_version` propio
-// con un "releer y comparar" ANTES de escribir -- pero esa comprobación es
-// una operación aparte del put() real, así que 2 escrituras que arrancan
-// juntas pueden pasar las 2 el chequeo (todavía no escribió ninguna) y
-// pisarse igual (se detectó justamente así, con un test que dispara 2
-// guardados en paralelo). El fix real usa `ifMatch` de @vercel/blob: el
-// put() le manda al servidor el ETag que leímos, y el servidor rechaza la
-// escritura ATÓMICAMENTE (BlobPreconditionFailedError) si el blob cambió
-// desde esa lectura -- sin ninguna ventana entre "chequear" y "escribir",
-// porque los hace el mismo Vercel Blob de un solo saque. Si eso pasa,
-// reintentamos la acción ENTERA desde una lectura fresca (recién ahí sí ve
-// el cambio del otro guardado) hasta 8 veces con una espera creciente.
-async function ejecutarConReintentoDeConcurrencia(aplicarAccion) {
-  const MAX_INTENTOS = 8;
-  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
-    const { db, etag } = await leerDb();
-    db.espacios = db.espacios || [];
-    db.asignaciones = db.asignaciones || [];
-    db.historial = db.historial || [];
-    db.sucursales = db.sucursales || [];
-    const resultado = await aplicarAccion(db); // puede tirar httpError() -- no se reintenta, se propaga
-    try {
-      await escribirDb(db, etag);
-      return resultado;
-    } catch (e) {
-      const esConflicto = e instanceof BlobPreconditionFailedError;
-      if (esConflicto && intento < MAX_INTENTOS - 1) {
-        await new Promise((r) => setTimeout(r, 40 + Math.random() * 90 * (intento + 1)));
-        continue;
-      }
-      if (esConflicto) {
-        throw httpError(503, { ok: false, error: 'No se pudo guardar por demasiadas escrituras simultáneas, probá de nuevo.' });
-      }
-      throw e;
-    }
-  }
-  // No debería llegar acá (el bucle siempre retorna o tira arriba), pero
-  // por las dudas:
-  throw httpError(503, { ok: false, error: 'No se pudo guardar por demasiadas escrituras simultáneas, probá de nuevo.' });
+// Lectura + acción + escritura, SIN ningún mecanismo de concurrencia acá
+// (ver nota grande arriba de por qué -- el intento con ifMatch se revirtió
+// por romper en producción real). `aplicarAccion(db)` muta `db` in-place y
+// devuelve {status, body} para la respuesta HTTP de éxito, o tira
+// httpError() para un error de validación real.
+async function ejecutarAccion(aplicarAccion) {
+  const db = await leerDb();
+  db.espacios = db.espacios || [];
+  db.asignaciones = db.asignaciones || [];
+  db.historial = db.historial || [];
+  db.sucursales = db.sucursales || [];
+  const resultado = await aplicarAccion(db);
+  await escribirDb(db);
+  return resultado;
 }
 
 // --- Controles de integridad ---------------------------------------------
@@ -251,8 +226,7 @@ function calcularCuadrePorSucursal(espacios, asignaciones, sucursalesOk) {
   return resultado;
 }
 
-// --- Acciones (cada una recibe una lectura FRESCA de `db` en cada intento
-// de ejecutarConReintentoDeConcurrencia, y la muta in-place) -------------
+// --- Acciones (cada una recibe `db` ya leído y la muta in-place) --------
 
 function accionUpsertEspacio(db, espacio) {
   if (!espacio || !espacio.id) throw httpError(400, { ok: false, error: 'payload.id es obligatorio.' });
@@ -480,7 +454,7 @@ module.exports = async function handler(req, res) {
     if (!fn) { res.status(400).json({ ok: false, error: 'action desconocida: ' + action }); return; }
 
     try {
-      const { status, body: respBody } = await ejecutarConReintentoDeConcurrencia((db) => fn(db, body.payload));
+      const { status, body: respBody } = await ejecutarAccion((db) => fn(db, body.payload));
       res.status(status).json(respBody);
     } catch (e) {
       if (e && e.__httpError) { res.status(e.status).json(e.body); return; }
