@@ -70,6 +70,20 @@ const MACRO_CATEGORIAS = [
 const SUCURSALES_BASE = ['ICOM', 'PRO SALUD', 'JCP'];
 const EPS = 1e-6;
 
+// Juan Manuel, 04/08/2026 ("los valores de las exhibiciones actuales son
+// inconsistentes... necesito agregar el valor profundidad"): LARGO x ALTO
+// son medidas de FRENTE -- hace falta esta 3ra dimensión para que
+// SUP_VISUAL/SUP_CATEGORIA reflejen volumen real de exhibición (cm³), no
+// sólo superficie de frente (cm²). Mismo default por prefijo del ID que del
+// lado del cliente (ver profundidadPorDefecto en exhibiciones_app.html):
+// 30cm estanterías/Rapi-Wall/bastoneros/pañaleros (prefijo E), 70cm
+// vidrieras/islas/piso (V/I/P).
+function profundidadPorDefecto(id) { return String(id || '')[0] === 'E' ? 30 : 70; }
+function profundidadDe(espacio) {
+  const p = espacio && espacio.profundidad;
+  return (p !== undefined && p !== null && p !== '' && Number(p) > 0) ? Number(p) : profundidadPorDefecto(espacio && espacio.id);
+}
+
 // Todas las sucursales válidas para validar ESPACIO.sucursal: las 3 fijas +
 // cualquier sucursal nueva ya creada. `sucursales`: array (ver leerSucursales()).
 function sucursalesValidas(sucursales) {
@@ -107,6 +121,7 @@ function validarMedidas(espacio, sucursalesOk) {
   const errores = [];
   if (!(espacio.largo > 0)) errores.push('LARGO debe ser mayor a 0.');
   if (!(espacio.alto > 0)) errores.push('ALTO debe ser mayor a 0.');
+  if (!(profundidadDe(espacio) > 0)) errores.push('PROFUNDIDAD debe ser mayor a 0.');
   if (!(espacio.cant > 0)) errores.push('CANT debe ser mayor a 0.');
   if (!sucursalesOk.includes(espacio.sucursal)) errores.push('SUCURSAL debe ser una de: ' + sucursalesOk.join(', ') + '.');
   return errores;
@@ -140,27 +155,28 @@ function validarAsignacion(espacio, filas) {
   return errores;
 }
 
-// 6.2, informativo -- nunca bloquea. Devuelve el desvío en cm2 por sucursal.
-// sucursalesOk: ver sucursalesValidas (las 3 fijas + altas nuevas).
+// 6.2, informativo -- nunca bloquea. Devuelve el desvío en cm3 (volumen) por
+// sucursal -- ver profundidadDe() más arriba. sucursalesOk: ver
+// sucursalesValidas (las 3 fijas + altas nuevas).
 function calcularCuadrePorSucursal(espacios, asignaciones, sucursalesOk) {
   const porSucursal = {};
   sucursalesOk.forEach((s) => { porSucursal[s] = { supVisualTotal: 0, supCategoriaTotal: 0 }; });
   espacios.forEach((e) => {
     if (!porSucursal[e.sucursal]) return;
-    porSucursal[e.sucursal].supVisualTotal += (e.largo || 0) * (e.alto || 0) * (e.cant || 0);
+    porSucursal[e.sucursal].supVisualTotal += (e.largo || 0) * (e.alto || 0) * profundidadDe(e) * (e.cant || 0);
   });
   const espacioById = {};
   espacios.forEach((e) => { espacioById[e.id] = e; });
   asignaciones.forEach((a) => {
     const e = espacioById[a.idEspacio];
     if (!e || !porSucursal[e.sucursal]) return;
-    const supUnitaria = (e.largo || 0) * (e.alto || 0);
+    const supUnitaria = (e.largo || 0) * (e.alto || 0) * profundidadDe(e);
     porSucursal[e.sucursal].supCategoriaTotal += (a.unidadesAsignadas || 0) * supUnitaria;
   });
   const resultado = {};
   Object.keys(porSucursal).forEach((s) => {
     const { supVisualTotal, supCategoriaTotal } = porSucursal[s];
-    resultado[s] = { supVisualTotal, supCategoriaTotal, deltaCm2: supCategoriaTotal - supVisualTotal };
+    resultado[s] = { supVisualTotal, supCategoriaTotal, deltaCm3: supCategoriaTotal - supVisualTotal };
   });
   return resultado;
 }
@@ -189,6 +205,7 @@ async function accionUpsertEspacio(payload) {
   if (esAlta) {
     espacios.push({
       id: espacio.id, descripcion: espacio.descripcion || '', largo: espacio.largo, alto: espacio.alto,
+      profundidad: profundidadDe(espacio),
       cant: espacio.cant, sucursal: espacio.sucursal, imagenUrl: espacio.imagenUrl || null,
       fechaRelevamiento: espacio.fechaRelevamiento || null,
     });
@@ -199,6 +216,7 @@ async function accionUpsertEspacio(payload) {
       descripcion: espacio.descripcion !== undefined ? espacio.descripcion : actual.descripcion,
       largo: espacio.largo !== undefined ? espacio.largo : actual.largo,
       alto: espacio.alto !== undefined ? espacio.alto : actual.alto,
+      profundidad: espacio.profundidad !== undefined ? espacio.profundidad : actual.profundidad,
       cant: espacio.cant !== undefined ? espacio.cant : actual.cant,
       sucursal: espacio.sucursal !== undefined ? espacio.sucursal : actual.sucursal,
       imagenUrl: espacio.imagenUrl !== undefined ? espacio.imagenUrl : actual.imagenUrl,
