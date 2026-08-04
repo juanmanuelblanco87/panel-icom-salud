@@ -425,11 +425,23 @@ function generarIdLayout(existentes) {
   do { intento = 'lay' + Math.random().toString(36).slice(2, 10); } while (existentes.some((l) => l.id === intento));
   return intento;
 }
+// Juan Manuel, 04/08/2026 ("Agregar: Subsuelo y 1era Planta"): un layout
+// pasa de tener un único nivel a poder tener hasta 3 ("plantas"), cada
+// una con su propio local/elementos -- ver el mismo comentario del lado
+// cliente junto a LAYOUT_PLANTAS_EXTRA_DEFS en exhibiciones_app.html.
+// `plantas` es un objeto {idPlanta: {id,nombre,local,elementos}} opcional
+// y NO se valida campo por campo (se persiste tal cual, igual que ya
+// pasaba con `local`) -- `local`/`elementos` sueltos siguen siendo
+// obligatorios y representan SIEMPRE la planta general, por compatibilidad
+// con layouts guardados antes de que existiera este campo.
 async function accionGuardarLayout(payload) {
-  const { id, nombre, local, elementos } = payload || {};
+  const { id, nombre, local, elementos, plantas } = payload || {};
   if (!nombre || !String(nombre).trim()) throw httpError(400, { ok: false, error: 'El nombre del layout es obligatorio.' });
   if (!local || typeof local !== 'object') throw httpError(400, { ok: false, error: 'payload.local (ancho/profundidad/ochava del salón) es obligatorio.' });
   if (!Array.isArray(elementos)) throw httpError(400, { ok: false, error: 'payload.elementos debe ser un array.' });
+  if (plantas !== undefined && (typeof plantas !== 'object' || plantas === null || Array.isArray(plantas))) {
+    throw httpError(400, { ok: false, error: 'payload.plantas debe ser un objeto {idPlanta: {local, elementos}}.' });
+  }
 
   const layouts = await leerLayouts();
   const ahora = new Date().toISOString();
@@ -442,14 +454,14 @@ async function accionGuardarLayout(payload) {
   if (idx === -1) {
     const nuevo = {
       id: id || generarIdLayout(layouts),
-      nombre: String(nombre).trim(), local, elementos,
+      nombre: String(nombre).trim(), local, elementos, plantas,
       creadoEn: ahora, actualizadoEn: ahora,
     };
     layouts.push(nuevo);
     await escribirLayouts(layouts);
     return { status: 200, body: { ok: true, layout: nuevo } };
   }
-  layouts[idx] = { ...layouts[idx], nombre: String(nombre).trim(), local, elementos, actualizadoEn: ahora };
+  layouts[idx] = { ...layouts[idx], nombre: String(nombre).trim(), local, elementos, plantas, actualizadoEn: ahora };
   await escribirLayouts(layouts);
   return { status: 200, body: { ok: true, layout: layouts[idx] } };
 }
