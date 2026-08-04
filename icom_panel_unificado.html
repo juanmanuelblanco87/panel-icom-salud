@@ -954,12 +954,32 @@ document.getElementById('loginUser').addEventListener('keydown', e=>{ if(e.key==
 
 /* ── IndexedDB compartida (misma base que seguimiento.html/forecast) ── */
 const PM_IDB_NAME='icom_seguimiento_db', PM_IDB_STORE='files', PM_KEY='product_master';
+// Juan Manuel, 04/08/2026 ("Otra vez volvió a colgarse" -- cartel de
+// Chrome "La página no responde" mientras cargaba el gráfico mensual de
+// ICOM): salvaguarda de bajo riesgo -- indexedDB.open() nunca tenía
+// manejo de `onblocked` ni un límite de tiempo. Si por lo que sea (ej.
+// otra pestaña/iframe con una conexión vieja a esta misma base de
+// IndexedDB) el open() se quedaba "blocked" o simplemente no disparaba
+// ningún evento, la promesa quedaba pendiente PARA SIEMPRE -- mismo
+// patrón de bug ya resuelto para los fetch() de red (ver
+// ERP_FETCH_TIMEOUT_MS/erpFetchConTimeout más abajo), pero nunca se
+// había aplicado acá. No se pudo reproducir el cuelgue reportado para
+// confirmar que esta sea la causa exacta -- se agrega igual porque
+// cuesta poco y cierra una vía real de "promesa que nunca resuelve":
+// cualquier open() que no responda en 8s pasa a error, que
+// pmIdbGet/pmIdbSet ya atrapan en sus llamadores (ver los try/catch de
+// erpFetchIcomMonthlyWeightsImpl, que siguen con el resto de los meses
+// si uno falla).
 function pmIdbOpen(){
   return new Promise((resolve,reject)=>{
+    let settled = false;
+    const finish = (fn, val) => { if(settled) return; settled = true; clearTimeout(watchdog); fn(val); };
+    const watchdog = setTimeout(()=>finish(reject, new Error('IndexedDB: open() no respondió a tiempo.')), 8000);
     const req = indexedDB.open(PM_IDB_NAME, 1);
     req.onupgradeneeded = ()=>{ if(!req.result.objectStoreNames.contains(PM_IDB_STORE)) req.result.createObjectStore(PM_IDB_STORE); };
-    req.onsuccess = ()=>resolve(req.result);
-    req.onerror = ()=>reject(req.error);
+    req.onsuccess = ()=>finish(resolve, req.result);
+    req.onerror = ()=>finish(reject, req.error);
+    req.onblocked = ()=>finish(reject, new Error('IndexedDB: open() bloqueado por otra conexión.'));
   });
 }
 async function pmIdbGet(key){
@@ -2270,6 +2290,51 @@ let erpIcomMonthlyWeightsPromise = null; // guardia de "una sola vuelta a la vez
 // una espera real de red.
 let erpIcomMonthlyProgress = { active:false, loaded:0, total:0 };
 
+// Juan Manuel, 04/08/2026 ("Otra vez volvió a colgarse" -- captura del
+// cartel "La página no responde" de Chrome mientras la barrita mostraba
+// "Actualizando meses… 7 de 8"): a diferencia de los cuelgues ya
+// resueltos antes (una promesa de fetch que se quedaba pendiente PARA
+// SIEMPRE, ver ERP_FETCH_TIMEOUT_MS/erpFetchConTimeout más arriba), ESE
+// cartel de Chrome específicamente indica que el hilo principal dejó de
+// procesar eventos -- no es lo mismo que "un pedido de red no
+// responde" (eso deja la pestaña respondiendo normal, solo con un pill
+// pegado en "Cargando…"). El loop de erpFetchIcomMonthlyWeightsImpl
+// repinta 2 gráficos completos (barras + torta, cada uno reconstruye su
+// HTML entero vía innerHTML) EN CADA mes que termina -- hasta 12 veces
+// seguidas, y la mayoría de esas veces el mes sale de IndexedDB (caché
+// "casi instantáneo" según el comentario de arriba), así que esas
+// repinturas pueden dispararse una atrás de la otra sin que el navegador
+// llegue a respirar entre medio. Nunca pudimos reproducirlo acá para
+// confirmar que ESTA sea la causa exacta (podría combinarse con otras
+// pestañas/iframes de la app abiertos mucho tiempo, ver el resto de esta
+// sesión) -- pero repintar 2 gráficos por mes, hasta 12 veces seguidas,
+// es trabajo de más que no hace falta: alcanza con la ÚLTIMA versión de
+// cada uno. erpScheduleIcomMonthlyCharts() junta todos los pedidos de
+// repintado que lleguen dentro del mismo frame en UNO solo (vía
+// requestAnimationFrame), dándole al navegador la chance de procesar
+// otros eventos entre medio -- una mejora de bajo riesgo que reduce el
+// trabajo del loop mientras seguimos atentos a si el cuelgue vuelve a
+// pasar.
+let erpIcomChartsRafId = null;
+function erpScheduleIcomMonthlyCharts(){
+  if(currentChannel !== 'icom') return;
+  if(erpIcomChartsRafId) return; // ya hay una repintada agendada para este frame -- no apilar más
+  erpIcomChartsRafId = requestAnimationFrame(()=>{
+    erpIcomChartsRafId = null;
+    erpRenderIcomMonthlyBarChart();
+    erpRenderIcomYearPieChart();
+  });
+}
+// Fuerza la repintada YA (sin esperar el próximo frame) y cancela
+// cualquiera agendada -- para el final del loop, donde ya no viene nada
+// más atrás y hace falta que el estado final se vea de una.
+function erpFlushIcomMonthlyCharts(){
+  if(erpIcomChartsRafId){ cancelAnimationFrame(erpIcomChartsRafId); erpIcomChartsRafId = null; }
+  if(currentChannel !== 'icom') return;
+  erpRenderIcomMonthlyBarChart();
+  erpRenderIcomYearPieChart();
+}
+
 // Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "en algunos meses sigue
 // sin verse el resultado de movilidad" -- los meses CERRADOS se guardan en
 // IndexedDB de forma PERMANENTE (nunca se vuelven a pedir), así que
@@ -2335,7 +2400,7 @@ async function erpFetchIcomMonthlyWeightsImpl(forceRefreshAll){
           erpIcomMonthlyWeights[mm] = cached.byUnidadNegocio;
           erpIcomMonthlyProgress.loaded++;
           erpRenderIcomMonthlyProgress();
-          if(currentChannel === 'icom'){ erpRenderIcomMonthlyBarChart(); erpRenderIcomYearPieChart(); }
+          erpScheduleIcomMonthlyCharts();
           continue; // mes cerrado ya cacheado -- no hace falta volver a pedirlo
         }
       }catch(e){ /* seguimos y lo pedimos fresco */ }
@@ -2361,7 +2426,7 @@ async function erpFetchIcomMonthlyWeightsImpl(forceRefreshAll){
       }
       // Repinta incrementalmente mes a mes -- no hace falta esperar a que
       // termine todo el año para que el usuario vea los primeros meses.
-      if(currentChannel === 'icom'){ erpRenderIcomMonthlyBarChart(); erpRenderIcomYearPieChart(); }
+      erpScheduleIcomMonthlyCharts();
     }catch(e){
       console.error('erpFetchIcomMonthlyWeights: no se pudo traer el mes '+mm+'/'+year+':', e);
       // seguimos con el resto de los meses -- uno que falla no debe tirar abajo todo el gráfico
@@ -2372,6 +2437,7 @@ async function erpFetchIcomMonthlyWeightsImpl(forceRefreshAll){
 
   erpIcomMonthlyProgress.active = false;
   erpRenderIcomMonthlyProgress();
+  erpFlushIcomMonthlyCharts(); // asegura que el estado final se pinte ya, sin esperar el próximo frame
 }
 
 // Barrita de progreso de #erpIcomMonthlyProgress -- mientras está activa,
