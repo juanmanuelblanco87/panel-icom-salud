@@ -52,6 +52,7 @@ const {
   leerEspacios, escribirEspacios,
   leerAsignaciones, escribirAsignaciones,
   leerSucursales, escribirSucursales,
+  leerLayouts, escribirLayouts,
 } = require('./_exhibiciones-store');
 
 const MACRO_CATEGORIAS = [
@@ -409,6 +410,60 @@ async function accionCrearSucursal(payload) {
   return { status: 200, body: { ok: true, sucursal: nueva } };
 }
 
+// Juan Manuel, 04/08/2026 ("Hay que mover el diseñador de layout al lado
+// de crear nueva Sucursal y dejar la opción de Guardar Layout (con un
+// nombre especifico) o borrar / crear nuevo. E ir a layouts guardados"):
+// el Diseñador de Layout deja de ser una pestaña más de una sucursal
+// (datos solo en memoria, se perdían al recargar) y pasa a ser una
+// herramienta GLOBAL con su propia librería de layouts con nombre (ver
+// comentario grande junto a BLOB_LAYOUTS en api/_exhibiciones-store.js
+// sobre por qué es una sola librería compartida y no una por sucursal).
+// Solo lee/escribe layouts.json -- no compite por ningún archivo con
+// espacios/asignaciones/sucursales.
+function generarIdLayout(existentes) {
+  let intento;
+  do { intento = 'lay' + Math.random().toString(36).slice(2, 10); } while (existentes.some((l) => l.id === intento));
+  return intento;
+}
+async function accionGuardarLayout(payload) {
+  const { id, nombre, local, elementos } = payload || {};
+  if (!nombre || !String(nombre).trim()) throw httpError(400, { ok: false, error: 'El nombre del layout es obligatorio.' });
+  if (!local || typeof local !== 'object') throw httpError(400, { ok: false, error: 'payload.local (ancho/profundidad/ochava del salón) es obligatorio.' });
+  if (!Array.isArray(elementos)) throw httpError(400, { ok: false, error: 'payload.elementos debe ser un array.' });
+
+  const layouts = await leerLayouts();
+  const ahora = new Date().toISOString();
+  // `id` hace upsert (guardar un cambio sobre un layout ya guardado);
+  // sin `id` (o con un `id` que ya no exista -- ej. se borró en otra
+  // pestaña) se crea uno nuevo. El nombre NO es una clave única a
+  // propósito -- no hace falta bloquear al usuario con esa validación,
+  // la lista de "Layouts guardados" ya distingue por fecha.
+  const idx = id ? layouts.findIndex((l) => l.id === id) : -1;
+  if (idx === -1) {
+    const nuevo = {
+      id: id || generarIdLayout(layouts),
+      nombre: String(nombre).trim(), local, elementos,
+      creadoEn: ahora, actualizadoEn: ahora,
+    };
+    layouts.push(nuevo);
+    await escribirLayouts(layouts);
+    return { status: 200, body: { ok: true, layout: nuevo } };
+  }
+  layouts[idx] = { ...layouts[idx], nombre: String(nombre).trim(), local, elementos, actualizadoEn: ahora };
+  await escribirLayouts(layouts);
+  return { status: 200, body: { ok: true, layout: layouts[idx] } };
+}
+async function accionEliminarLayout(payload) {
+  const { id } = payload || {};
+  if (!id) throw httpError(400, { ok: false, error: 'payload.id es obligatorio.' });
+  const layouts = await leerLayouts();
+  const idx = layouts.findIndex((l) => l.id === id);
+  if (idx === -1) throw httpError(404, { ok: false, error: 'El layout ' + id + ' no existe.' });
+  layouts.splice(idx, 1);
+  await escribirLayouts(layouts);
+  return { status: 200, body: { ok: true } };
+}
+
 const ACCIONES = {
   upsertEspacio: (payload) => accionUpsertEspacio(payload),
   deleteEspacio: (payload) => accionDeleteEspacio(payload),
@@ -416,6 +471,8 @@ const ACCIONES = {
   upsertSucursalMeta: (payload) => accionUpsertSucursalMeta(payload),
   actualizarPuntuacionGoogle: (payload) => accionActualizarPuntuacionGoogle(payload),
   crearSucursal: (payload) => accionCrearSucursal(payload),
+  guardarLayout: (payload) => accionGuardarLayout(payload),
+  eliminarLayout: (payload) => accionEliminarLayout(payload),
 };
 
 module.exports = async function handler(req, res) {

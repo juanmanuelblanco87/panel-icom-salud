@@ -60,6 +60,19 @@ const BLOB_VIEJO = 'exhibiciones_db.json';
 const BLOB_ESPACIOS = 'exhibiciones/espacios.json';
 const BLOB_ASIGNACIONES = 'exhibiciones/asignaciones.json';
 const BLOB_SUCURSALES = 'exhibiciones/sucursales.json';
+// Juan Manuel, 04/08/2026 ("Hay que mover el diseñador de layout al lado
+// de crear nueva Sucursal y dejar la opción de Guardar Layout... e ir a
+// layouts guardados"): el Diseñador de Layout pasó de ser una pestaña más
+// DENTRO de una sucursal (datos solo en memoria del navegador, se
+// perdían al recargar) a una herramienta GLOBAL (no depende de qué
+// sucursal esté seleccionada -- confirmado con Juan Manuel: una sola
+// librería de layouts, compartida, ya que el diseñador siempre comparó
+// contra el modelo consolidado ICOM/ProSalud/JCP, no contra datos de una
+// sucursal en particular). Dominio propio (exhibiciones/layouts.json),
+// igual que espacios/asignaciones/sucursales -- así "Guardar layout" (que
+// solo toca layouts.json) nunca puede competir por el mismo archivo con
+// ningún guardado de Espacios/Asignaciones/Sucursales.
+const BLOB_LAYOUTS = 'exhibiciones/layouts.json';
 
 // Mismo fix de "Consistent reads" ya documentado en las versiones
 // anteriores de exhibiciones-data.js/exhibiciones-guardar.js: get() con
@@ -142,6 +155,19 @@ async function escribirSucursales(sucursales) {
   await escribirBlobJson(BLOB_SUCURSALES, { sucursales });
 }
 
+// layouts.json es un dominio NUEVO (no existía en el blob viejo
+// compartido) -- no necesita pasar por migrarSiHaceFalta(), simplemente
+// no hay nada que migrar: si todavía no existe, leerBlobJson devuelve
+// null y esta función devuelve [] (arranca vacío, como corresponde a una
+// funcionalidad que recién se agrega).
+async function leerLayouts() {
+  const data = await leerBlobJson(BLOB_LAYOUTS);
+  return (data && data.layouts) || [];
+}
+async function escribirLayouts(layouts) {
+  await escribirBlobJson(BLOB_LAYOUTS, { layouts });
+}
+
 // Lectura combinada de los 3 dominios A LA VEZ (en paralelo) -- usada solo
 // por api/exhibiciones-data.js (GET de solo lectura) para devolverle al
 // cliente la MISMA forma combinada {espacios, asignaciones, historial,
@@ -149,18 +175,20 @@ async function escribirSucursales(sucursales) {
 // una sola línea.
 async function leerTodoCombinado() {
   await migrarSiHaceFalta();
-  const [espaciosData, asignacionesData, sucursalesData] = await Promise.all([
+  const [espaciosData, asignacionesData, sucursalesData, layoutsData] = await Promise.all([
     leerBlobJson(BLOB_ESPACIOS),
     leerBlobJson(BLOB_ASIGNACIONES),
     leerBlobJson(BLOB_SUCURSALES),
+    leerBlobJson(BLOB_LAYOUTS),
   ]);
-  const generatedAt = [espaciosData, asignacionesData, sucursalesData]
+  const generatedAt = [espaciosData, asignacionesData, sucursalesData, layoutsData]
     .map((d) => d && d.generatedAt).filter(Boolean).sort().pop() || null;
   return {
     espacios: (espaciosData && espaciosData.espacios) || [],
     asignaciones: (asignacionesData && asignacionesData.asignaciones) || [],
     historial: (asignacionesData && asignacionesData.historial) || [],
     sucursales: (sucursalesData && sucursalesData.sucursales) || [],
+    layouts: (layoutsData && layoutsData.layouts) || [],
     generatedAt,
   };
 }
@@ -169,5 +197,6 @@ module.exports = {
   leerEspacios, escribirEspacios,
   leerAsignaciones, escribirAsignaciones,
   leerSucursales, escribirSucursales,
+  leerLayouts, escribirLayouts,
   leerTodoCombinado,
 };
