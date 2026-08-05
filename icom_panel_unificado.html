@@ -327,7 +327,11 @@
       <div class="sb-item" data-pane="seguimiento" data-channels="minorista" onclick="switchPane('seguimiento')">
         <span class="sb-icon">📋</span> <span class="sb-label">Seguimiento</span>
       </div>
-      <div class="sb-item" data-pane="stocks" data-channels="all" onclick="switchPane('stocks')">
+      <!-- Juan Manuel, 05/08/2026: "La app de Stocks solo dejala en ICOM" --
+           antes era data-channels="all" (visible en las 4 unidades). switchChannel()
+           ya sabe volver a "Ventas en Vivo" solo si el pane activo no matchea la
+           unidad nueva (ver erpPaneScopeMatches), así que alcanza con este atributo. -->
+      <div class="sb-item" data-pane="stocks" data-channels="icom" onclick="switchPane('stocks')">
         <span class="sb-icon">📦</span> <span class="sb-label">Stocks</span>
       </div>
       <div class="sb-item" data-pane="forecast" data-channels="minorista" onclick="switchPane('forecast')">
