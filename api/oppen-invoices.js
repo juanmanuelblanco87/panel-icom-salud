@@ -73,6 +73,7 @@
 //   bySku: { "8": { nombre: "...", unidades: ..., totalNeto: ... }, ... },
 //   byCanalSku: { "ICOM-CEN": { "8": { unidades, totalNeto } } },
 //   byUnidadNegocio: { minorista: { unidades, totalNeto, facturas }, movilidad: {...}, ... }, // IOMA no entra acá a propósito
+//   byTipoOperacion: { "Ethicon": { unidades, totalNeto }, "ASP": {...}, ... }, // por código de OperationType (ver TIPO_OPERACION_LABELS) -- usado por el cuadro "Por Tipo de Operación" de Cirugía General, siempre ya viene filtrado por ?unidadNegocio= si el pedido lo trae
 //   bySkuUnidadNegocio: { "8": { minorista: { unidades, totalNeto }, movilidad: {...}, ... } },
 //     // por SKU, cuánto vendió cada unidad de negocio -- usado por Stocks
 //     // (28/07/2026) para repartir el stock de un depósito COMPARTIDO entre
@@ -275,6 +276,30 @@ function normalizeVendedor(code) {
   const c = String(code || '').trim();
   if (!c) return 'Sin Vendedor';
   return SALESMAN_NAME_MAP[c] || 'Sin Vendedor';
+}
+
+// Juan Manuel, 05/08/2026 ("En Cirugia coloca Tipo de Operación arriba de
+// vendedor"): cuadro nuevo (pills + tabla, mismo patrón que Por Marca) que
+// desglosa las ventas de Cirugía General por el código real de
+// OperationType -- son los mismos 7 códigos que ya usa
+// OPERATION_TYPE_UNIT_MAP más abajo para clasificar la unidad, así que acá
+// solo hace falta un nombre lindo para mostrar en vez del código crudo. Los
+// códigos de las OTRAS unidades (HOME/ML/MOVI/MEN/CAN/GMEN) y IOMA no tienen
+// nombre propio todavía porque esta tarjeta sólo se muestra en Cirugía
+// General -- si algún día hiciera falta en otra unidad, se agregan acá.
+const TIPO_OPERACION_LABELS = {
+  ETH: 'Ethicon',
+  ASP: 'ASP',
+  BW: 'Biosense',
+  COLO: 'Coloplast',
+  DESC: 'Descartables',
+  '3M': '3M',
+  ABBO: 'Abbott',
+};
+function normalizeTipoOperacion(code) {
+  const c = String(code || '').trim().toUpperCase();
+  if (!c) return 'Sin clasificar';
+  return TIPO_OPERACION_LABELS[c] || c;
 }
 
 // CLASIFICACIÓN POR UNIDAD DE NEGOCIO (Juan Manuel, 24/07/2026 -- "Hay que
@@ -564,6 +589,7 @@ module.exports = async function handler(req, res) {
 
     const bySku = {};       // sku -> {nombre, unidades, totalNeto}
     const byCanal = {};     // canal -> {unidades, totalNeto}
+    const byTipoOperacion = {}; // label de TIPO_OPERACION_LABELS -> {unidades, totalNeto} -- ver comentario junto a normalizeTipoOperacion
     const byCanalSku = {};  // canal -> sku -> {unidades, totalNeto}
     const invoicesByCanal = {}; // canal -> cantidad de facturas (para el KPI "Facturas procesadas" filtrado)
     const byUnidadNegocio = {}; // unidad -> {unidades, totalNeto, facturas} -- IOMA (unidadNegocio null) NO entra acá, a propósito
@@ -620,6 +646,7 @@ module.exports = async function handler(req, res) {
           ? normalizeVendedor(inv.MedicalSalesRepresentative)
           : normalizeVendedor(inv.SalesManInstitution);
         const cliente = inv.CustName ? String(inv.CustName).trim() : 'Sin Cliente';
+        const tipoOperacion = normalizeTipoOperacion(inv.OperationType);
 
         // Juan Manuel, 27/07/2026: "En Cirugia Estetica hay ventas con
         // Moneda 'Dolar' esa venta hay que multiplicarla por el tipo de
@@ -700,6 +727,10 @@ module.exports = async function handler(req, res) {
             byCanalSku[canal][sku].totalNeto += neto;
           }
 
+          if (!byTipoOperacion[tipoOperacion]) byTipoOperacion[tipoOperacion] = { unidades: 0, totalNeto: 0 };
+          byTipoOperacion[tipoOperacion].unidades += qty;
+          byTipoOperacion[tipoOperacion].totalNeto += neto;
+
           rows.push({
             sku,
             f: neto,
@@ -721,6 +752,7 @@ module.exports = async function handler(req, res) {
             vendedorCliente,
             vendedorInstitucion,
             cliente,
+            tipoOperacion,
             sernr: inv.SerNr != null ? String(inv.SerNr) : null, // para poder contar facturas DISTINTAS al filtrar por Vendedor/Cliente (varias líneas comparten la misma factura)
           });
         }
@@ -769,6 +801,7 @@ module.exports = async function handler(req, res) {
       byCanalSku,
       byUnidadNegocio,
       bySkuUnidadNegocio,
+      byTipoOperacion,
       rows,
     });
   } catch (err) {
