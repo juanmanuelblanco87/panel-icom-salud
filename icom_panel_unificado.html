@@ -2065,17 +2065,38 @@ function erpMergeViewData(results){
 // si falla (oppen.io a veces devuelve un error de conexión transitorio —
 // confirmado en producción, ver comentario más arriba — que en general se
 // resuelve solo con un segundo intento unos segundos después).
-async function erpFetchInvoicesChunk(c, unit, attempt, bustCache){
+// Juan Manuel, 05/08/2026 ("ahora carga agosto pero no julio... piensalo a
+// modo general"): soloUnidadNegocio (opcional, 5to parámetro) pide el modo
+// liviano de /api/oppen-invoices (?soloUnidadNegocio=1, ver comentario
+// grande junto a su parseo en api/oppen-invoices.js -- agregado 28/07 para
+// el backfill de Stocks por el MISMO motivo: "la respuesta COMPLETA de un
+// mes... es tan grande que se corta a la mitad"). El servidor procesa
+// exactamente las mismas facturas de oppen.io de cualquier forma (el costo
+// de paginar no cambia) -- lo que cambia es el tamaño de la respuesta que
+// vuelve: sin bySku/byCanalSku/byCanal/rows (el detalle línea por línea de
+// CADA factura del mes, con las 4 unidades mezcladas) el JSON puede ser
+// órdenes de magnitud más chico. erpFetchIcomMonthlyWeightsImpl (más abajo)
+// sólo necesita byUnidadNegocio -- que está en las 2 respuestas, liviana y
+// completa -- así que no hay ninguna razón para pedir el resto y arriesgar
+// timeout/corte en un mes con mucho volumen de facturas (un mes más
+// movido que el resto, no sólo "el mes en curso", puede tardar más para
+// CUALQUIER usuario -- no es un problema de mobile). Los demás callers
+// (Ventas en Vivo, el Dashboard nuevo) siguen sin pasar este parámetro,
+// así que siguen recibiendo la respuesta completa de siempre -- SÍ la
+// necesitan (tabla de SKU, filas por vendedor/institución).
+async function erpFetchInvoicesChunk(c, unit, attempt, bustCache, soloUnidadNegocio){
   attempt = attempt || 1;
   try{
-    const res = await erpFetchConTimeout(erpInvoicesUrl({from:c.from, to:c.to}, unit, bustCache), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
+    const params = {from:c.from, to:c.to};
+    if(soloUnidadNegocio) params.soloUnidadNegocio = '1';
+    const res = await erpFetchConTimeout(erpInvoicesUrl(params, unit, bustCache), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
     const d = await res.json();
     if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
     return d;
   }catch(e){
     if(attempt < 2){
       await new Promise(r=>setTimeout(r, 1500));
-      return erpFetchInvoicesChunk(c, unit, attempt+1, bustCache);
+      return erpFetchInvoicesChunk(c, unit, attempt+1, bustCache, soloUnidadNegocio);
     }
     throw new Error((e.message || 'Error desconocido del proxy') + ' (rango '+c.from+' a '+c.to+')');
   }
@@ -2926,7 +2947,9 @@ async function erpFetchIcomMonthlyWeightsImpl(forceRefreshAll){
       // si no, el botón "🔄 Actualizar" podría seguir mostrando el dato
       // viejo hasta que venza ese caché (hasta 24hs), no solo el de
       // IndexedDB de este navegador.
-      const data = await erpFetchInvoicesChunk({from, to}, 'icom', undefined, forceRefreshAll && !isCurrentMonth);
+      // soloUnidadNegocio:true -- este loop sólo lee data.byUnidadNegocio
+      // más abajo, ver comentario grande junto a erpFetchInvoicesChunk.
+      const data = await erpFetchInvoicesChunk({from, to}, 'icom', undefined, forceRefreshAll && !isCurrentMonth, true);
       const byUnidadNegocio = data.byUnidadNegocio || {};
       erpIcomMonthlyWeights[mm] = byUnidadNegocio;
       if(!isCurrentMonth){
