@@ -2829,6 +2829,48 @@ function erpFetchIcomMonthlyWeights(forceRefreshAll){
   return erpIcomMonthlyWeightsPromise;
 }
 
+// Juan Manuel, 05/08/2026 ("la velocidad esta PERFECTA... solo un tema que
+// sucede en mi Mobile no carga los meses que no tenia cacheados"): mismo
+// síntoma que ya se había reportado el 04/08 ("Otra vez volvió a
+// colgarse", barrita pegada en "X de Y") -- en esa vuelta se mitigó el
+// costo de REPINTAR (erpScheduleIcomMonthlyCharts, rAF), pero nunca se
+// pudo confirmar esa fuera la causa real ("Nunca pudimos reproducirlo acá
+// para confirmar"). En mobile hay otra explicación igual de plausible: el
+// navegador pausa/limita la pestaña en 2do plano (pantalla bloqueada,
+// cambio de app) mientras el mes en curso todavía se está pidiendo -- el
+// propio timeout de seguridad del fetch (ERP_INVOICES_RANGE_TIMEOUT_MS,
+// también un timer) puede quedar pausado junto con todo lo demás, así que
+// ni siquiera ESE mecanismo rescata la corrida. Resultado: la promesa
+// queda colgada para siempre, sin error y sin completar -- y como
+// erpFetchIcomMonthlyWeights() tiene guardia de "una sola corrida a la
+// vez" (erpIcomMonthlyWeightsPromise), ni el usuario volviendo a la app ni
+// nada dispara un reintento solo.
+//
+// Mitigación (no excluyente con la de repintado -- ataca un ángulo
+// distinto): si la corrida lleva activa mucho más de lo que el timeout
+// normal debería tardar, se la da por colgada, se descarta el guard (así
+// erpFetchIcomMonthlyWeights() no devuelve la misma promesa pegada) y se
+// reintenta desde el mes 1 -- los meses cerrados salen de IndexedDB casi
+// al instante (ver comentario grande de la cacheKey más arriba), así que
+// en la práctica esto sólo vuelve a pedir el mes en curso, que es el único
+// que puede haber quedado a mitad de camino. 2 disparadores, para cubrir
+// tanto "se colgó mientras la pestaña estaba en 2do plano" (visibilitychange,
+// dispara apenas se vuelve a la app) como "se colgó mientras la seguían
+// mirando" (setInterval, red de seguridad periódica).
+function erpReintentarSiMesesColgados(){
+  if(currentChannel !== 'icom') return;
+  const p = erpIcomMonthlyProgress;
+  if(!p.active || !p.startedAt) return;
+  if((Date.now() - p.startedAt) < (ERP_INVOICES_RANGE_TIMEOUT_MS + 15000)) return;
+  console.log('erpReintentarSiMesesColgados: la carga de meses de ICOM parece colgada, reintentando.');
+  erpIcomMonthlyWeightsPromise = null;
+  erpFetchIcomMonthlyWeights();
+}
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible') erpReintentarSiMesesColgados();
+});
+setInterval(erpReintentarSiMesesColgados, 20000);
+
 // Juan Manuel, 27/07/2026 (5ta vuelta, mismo día): botón "🔄 Actualizar" de
 // #erpIcomMonthlyChartCard -- fuerza una vuelta completa que ignora el
 // caché de IndexedDB para TODOS los meses (no solo el en curso). Limpia
@@ -2849,7 +2891,9 @@ async function erpFetchIcomMonthlyWeightsImpl(forceRefreshAll){
   const year = now.getFullYear();
   const currentMonthNum = now.getMonth() + 1; // 1-12
 
-  erpIcomMonthlyProgress = { active:true, loaded:0, total:currentMonthNum };
+  // startedAt -- ver erpWatchdogMesesColgados más abajo (05/08/2026, "en mi
+  // Mobile no carga los meses que no tenia cacheados").
+  erpIcomMonthlyProgress = { active:true, loaded:0, total:currentMonthNum, startedAt: Date.now() };
   erpRenderIcomMonthlyProgress();
 
   for(let m = 1; m <= currentMonthNum; m++){
