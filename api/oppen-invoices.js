@@ -505,6 +505,23 @@ module.exports = async function handler(req, res) {
     // después de vencido, para no dejar a nadie esperando el escaneo completo.
     if (isFullyClosedPastMonth(toDate)) {
       res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=604800');
+    } else if (!url.searchParams.get('from') && !url.searchParams.get('to')) {
+      // Juan Manuel, 05/08/2026 (análisis de performance -- "tarda mucho...
+      // incluso en información que debería estar pre-cargada"): pedido SIN
+      // from/to explícito = exactamente la forma de erpFetchNow() (poll cada
+      // 5 min, ver icom_panel_unificado.html), que hasta ahora era no-store
+      // -- CADA navegador con la pestaña abierta paginaba el mes completo
+      // por su cuenta cada 5 min, sin compartir nada entre sí (mismo
+      // síntoma ya resuelto para Stock en actualizar-stock-diario.js, pero
+      // nunca acá). s-maxage comparte la MISMA respuesta entre TODOS los
+      // navegadores que pidan este mismo rango dentro de la ventana -- de
+      // "N navegadores x 1 escaneo completo cada 5 min" a ~1 escaneo
+      // compartido cada 4 min. stale-while-revalidate evita que alguien
+      // quede esperando el escaneo completo: sirve la versión anterior al
+      // instante mientras se refresca sola en 2do plano. Cualquier pedido
+      // CON from/to explícito (rangos puntuales elegidos por el usuario)
+      // sigue en no-store, sin cambios.
+      res.setHeader('Cache-Control', 'public, s-maxage=240, stale-while-revalidate=120');
     }
     const LIMIT = 200;
 
