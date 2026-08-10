@@ -1,0 +1,30 @@
+[
+  {
+    "n": "Ortopedia ICOM",
+    "lt": -34.5356462,
+    "lg": -58.7207859,
+    "d": "Av. Presidente J. D. Perón 2348",
+    "l": "San Miguel",
+    "p": "Buenos Aires",
+    "tel": "(011) 4664-2984"
+  },
+  {
+    "n": "Icom Prosalud",
+    "lt": -34.5401918,
+    "lg": -58.7151003,
+    "d": "Av. Presidente J. D. Perón 1801",
+    "l": "San Miguel",
+    "p": "Buenos Aires",
+    "tel": ""
+  },
+  {
+    "n": "Icom Salud (JCP)",
+    "lt": -34.5328878,
+    "lg": -58.7417754,
+    "d": "Roque Sáenz Peña 4999",
+    "l": "José C. Paz",
+    "p": "Buenos Aires",
+    "tel": "",
+    "aprox": true
+  }
+]
