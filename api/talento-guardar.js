@@ -79,6 +79,18 @@ async function accionEditarPersona(payload, solicitante) {
   if (payload.funcion !== undefined && !FUNCIONES_VALIDAS.includes(payload.funcion)) {
     throw httpError(400, { ok: false, error: 'Función inválida: debe ser una de ' + FUNCIONES_VALIDAS.join(', ') + '.' });
   }
+  // 12/08/2026 ("No esta la opcion de modificar personas, porque sino no
+  // se puede crear un rol superior luego"): mismas validaciones de
+  // supervisorId que ya tenía accionCrearPersona -- editar también puede
+  // reasignar el supervisor, así que necesita la misma protección.
+  if (payload.supervisorId) {
+    if (payload.supervisorId === id) {
+      throw httpError(400, { ok: false, error: 'Una persona no puede ser su propio supervisor.' });
+    }
+    if (!personas.some(p => p.id === payload.supervisorId)) {
+      throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
+    }
+  }
   const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'supervisorId', 'fechaIngreso', 'estado'];
   const actualizada = Object.assign({}, personas[idx]);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
