@@ -26,20 +26,8 @@
 // exhibiciones-seed-inicial.js. La clave nunca queda en el código fuente
 // ni en el historial de git: la elige quien la corre, como query param
 // de una llamada puntual.
-const crypto = require('crypto');
 const { leerUsuarios, escribirUsuarios, leerPersonas } = require('./_talento-store');
-
-function hashPassword(password, salt) {
-  return crypto.scryptSync(password, salt, 64).toString('hex');
-}
-
-function passwordValida(password, salt, hash) {
-  const calculado = hashPassword(password, salt);
-  const a = Buffer.from(calculado, 'hex');
-  const b = Buffer.from(hash, 'hex');
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
-}
+const { generarSaltYHash, passwordValida } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -66,8 +54,7 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ ok: false, error: 'Faltan usuario y/o password como query params.' });
         return;
       }
-      const salt = crypto.randomBytes(16).toString('hex');
-      const hash = hashPassword(password, salt);
+      const { salt, hash } = generarSaltYHash(password);
       const usuarios = await leerUsuarios();
       const idx = usuarios.findIndex(u => u.usuario === usuario);
       const registro = { usuario, salt, hash, rol: 'admin', personaId: null, nombre };
