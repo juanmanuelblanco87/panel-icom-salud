@@ -19,7 +19,7 @@
 // más adelante hace falta más rigor (ej. cuando se sume la app de
 // autogestión de colaboradores), pasar a un token firmado es la mejora
 // natural sin tener que rehacer el resto.
-const { leerPersonas, leerObjetivos } = require('./_talento-store');
+const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos } = require('./_talento-store');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -35,7 +35,9 @@ module.exports = async function handler(req, res) {
     const rol = url.searchParams.get('rol') || '';
     const personaId = url.searchParams.get('personaId') || '';
 
-    let [personas, objetivos] = await Promise.all([leerPersonas(), leerObjetivos()]);
+    let [personas, objetivos, competencias, vacaciones] = await Promise.all([
+      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(),
+    ]);
 
     if (rol === 'supervisor' && personaId) {
       const idsEquipo = new Set([personaId]);
@@ -45,11 +47,13 @@ module.exports = async function handler(req, res) {
       personas.forEach(p => { if (p.supervisorId === personaId) idsEquipo.add(p.id); });
       personas = personas.filter(p => idsEquipo.has(p.id));
       objetivos = objetivos.filter(o => idsEquipo.has(o.personaId));
+      competencias = competencias.filter(c => idsEquipo.has(c.personaId));
+      vacaciones = vacaciones.filter(v => idsEquipo.has(v.personaId));
     }
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ ok: true, personas, objetivos });
+    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }

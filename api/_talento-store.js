@@ -91,8 +91,52 @@ async function guardarObjetivo(o) {
   await redis.sadd(`${PREFIJO}:objetivo:ids`, o.id);
 }
 
+// -- Competencias -- (13/08/2026, Fase 2) una evaluación por
+// persona+año, clave COMPUESTA determinística (personaId_anio, no un
+// id generado al azar como objetivo) -- así 2 guardados de la misma
+// evaluación (ej. el supervisor la corrige) se pisan de forma segura
+// (upsert) en vez de crear evaluaciones duplicadas para el mismo año.
+async function leerCompetencias() {
+  return leerColeccion('competencia');
+}
+async function leerCompetencia(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:competencia:${id}`);
+}
+async function guardarCompetencia(c) {
+  await redis.set(`${PREFIJO}:competencia:${c.id}`, c);
+  await redis.sadd(`${PREFIJO}:competencia:ids`, c.id);
+}
+
+// -- Vacaciones -- (13/08/2026, Fase 2) colección de PERÍODOS tomados,
+// mismo patrón que objetivo -- deliberadamente NO un único registro por
+// persona con un array de períodos adentro, porque eso volvería a
+// necesitar leer-modificar-escribir una sola clave compartida cada vez
+// que se carga un período nuevo (la misma clase de bug que motivó
+// migrar todo este archivo de Blob a Redis). El derecho a días
+// (cuántos corresponden) nunca se guarda acá -- se calcula siempre a
+// partir de personas.fechaIngreso, ver calcularDiasVacaciones en
+// talento-guardar.js y en el sub-app.
+async function leerVacacionesPeriodos() {
+  return leerColeccion('vacacionPeriodo');
+}
+async function leerVacacionPeriodo(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:vacacionPeriodo:${id}`);
+}
+async function guardarVacacionPeriodo(v) {
+  await redis.set(`${PREFIJO}:vacacionPeriodo:${v.id}`, v);
+  await redis.sadd(`${PREFIJO}:vacacionPeriodo:ids`, v.id);
+}
+async function eliminarVacacionPeriodo(id) {
+  await redis.del(`${PREFIJO}:vacacionPeriodo:${id}`);
+  await redis.srem(`${PREFIJO}:vacacionPeriodo:ids`, id);
+}
+
 module.exports = {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerUsuarios, leerUsuario, guardarUsuario,
   leerObjetivos, leerObjetivo, guardarObjetivo,
+  leerCompetencias, leerCompetencia, guardarCompetencia,
+  leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
 };

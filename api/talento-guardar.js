@@ -28,6 +28,8 @@
 const {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerObjetivos, leerObjetivo, guardarObjetivo,
+  guardarCompetencia,
+  leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
 } = require('./_talento-store');
 
 // 12/08/2026 ("en Función dejar 'Otros' para especificar"): esta lista ya
@@ -41,6 +43,54 @@ const {
 const FUNCIONES_VALIDAS = ['eCommerce', 'Sucursales', 'Coordinador', 'Supervisor', 'Colaborador', 'Cajero', 'Otros'];
 const CHECKPOINTS_VALIDOS = ['seguimiento1', 'seguimiento2', 'cierre'];
 const EPS = 1e-6;
+
+// 13/08/2026 (Fase 2, "Perfil de Competencias" + "Matriz de Talento
+// 9-Box"): las primeras 7 son las que ya usaba el Excel viejo de la
+// empresa (perfil general); las últimas 4 son el modelo gratuito del
+// Corporate Leadership Council ("Aspiration, Ability, Engagement,
+// Agility") -- estándar público para el eje de Potencial de un 9-box.
+// El eje de Desempeño NO se evalúa acá -- reusa calcularAvance() sobre
+// los Objetivos, que ya existe.
+const ITEMS_COMPETENCIA = [
+  'liderazgo', 'comunicacion', 'actitudColaborativa', 'orientacionResultados',
+  'adaptabilidad', 'accountability', 'planificacionSeguimiento',
+  'aspiracion', 'habilidad', 'compromiso', 'agilidad',
+];
+
+// 13/08/2026 (Fase 2, "Carga y gestión de vacaciones"): Ley de Contrato
+// de Trabajo argentina, Art. 150 (días corridos según antigüedad al
+// 31/12 del año) y Art. 153 (proporcional -- 1 día cada 20 trabajados
+// -- para quien no estuvo empleado el año calendario completo). Esta
+// misma función existe portada 1:1 en talento_app.html para mostrarla
+// en pantalla -- acá es la que manda (el server bloquea si un período
+// se pasa del saldo, el cliente sólo previsualiza).
+function calcularDiasVacaciones(fechaIngreso, anio) {
+  if (!fechaIngreso) return { diasCorresponden: 0, antiguedadAnios: 0, proporcional: false, error: 'Sin fecha de ingreso.' };
+  const ingreso = new Date(fechaIngreso + 'T00:00:00');
+  const finDeAnio = new Date(anio, 11, 31);
+  const inicioDeAnio = new Date(anio, 0, 1);
+  if (ingreso > finDeAnio) return { diasCorresponden: 0, antiguedadAnios: 0, proporcional: false, error: null };
+
+  if (ingreso <= inicioDeAnio) {
+    // Trabajó el año calendario completo -- tabla por tramos de antigüedad.
+    let antiguedadAnios = finDeAnio.getFullYear() - ingreso.getFullYear();
+    const noCumplioAniversarioAun = (finDeAnio.getMonth() < ingreso.getMonth())
+      || (finDeAnio.getMonth() === ingreso.getMonth() && finDeAnio.getDate() < ingreso.getDate());
+    if (noCumplioAniversarioAun) antiguedadAnios -= 1;
+    let diasCorresponden;
+    if (antiguedadAnios <= 5) diasCorresponden = 14;
+    else if (antiguedadAnios <= 10) diasCorresponden = 21;
+    else if (antiguedadAnios <= 20) diasCorresponden = 28;
+    else diasCorresponden = 35;
+    return { diasCorresponden, antiguedadAnios, proporcional: false, error: null };
+  }
+
+  // Ingresó durante ESE año, después del 1/1 -- proporcional (Art. 153).
+  const MS_POR_DIA = 24 * 60 * 60 * 1000;
+  const diasTrabajados = Math.round((finDeAnio - ingreso) / MS_POR_DIA) + 1;
+  const diasCorresponden = Math.floor(diasTrabajados / 20);
+  return { diasCorresponden, antiguedadAnios: 0, proporcional: true, error: null };
+}
 
 function httpError(status, body) {
   return Object.assign(new Error('httpError'), { __httpError: true, status, body });
@@ -59,6 +109,16 @@ function puedeGestionarPersona(solicitante, persona) {
     return persona.id === solicitante.personaId || persona.supervisorId === solicitante.personaId;
   }
   return false;
+}
+
+// 13/08/2026 (Fase 2): a diferencia de puedeGestionarPersona, acá NO se
+// permite persona.id === solicitante.personaId -- evaluar el propio
+// potencial/competencias no puede ser una autoevaluación, sólo admin o
+// el supervisor directo.
+function puedeEvaluarCompetencias(solicitante, persona) {
+  if (!solicitante || !persona) return false;
+  if (solicitante.rol === 'admin') return true;
+  return solicitante.rol === 'supervisor' && persona.supervisorId === solicitante.personaId;
 }
 
 function nuevoId(prefijo) {
@@ -195,12 +255,91 @@ async function accionGuardarCheckpoint(payload, solicitante) {
   return { status: 200, body: { ok: true, objetivo } };
 }
 
+async function accionGuardarCompetencia(payload, solicitante) {
+  const { personaId, anio, items, comentario } = payload || {};
+  const persona = await leerPersona(personaId);
+  if (!puedeEvaluarCompetencias(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para evaluar competencias de esta persona (no se permite autoevaluación).' });
+  }
+  const anioNum = Number(anio) || new Date().getFullYear();
+  const errores = [];
+  const itemsValidados = {};
+  ITEMS_COMPETENCIA.forEach(k => {
+    const v = Number(items && items[k]);
+    if (!(v >= 1 && v <= 4)) errores.push('El ítem "' + k + '" debe tener un valor entre 1 y 4.');
+    itemsValidados[k] = v;
+  });
+  if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
+
+  const competencia = {
+    id: personaId + '_' + anioNum, personaId, anio: anioNum, items: itemsValidados,
+    comentario: comentario ? String(comentario).trim() : '',
+    fecha: new Date().toISOString(),
+    evaluadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+  };
+  await guardarCompetencia(competencia);
+  return { status: 200, body: { ok: true, competencia } };
+}
+
+async function accionGuardarVacacionPeriodo(payload, solicitante) {
+  const { personaId, fechaInicio, fechaFin, comentario } = payload || {};
+  const persona = await leerPersona(personaId);
+  if (!puedeGestionarPersona(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para cargar vacaciones de esta persona.' });
+  }
+  const errores = [];
+  if (!fechaInicio) errores.push('Falta la fecha de inicio.');
+  if (!fechaFin) errores.push('Falta la fecha de fin.');
+  if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
+  const inicio = new Date(fechaInicio + 'T00:00:00');
+  const fin = new Date(fechaFin + 'T00:00:00');
+  if (isNaN(inicio.getTime()) || isNaN(fin.getTime())) throw httpError(400, { ok: false, error: 'Fechas inválidas.' });
+  if (fin < inicio) throw httpError(400, { ok: false, error: 'La fecha de fin no puede ser anterior a la de inicio.' });
+
+  const diasTomados = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
+  const anioNum = inicio.getFullYear();
+
+  const { diasCorresponden, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, anioNum);
+  if (errorDias) throw httpError(400, { ok: false, error: errorDias });
+  const periodosDeEseAnio = (await leerVacacionesPeriodos()).filter(v => v.personaId === personaId && v.anio === anioNum);
+  const diasYaTomados = periodosDeEseAnio.reduce((s, v) => s + (Number(v.diasTomados) || 0), 0);
+  if (diasYaTomados + diasTomados > diasCorresponden) {
+    throw httpError(400, { ok: false, error: 'Ese período supera el saldo disponible de ' + persona.nombre + ' para ' + anioNum
+      + ' (corresponden ' + diasCorresponden + ' días, ya tomó ' + diasYaTomados + ', este período suma ' + diasTomados + ').' });
+  }
+
+  const periodo = {
+    id: nuevoId('vac'), personaId, anio: anioNum, fechaInicio, fechaFin, diasTomados,
+    comentario: comentario ? String(comentario).trim() : '',
+    cargadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fecha: new Date().toISOString(),
+  };
+  await guardarVacacionPeriodo(periodo);
+  return { status: 200, body: { ok: true, periodo } };
+}
+
+async function accionEliminarVacacionPeriodo(payload, solicitante) {
+  const { id } = payload || {};
+  if (!id) throw httpError(400, { ok: false, error: 'Falta el id del período a eliminar.' });
+  const periodo = await leerVacacionPeriodo(id);
+  if (!periodo) throw httpError(404, { ok: false, error: 'El período no existe (puede que ya se haya eliminado).' });
+  const persona = await leerPersona(periodo.personaId);
+  if (!puedeGestionarPersona(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar este período.' });
+  }
+  await eliminarVacacionPeriodo(id);
+  return { status: 200, body: { ok: true } };
+}
+
 const ACCIONES = {
   crearPersona: accionCrearPersona,
   editarPersona: accionEditarPersona,
   eliminarPersona: accionEliminarPersona,
   crearObjetivo: accionCrearObjetivo,
   guardarCheckpoint: accionGuardarCheckpoint,
+  guardarCompetencia: accionGuardarCompetencia,
+  guardarVacacionPeriodo: accionGuardarVacacionPeriodo,
+  eliminarVacacionPeriodo: accionEliminarVacacionPeriodo,
 };
 
 module.exports = async function handler(req, res) {
