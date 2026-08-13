@@ -10,8 +10,10 @@
 // shell -- justificado ahí porque es sólo un gate de acceso al panel, acá
 // es data de RR.HH., más sensible).
 //
-// Hashing con crypto.scryptSync (nativo de Node, sin sumar dependencias
-// -- package.json hoy sólo tiene @vercel/blob).
+// Hashing con crypto.scryptSync (nativo de Node, sin sumar dependencias).
+//
+// 13/08/2026: usuarios.json migrado de Vercel Blob a Upstash Redis (ver
+// _talento-store.js) -- cada usuario es su propia clave.
 //
 // POST {usuario, password} -> valida credenciales, devuelve
 // {ok, rol, personaId, nombre} (nunca la clave/hash).
@@ -26,7 +28,7 @@
 // exhibiciones-seed-inicial.js. La clave nunca queda en el código fuente
 // ni en el historial de git: la elige quien la corre, como query param
 // de una llamada puntual.
-const { leerUsuarios, escribirUsuarios, leerPersonas } = require('./_talento-store');
+const { leerUsuario, guardarUsuario, leerPersona } = require('./_talento-store');
 const { generarSaltYHash, passwordValida } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
@@ -55,11 +57,8 @@ module.exports = async function handler(req, res) {
         return;
       }
       const { salt, hash } = generarSaltYHash(password);
-      const usuarios = await leerUsuarios();
-      const idx = usuarios.findIndex(u => u.usuario === usuario);
       const registro = { usuario, salt, hash, rol: 'admin', personaId: null, nombre };
-      if (idx >= 0) usuarios[idx] = registro; else usuarios.push(registro);
-      await escribirUsuarios(usuarios);
+      await guardarUsuario(registro);
       res.status(200).json({ ok: true, seeded: true, usuario, rol: 'admin' });
       return;
     }
@@ -72,16 +71,14 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ ok: false, error: 'Usuario y contraseña son obligatorios.' });
         return;
       }
-      const usuarios = await leerUsuarios();
-      const registro = usuarios.find(u => u.usuario === usuario);
+      const registro = await leerUsuario(usuario);
       if (!registro || !passwordValida(password, registro.salt, registro.hash)) {
         res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos.' });
         return;
       }
       let personaNombre = registro.nombre || registro.usuario;
       if (registro.personaId) {
-        const personas = await leerPersonas();
-        const persona = personas.find(p => p.id === registro.personaId);
+        const persona = await leerPersona(registro.personaId);
         if (persona) personaNombre = persona.nombre;
       }
       res.status(200).json({ ok: true, rol: registro.rol, personaId: registro.personaId, nombre: personaNombre });

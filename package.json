@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Funciones serverless (Vercel) del panel ICOM Salud -- proxy seguro hacia oppen.io y mantenimiento de la base estatica de ventas de 12 meses por SKU/unidad de negocio (Vercel Blob).",
   "dependencies": {
-    "@vercel/blob": "^2.6.1"
+    "@vercel/blob": "^2.6.1",
+    "@upstash/redis": "^1.35.3"
   }
 }

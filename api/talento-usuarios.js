@@ -13,7 +13,7 @@
 // en talento-guardar.js) -- un supervisor no puede ver ni crear otros
 // usuarios. GET nunca devuelve salt/hash, sólo lo que hace falta para
 // listar (usuario, rol, personaId, nombre).
-const { leerUsuarios, escribirUsuarios, leerPersonas } = require('./_talento-store');
+const { leerUsuarios, leerUsuario, guardarUsuario, leerPersona } = require('./_talento-store');
 const { generarSaltYHash } = require('./_talento-auth');
 
 function httpError(status, body) {
@@ -38,18 +38,13 @@ async function accionCrearUsuario(payload, solicitante) {
   if (!['admin', 'supervisor'].includes(rol)) errores.push('Rol inválido: debe ser admin o supervisor.');
   if (rol === 'supervisor' && !personaId) errores.push('Un supervisor tiene que estar vinculado a una persona del padrón (para saber a quién ve).');
 
-  const usuarios = await leerUsuarios();
-  if (usuarios.some(u => u.usuario === usuario)) errores.push('Ya existe un usuario con ese nombre.');
-  if (personaId) {
-    const personas = await leerPersonas();
-    if (!personas.some(p => p.id === personaId)) errores.push('La persona vinculada no existe.');
-  }
+  if (await leerUsuario(usuario)) errores.push('Ya existe un usuario con ese nombre.');
+  if (personaId && !(await leerPersona(personaId))) errores.push('La persona vinculada no existe.');
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
 
   const { salt, hash } = generarSaltYHash(password);
   const registro = { usuario, salt, hash, rol, personaId: rol === 'supervisor' ? personaId : null, nombre };
-  usuarios.push(registro);
-  await escribirUsuarios(usuarios);
+  await guardarUsuario(registro);
   return { status: 200, body: { ok: true, usuario: { usuario, rol: registro.rol, personaId: registro.personaId, nombre: registro.nombre } } };
 }
 
@@ -60,13 +55,11 @@ async function accionCambiarPassword(payload, solicitante) {
   if (!usuario) throw httpError(400, { ok: false, error: 'Falta el usuario.' });
   if (!password || password.length < 4) throw httpError(400, { ok: false, error: 'La contraseña debe tener al menos 4 caracteres.' });
 
-  const usuarios = await leerUsuarios();
-  const idx = usuarios.findIndex(u => u.usuario === usuario);
-  if (idx < 0) throw httpError(404, { ok: false, error: 'Ese usuario no existe.' });
+  const existente = await leerUsuario(usuario);
+  if (!existente) throw httpError(404, { ok: false, error: 'Ese usuario no existe.' });
 
   const { salt, hash } = generarSaltYHash(password);
-  usuarios[idx] = Object.assign({}, usuarios[idx], { salt, hash });
-  await escribirUsuarios(usuarios);
+  await guardarUsuario(Object.assign({}, existente, { salt, hash }));
   return { status: 200, body: { ok: true, usuario } };
 }
 

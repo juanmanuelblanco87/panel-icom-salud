@@ -15,7 +15,20 @@
 //     su personaId, o persona.supervisorId === su personaId) -- el
 //     padrón de personas (altas/bajas/cambios de función) queda
 //     reservado a RR.HH./admin, es data maestra de la compañía.
-const { leerPersonas, escribirPersonas, leerObjetivos, escribirObjetivos } = require('./_talento-store');
+//
+// 13/08/2026: migrado a Upstash Redis (ver _talento-store.js) -- cada
+// persona/objetivo es su propia clave, así que ya NO hace falta leer un
+// array entero y volver a escribirlo entero en cada guardado (la causa
+// de fondo del bug "La persona no existe" al editar a alguien que sí
+// existía). Con eso se elimina TODA la maquinaria de reintento/espera
+// que tenía este archivo (leerPersonasReintentandoSiFalta,
+// guardarPersonaConReintento) -- una escritura en Redis a una clave
+// puntual es atómica e inmediatamente consistente, no hace falta
+// verificarla ni reintentarla.
+const {
+  leerPersonas, leerPersona, guardarPersona, eliminarPersona,
+  leerObjetivos, leerObjetivo, guardarObjetivo,
+} = require('./_talento-store');
 
 // 12/08/2026 ("en Función dejar 'Otros' para especificar"): esta lista ya
 // NO se usa para validar -- el cliente resuelve "Otros" al texto libre
@@ -52,46 +65,6 @@ function nuevoId(prefijo) {
   return prefijo + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
 
-// 13/08/2026: el intento anterior (escribir y después RELEER para
-// confirmar que el guardado quedó, reintentando si no) resultó ser el
-// problema y no la solución -- confirmado en producción probando un
-// alta sin ningún otro guardado en simultáneo: la relectura seguía sin
-// ver la escritura propia incluso reintentando varias veces durante
-// varios minutos ("No se pudo confirmar el guardado" una y otra vez,
-// aunque el dato ya hubiera quedado bien guardado). Vercel Blob no
-// promete que una lectura inmediatamente posterior a un put() vaya a
-// verlo -- pero put() resolviendo sin tirar error YA ES la confirmación
-// más fuerte que este servicio ofrece; exigir además una relectura
-// fresca es una condición que a veces tarda demasiado en cumplirse y
-// termina bloqueando al usuario por algo que, del lado del servidor,
-// ya se guardó bien. Se saca esa verificación por completo.
-//
-// Lo que sí sigue pudiendo pasar es al revés: acabar de crear una
-// persona y, ENSEGUIDA, querer editarla o borrarla (como con Ludmila
-// Arana) -- ahí la LECTURA de esa acción puede no encontrarla todavía
-// por el mismo motivo. Para ese caso puntual (buscar algo que se sabe
-// que debería estar, no confirmar la propia escritura) alcanza con
-// darle a la lectura un par de reintentos con espera antes de concluir
-// "no existe".
-// 13/08/2026: probado en producción, 2 reintentos (~2.4s en total) no
-// alcanzaron -- una persona recién creada (Prueba Verificación Final)
-// no se encontró al editarla/eliminarla ni siquiera con esa espera. Se
-// sube el presupuesto de espera bastante más (~15.5s en el peor caso,
-// dejando margen contra el maxDuration:30 de esta función en
-// vercel.json) -- mejor que el usuario espere unos segundos de más en
-// el caso raro de una lectura demorada, a que la acción falle de
-// entrada.
-function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
-async function leerPersonasReintentandoSiFalta(id) {
-  const ESPERAS_MS = [500, 1000, 2000, 4000, 8000];
-  let personas = await leerPersonas();
-  for (let intento = 0; !personas.some(p => p.id === id) && intento < ESPERAS_MS.length; intento++) {
-    await esperar(ESPERAS_MS[intento]);
-    personas = await leerPersonas();
-  }
-  return personas;
-}
-
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
   const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
@@ -102,8 +75,7 @@ async function accionCrearPersona(payload, solicitante) {
   if (!lugarDeTrabajo || !String(lugarDeTrabajo).trim()) errores.push('Falta el lugar de trabajo.');
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
 
-  const personas = supervisorId ? await leerPersonasReintentandoSiFalta(supervisorId) : await leerPersonas();
-  if (supervisorId && !personas.some(p => p.id === supervisorId)) {
+  if (supervisorId && !(await leerPersona(supervisorId))) {
     throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
   }
   const persona = {
@@ -115,8 +87,7 @@ async function accionCrearPersona(payload, solicitante) {
     // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
     potencialActual: null, boxActual: null,
   };
-  personas.push(persona);
-  await escribirPersonas(personas);
+  await guardarPersona(persona);
   return { status: 200, body: { ok: true, persona } };
 }
 
@@ -131,21 +102,19 @@ async function accionEditarPersona(payload, solicitante) {
     throw httpError(400, { ok: false, error: 'Una persona no puede ser su propio supervisor.' });
   }
 
-  const personas = await leerPersonasReintentandoSiFalta(id);
-  const idx = personas.findIndex(p => p.id === id);
-  if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe.' });
+  const existente = await leerPersona(id);
+  if (!existente) throw httpError(404, { ok: false, error: 'La persona no existe.' });
   // 12/08/2026 ("No esta la opcion de modificar personas, porque sino no
   // se puede crear un rol superior luego"): mismas validaciones de
   // supervisorId que ya tenía accionCrearPersona -- editar también puede
   // reasignar el supervisor, así que necesita la misma protección.
-  if (payload.supervisorId && !personas.some(p => p.id === payload.supervisorId)) {
+  if (payload.supervisorId && !(await leerPersona(payload.supervisorId))) {
     throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
   }
   const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
-  const actualizada = Object.assign({}, personas[idx]);
+  const actualizada = Object.assign({}, existente);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
-  personas[idx] = actualizada;
-  await escribirPersonas(personas);
+  await guardarPersona(actualizada);
   return { status: 200, body: { ok: true, persona: actualizada } };
 }
 
@@ -158,21 +127,19 @@ async function accionEliminarPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede eliminar personas.' });
   const { id } = payload || {};
   if (!id) throw httpError(400, { ok: false, error: 'Falta el id de la persona a eliminar.' });
-  const personas = await leerPersonasReintentandoSiFalta(id);
-  const idx = personas.findIndex(p => p.id === id);
-  if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe (puede que ya se haya eliminado).' });
+  const existente = await leerPersona(id);
+  if (!existente) throw httpError(404, { ok: false, error: 'La persona no existe (puede que ya se haya eliminado).' });
+  const personas = await leerPersonas();
   if (personas.some(p => p.supervisorId === id)) {
     throw httpError(400, { ok: false, error: 'No se puede eliminar: hay otras personas que la tienen como supervisor. Reasignales el supervisor primero.' });
   }
-  personas.splice(idx, 1);
-  await escribirPersonas(personas);
+  await eliminarPersona(id);
   return { status: 200, body: { ok: true } };
 }
 
 async function accionCrearObjetivo(payload, solicitante) {
   const { personaId, anio, titulo, meta, peso } = payload || {};
-  const personas = await leerPersonas();
-  const persona = personas.find(p => p.id === personaId);
+  const persona = await leerPersona(personaId);
   if (!puedeGestionarPersona(solicitante, persona)) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar objetivos de esta persona.' });
   }
@@ -197,8 +164,7 @@ async function accionCrearObjetivo(payload, solicitante) {
     id: nuevoId('obj'), personaId, anio: anioNum, titulo: String(titulo).trim(), meta: String(meta).trim(),
     peso: pesoNum, checkpoints: { seguimiento1: null, seguimiento2: null, cierre: null },
   };
-  objetivos.push(objetivo);
-  await escribirObjetivos(objetivos);
+  await guardarObjetivo(objetivo);
   return { status: 200, body: { ok: true, objetivo } };
 }
 
@@ -210,11 +176,9 @@ async function accionGuardarCheckpoint(payload, solicitante) {
   const valorNum = Number(valor);
   if (!(valorNum >= 1 && valorNum <= 4)) throw httpError(400, { ok: false, error: 'El valor debe estar entre 1 y 4.' });
 
-  const objetivos = await leerObjetivos();
-  const objetivo = objetivos.find(o => o.id === objetivoId);
+  const objetivo = await leerObjetivo(objetivoId);
   if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
-  const personas = await leerPersonas();
-  const persona = personas.find(p => p.id === objetivo.personaId);
+  const persona = await leerPersona(objetivo.personaId);
   if (!puedeGestionarPersona(solicitante, persona)) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar el seguimiento de este objetivo.' });
   }
@@ -227,7 +191,7 @@ async function accionGuardarCheckpoint(payload, solicitante) {
     // autogestión (ver Contexto del plan de Fase 1).
     cargadoPor: solicitante.rol === 'admin' ? 'admin' : 'supervisor',
   };
-  await escribirObjetivos(objetivos);
+  await guardarObjetivo(objetivo);
   return { status: 200, body: { ok: true, objetivo } };
 }
 

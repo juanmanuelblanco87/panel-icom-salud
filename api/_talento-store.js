@@ -1,79 +1,98 @@
 // api/_talento-store.js
 //
-// Gestión de Talento (11/08/2026) -- Fase 1 (Personas + Objetivos).
-// Mismo patrón que api/_exhibiciones-store.js: UN blob por dominio, nunca
-// un blob compartido -- ver el comment-header de ese archivo para la
-// explicación completa de por qué (un blob compartido fue la causa real
-// de un bug de pérdida de datos en producción: 2 guardados de dominios
-// distintos competían por el mismo archivo). Acá no hace falta ninguna
-// migración (son dominios nuevos, arrancan vacíos, igual que
-// exhibiciones/layouts.json en su momento).
-const { put, get } = require('@vercel/blob');
+// Gestión de Talento -- Fase 1 (Personas + Objetivos).
+//
+// 13/08/2026 ("A veces tengo que reintentar 2 o 3 veces... espero entre
+// 3 y 5 minutos y sigue apareciendo"): migrado de Vercel Blob (1 JSON
+// por dominio, cada guardado leía el archivo ENTERO y lo volvía a
+// escribir ENTERO) a Upstash Redis (integración "Redis" del Vercel
+// Marketplace, variables de entorno con prefijo TALENTO_). Blob es
+// almacenamiento de OBJETOS pensado para archivos servidos por CDN --
+// no garantiza que una lectura inmediatamente posterior a una escritura
+// vea ese cambio (confirmado en producción probando sin ninguna otra
+// escritura en simultáneo: a veces se veía al instante, a veces tardaba
+// más de un minuto). Redis es una base de clave-valor de verdad: cada
+// operación sobre UNA clave es atómica e inmediatamente consistente,
+// sin ningún cacheo de por medio.
+//
+// Además de cambiar de proveedor, cambia el diseño: en vez de 1 archivo
+// con el array COMPLETO de personas (que cualquier alta/edición tenía
+// que leer entero y volver a escribir entero -- la causa de fondo del
+// bug real de Ludmila Arana, más allá de que la lectura vieja de Blob
+// lo agravara), ahora cada persona/usuario/objetivo es su PROPIA clave
+// (`talento:persona:<id>`). Editar o eliminar UNO nunca toca ni puede
+// pisar a otro -- elimina la clase entera de "lost update", no sólo el
+// síntoma. Un SET aparte por colección (`talento:personas:ids`) guarda
+// qué ids existen, para poder listarlas todas.
+//
+// Los datos que ya existían en Blob se migraron una única vez con
+// api/talento-migrar-a-redis.js (dejado en el repo como referencia,
+// mismo criterio que exhibiciones-seed-inicial.js -- no hace falta
+// volver a correrlo).
+const { Redis } = require('@upstash/redis');
 
-const BLOB_USUARIOS = 'talento/usuarios.json';
-const BLOB_PERSONAS = 'talento/personas.json';
-const BLOB_OBJETIVOS = 'talento/objetivos.json';
+const redis = new Redis({
+  url: process.env.TALENTO_KV_REST_API_URL,
+  token: process.env.TALENTO_KV_REST_API_TOKEN,
+});
 
-async function leerBlobJson(pathname) {
-  try {
-    const result = await get(pathname, { access: 'public', useCache: false });
-    if (!result || result.statusCode !== 200 || !result.stream) return null;
-    const text = await new Response(result.stream).text();
-    return JSON.parse(text);
-  } catch (e) {
-    return null;
-  }
+const PREFIJO = 'talento';
+
+async function leerColeccion(coleccion) {
+  const ids = await redis.smembers(`${PREFIJO}:${coleccion}:ids`);
+  if (!ids || !ids.length) return [];
+  const valores = await Promise.all(ids.map(id => redis.get(`${PREFIJO}:${coleccion}:${id}`)));
+  return valores.filter(Boolean);
 }
 
-async function escribirBlobJson(pathname, data) {
-  data.generatedAt = new Date().toISOString();
-  await put(pathname, JSON.stringify(data), {
-    // 13/08/2026 ("La persona no existe" / "no se ve reflejado abajo",
-    // aun sin ningún otro guardado en simultáneo -- confirmado a mano
-    // con pedidos sueltos, sin concurrencia real): cacheControlMaxAge
-    // controla el header Cache-Control con el que Vercel sirve la URL
-    // pública del blob a través de su CDN -- get() con useCache:false
-    // sólo evita el "Data Cache" propio de Vercel/Next, pero la
-    // respuesta HTTP igual puede venir de un edge de la CDN que cacheó
-    // la versión anterior por hasta ese tiempo. Con 60s de margen, una
-    // lectura hecha segundos después de guardar podía traer la versión
-    // vieja del archivo -- exactamente el síntoma reportado. Estos
-    // blobs se leen todo el tiempo inmediatamente después de escribirse
-    // (guardar una persona y confirmar que quedó), así que no pueden
-    // tener ningún margen de cacheo -- 0 fuerza a que cada lectura
-    // vaya siempre a buscar la versión más nueva.
-    access: 'public', addRandomSuffix: false, contentType: 'application/json', allowOverwrite: true, cacheControlMaxAge: 0,
-  });
-}
-
-// usuarios.json NUNCA se manda al cliente en crudo (ver api/talento-login.js
-// y api/talento-data.js -- ninguno de los 2 expone esta lista completa).
-async function leerUsuarios() {
-  const data = await leerBlobJson(BLOB_USUARIOS);
-  return (data && data.usuarios) || [];
-}
-async function escribirUsuarios(usuarios) {
-  await escribirBlobJson(BLOB_USUARIOS, { usuarios });
-}
-
+// -- Personas --
 async function leerPersonas() {
-  const data = await leerBlobJson(BLOB_PERSONAS);
-  return (data && data.personas) || [];
+  return leerColeccion('persona');
 }
-async function escribirPersonas(personas) {
-  await escribirBlobJson(BLOB_PERSONAS, { personas });
+async function leerPersona(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:persona:${id}`);
+}
+async function guardarPersona(persona) {
+  await redis.set(`${PREFIJO}:persona:${persona.id}`, persona);
+  await redis.sadd(`${PREFIJO}:persona:ids`, persona.id);
+}
+async function eliminarPersona(id) {
+  await redis.del(`${PREFIJO}:persona:${id}`);
+  await redis.srem(`${PREFIJO}:persona:ids`, id);
 }
 
-async function leerObjetivos() {
-  const data = await leerBlobJson(BLOB_OBJETIVOS);
-  return (data && data.objetivos) || [];
+// -- Usuarios -- la clave es el nombre de usuario (no hace falta id
+// aparte, ya es único). NUNCA se manda al cliente en crudo (ver
+// api/talento-login.js y api/talento-data.js -- ninguno de los 2
+// expone esta lista completa).
+async function leerUsuarios() {
+  return leerColeccion('usuario');
 }
-async function escribirObjetivos(objetivos) {
-  await escribirBlobJson(BLOB_OBJETIVOS, { objetivos });
+async function leerUsuario(usuario) {
+  if (!usuario) return null;
+  return await redis.get(`${PREFIJO}:usuario:${usuario}`);
+}
+async function guardarUsuario(u) {
+  await redis.set(`${PREFIJO}:usuario:${u.usuario}`, u);
+  await redis.sadd(`${PREFIJO}:usuario:ids`, u.usuario);
+}
+
+// -- Objetivos --
+async function leerObjetivos() {
+  return leerColeccion('objetivo');
+}
+async function leerObjetivo(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:objetivo:${id}`);
+}
+async function guardarObjetivo(o) {
+  await redis.set(`${PREFIJO}:objetivo:${o.id}`, o);
+  await redis.sadd(`${PREFIJO}:objetivo:ids`, o.id);
 }
 
 module.exports = {
-  leerUsuarios, escribirUsuarios,
-  leerPersonas, escribirPersonas,
-  leerObjetivos, escribirObjetivos,
+  leerPersonas, leerPersona, guardarPersona, eliminarPersona,
+  leerUsuarios, leerUsuario, guardarUsuario,
+  leerObjetivos, leerObjetivo, guardarObjetivo,
 };
