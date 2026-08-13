@@ -29,6 +29,9 @@
     },
     "api/stock-snapshot.js": {
       "maxDuration": 10
+    },
+    "api/talento-guardar.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [

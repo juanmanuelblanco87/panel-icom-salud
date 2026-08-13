@@ -73,11 +73,20 @@ function nuevoId(prefijo) {
 // que debería estar, no confirmar la propia escritura) alcanza con
 // darle a la lectura un par de reintentos con espera antes de concluir
 // "no existe".
+// 13/08/2026: probado en producción, 2 reintentos (~2.4s en total) no
+// alcanzaron -- una persona recién creada (Prueba Verificación Final)
+// no se encontró al editarla/eliminarla ni siquiera con esa espera. Se
+// sube el presupuesto de espera bastante más (~15.5s en el peor caso,
+// dejando margen contra el maxDuration:30 de esta función en
+// vercel.json) -- mejor que el usuario espere unos segundos de más en
+// el caso raro de una lectura demorada, a que la acción falle de
+// entrada.
 function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function leerPersonasReintentandoSiFalta(id) {
+  const ESPERAS_MS = [500, 1000, 2000, 4000, 8000];
   let personas = await leerPersonas();
-  for (let intento = 0; !personas.some(p => p.id === id) && intento < 2; intento++) {
-    await esperar(800 * (intento + 1));
+  for (let intento = 0; !personas.some(p => p.id === id) && intento < ESPERAS_MS.length; intento++) {
+    await esperar(ESPERAS_MS[intento]);
     personas = await leerPersonas();
   }
   return personas;
