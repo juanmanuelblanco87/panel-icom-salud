@@ -52,47 +52,35 @@ function nuevoId(prefijo) {
   return prefijo + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
 
-// 13/08/2026 ("La persona no existe" al editar a Ludmila Arana, que sí
-// existía -- se la había creado momentos antes): Vercel Blob no da
-// transacciones ni check de versión al escribir -- leer personas.json
-// entero, modificarlo en memoria, y volver a escribirlo entero (como
-// hacían accionCrearPersona/accionEditarPersona) puede pisar un guardado
-// de otro admin que haya escrito en el medio, o toparse con una lectura
-// que todavía no ve la última escritura -- un "lost update" clásico de
-// leer-modificar-escribir sin lock. La causa de fondo de la lectura
-// vieja resultó ser el cacheo de la CDN (ver _talento-store.js,
-// cacheControlMaxAge ahora en 0), pero se deja este reintento como
-// defensa adicional para el caso de 2 guardados realmente en simultáneo
-// -- con una pequeña espera creciente entre intento e intento, para dar
-// tiempo a que la escritura anterior se termine de propagar. Con el
-// volumen real de uso (RR.HH./supervisores guardando de a uno) alcanza
-// con verificar y reintentar: después de escribir, releer y confirmar
-// que el cambio realmente quedó -- si no, releer de cero y reaplicar la
-// mutación sobre esa versión más nueva. `mutar(personas)` tiene que ser
-// idempotente (segura de llamar de nuevo con una lectura más fresca) y
-// devolver la persona resultante ya puesta en el array.
+// 13/08/2026: el intento anterior (escribir y después RELEER para
+// confirmar que el guardado quedó, reintentando si no) resultó ser el
+// problema y no la solución -- confirmado en producción probando un
+// alta sin ningún otro guardado en simultáneo: la relectura seguía sin
+// ver la escritura propia incluso reintentando varias veces durante
+// varios minutos ("No se pudo confirmar el guardado" una y otra vez,
+// aunque el dato ya hubiera quedado bien guardado). Vercel Blob no
+// promete que una lectura inmediatamente posterior a un put() vaya a
+// verlo -- pero put() resolviendo sin tirar error YA ES la confirmación
+// más fuerte que este servicio ofrece; exigir además una relectura
+// fresca es una condición que a veces tarda demasiado en cumplirse y
+// termina bloqueando al usuario por algo que, del lado del servidor,
+// ya se guardó bien. Se saca esa verificación por completo.
+//
+// Lo que sí sigue pudiendo pasar es al revés: acabar de crear una
+// persona y, ENSEGUIDA, querer editarla o borrarla (como con Ludmila
+// Arana) -- ahí la LECTURA de esa acción puede no encontrarla todavía
+// por el mismo motivo. Para ese caso puntual (buscar algo que se sabe
+// que debería estar, no confirmar la propia escritura) alcanza con
+// darle a la lectura un par de reintentos con espera antes de concluir
+// "no existe".
 function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
-// `verificar(relectura, resultado)` decide si la relectura confirma que
-// el cambio quedó -- por defecto (crear/editar) es "está y coincide";
-// accionEliminarPersona manda una propia porque para borrar lo esperado
-// es NO encontrarla.
-function verificarPresente(idPersona) {
-  return (relectura, resultado) => {
-    const enRelectura = relectura.find(p => p.id === idPersona);
-    return !!enRelectura && JSON.stringify(enRelectura) === JSON.stringify(resultado);
-  };
-}
-async function guardarPersonaConReintento(mutar, verificar) {
-  const MAX_INTENTOS = 4;
-  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
-    if (intento > 0) await esperar(300 * intento);
-    const personas = await leerPersonas();
-    const resultado = mutar(personas);
-    await escribirPersonas(personas);
-    const relectura = await leerPersonas();
-    if (verificar(relectura, resultado)) return resultado;
+async function leerPersonasReintentandoSiFalta(id) {
+  let personas = await leerPersonas();
+  for (let intento = 0; !personas.some(p => p.id === id) && intento < 2; intento++) {
+    await esperar(800 * (intento + 1));
+    personas = await leerPersonas();
   }
-  throw httpError(500, { ok: false, error: 'No se pudo confirmar el guardado -- probablemente por otro guardado en simultáneo. Probá de nuevo en unos segundos.' });
+  return personas;
 }
 
 async function accionCrearPersona(payload, solicitante) {
@@ -105,25 +93,21 @@ async function accionCrearPersona(payload, solicitante) {
   if (!lugarDeTrabajo || !String(lugarDeTrabajo).trim()) errores.push('Falta el lugar de trabajo.');
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
 
-  const id = nuevoId('per'); // se genera UNA sola vez, afuera del reintento
-  const persona = await guardarPersonaConReintento((personas) => {
-    if (supervisorId && !personas.some(p => p.id === supervisorId)) {
-      throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
-    }
-    const yaCreada = personas.find(p => p.id === id);
-    if (yaCreada) return yaCreada; // reintento tras un falso negativo de la verificación
-    const nueva = {
-      id, nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
-      funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
-      telefono: telefono ? String(telefono).trim() : '', fechaNacimiento: fechaNacimiento || null,
-      supervisorId: supervisorId || null,
-      fechaIngreso: fechaIngreso || null, estado: 'activo',
-      // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
-      potencialActual: null, boxActual: null,
-    };
-    personas.push(nueva);
-    return nueva;
-  }, verificarPresente(id));
+  const personas = supervisorId ? await leerPersonasReintentandoSiFalta(supervisorId) : await leerPersonas();
+  if (supervisorId && !personas.some(p => p.id === supervisorId)) {
+    throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
+  }
+  const persona = {
+    id: nuevoId('per'), nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
+    funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
+    telefono: telefono ? String(telefono).trim() : '', fechaNacimiento: fechaNacimiento || null,
+    supervisorId: supervisorId || null,
+    fechaIngreso: fechaIngreso || null, estado: 'activo',
+    // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
+    potencialActual: null, boxActual: null,
+  };
+  personas.push(persona);
+  await escribirPersonas(personas);
   return { status: 200, body: { ok: true, persona } };
 }
 
@@ -137,46 +121,42 @@ async function accionEditarPersona(payload, solicitante) {
   if (payload.supervisorId && payload.supervisorId === id) {
     throw httpError(400, { ok: false, error: 'Una persona no puede ser su propio supervisor.' });
   }
+
+  const personas = await leerPersonasReintentandoSiFalta(id);
+  const idx = personas.findIndex(p => p.id === id);
+  if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe.' });
+  // 12/08/2026 ("No esta la opcion de modificar personas, porque sino no
+  // se puede crear un rol superior luego"): mismas validaciones de
+  // supervisorId que ya tenía accionCrearPersona -- editar también puede
+  // reasignar el supervisor, así que necesita la misma protección.
+  if (payload.supervisorId && !personas.some(p => p.id === payload.supervisorId)) {
+    throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
+  }
   const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
-  const actualizada = await guardarPersonaConReintento((personas) => {
-    const idx = personas.findIndex(p => p.id === id);
-    if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe.' });
-    // 12/08/2026 ("No esta la opcion de modificar personas, porque sino no
-    // se puede crear un rol superior luego"): mismas validaciones de
-    // supervisorId que ya tenía accionCrearPersona -- editar también puede
-    // reasignar el supervisor, así que necesita la misma protección.
-    if (payload.supervisorId && !personas.some(p => p.id === payload.supervisorId)) {
-      throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
-    }
-    const nueva = Object.assign({}, personas[idx]);
-    campos.forEach(c => { if (payload[c] !== undefined) nueva[c] = payload[c]; });
-    personas[idx] = nueva;
-    return nueva;
-  }, verificarPresente(id));
+  const actualizada = Object.assign({}, personas[idx]);
+  campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
+  personas[idx] = actualizada;
+  await escribirPersonas(personas);
   return { status: 200, body: { ok: true, persona: actualizada } };
 }
 
 // 13/08/2026: agregada para poder limpiar los "Prueba 1" duplicados que
-// quedaron de validar el fix del reintento (el script de prueba
-// reintentaba crearPersona -- una acción NO idempotente desde afuera,
-// cada reintento generaba un id nuevo -- ante un error que en realidad
-// ya se había guardado bien, terminó creando 3 personas de prueba en
-// vez de 1). No existía ninguna forma de borrar una persona hasta
-// ahora -- admin-only, y bloqueada si a alguien más lo tienen como
-// supervisor (para no dejar supervisorId huérfanos).
+// quedaron de validar el fix anterior. No existía ninguna forma de
+// borrar una persona hasta ahora -- admin-only, y bloqueada si a
+// alguien más lo tienen como supervisor (para no dejar supervisorId
+// huérfanos).
 async function accionEliminarPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede eliminar personas.' });
   const { id } = payload || {};
   if (!id) throw httpError(400, { ok: false, error: 'Falta el id de la persona a eliminar.' });
-  await guardarPersonaConReintento((personas) => {
-    const idx = personas.findIndex(p => p.id === id);
-    if (idx < 0) return null; // ya no está -- reintento tras un falso negativo, o ya se había borrado
-    if (personas.some(p => p.supervisorId === id)) {
-      throw httpError(400, { ok: false, error: 'No se puede eliminar: hay otras personas que la tienen como supervisor. Reasignales el supervisor primero.' });
-    }
-    personas.splice(idx, 1);
-    return null;
-  }, (relectura) => !relectura.some(p => p.id === id));
+  const personas = await leerPersonasReintentandoSiFalta(id);
+  const idx = personas.findIndex(p => p.id === id);
+  if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe (puede que ya se haya eliminado).' });
+  if (personas.some(p => p.supervisorId === id)) {
+    throw httpError(400, { ok: false, error: 'No se puede eliminar: hay otras personas que la tienen como supervisor. Reasignales el supervisor primero.' });
+  }
+  personas.splice(idx, 1);
+  await escribirPersonas(personas);
   return { status: 200, body: { ok: true } };
 }
 
