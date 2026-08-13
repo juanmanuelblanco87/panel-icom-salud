@@ -52,6 +52,35 @@ function nuevoId(prefijo) {
   return prefijo + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
 
+// 13/08/2026 ("La persona no existe" al editar a Ludmila Arana, que sí
+// existía -- se la había creado momentos antes): Vercel Blob no da
+// transacciones ni check de versión al escribir -- leer personas.json
+// entero, modificarlo en memoria, y volver a escribirlo entero (como
+// hacían accionCrearPersona/accionEditarPersona) puede pisar un guardado
+// de otro admin que haya escrito en el medio, o toparse con una lectura
+// que todavía no ve la última escritura -- un "lost update" clásico de
+// leer-modificar-escribir sin lock. Con el volumen real de uso (RR.HH./
+// supervisores guardando de a uno, no a la vez) alcanza con verificar y
+// reintentar: después de escribir, releer y confirmar que el cambio
+// realmente quedó -- si no, releer de cero y reaplicar la mutación sobre
+// esa versión más nueva. `mutar(personas)` tiene que ser idempotente (
+// segura de llamar de nuevo con una lectura más fresca) y devolver la
+// persona resultante ya puesta en el array.
+async function guardarPersonaConReintento(idPersona, mutar) {
+  const MAX_INTENTOS = 4;
+  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+    const personas = await leerPersonas();
+    const resultado = mutar(personas);
+    await escribirPersonas(personas);
+    const relectura = await leerPersonas();
+    const enRelectura = relectura.find(p => p.id === idPersona);
+    if (enRelectura && JSON.stringify(enRelectura) === JSON.stringify(resultado)) {
+      return resultado;
+    }
+  }
+  throw httpError(500, { ok: false, error: 'No se pudo confirmar el guardado -- probablemente por otro guardado en simultáneo. Probá de nuevo en unos segundos.' });
+}
+
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
   const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
@@ -60,21 +89,27 @@ async function accionCrearPersona(payload, solicitante) {
   if (!unidadNegocio || !String(unidadNegocio).trim()) errores.push('Falta la unidad de negocio.');
   if (!funcion || !String(funcion).trim()) errores.push('Falta la función.');
   if (!lugarDeTrabajo || !String(lugarDeTrabajo).trim()) errores.push('Falta el lugar de trabajo.');
-  const personas = await leerPersonas();
-  if (supervisorId && !personas.some(p => p.id === supervisorId)) errores.push('El supervisor asignado no existe.');
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
 
-  const persona = {
-    id: nuevoId('per'), nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
-    funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
-    telefono: telefono ? String(telefono).trim() : '', fechaNacimiento: fechaNacimiento || null,
-    supervisorId: supervisorId || null,
-    fechaIngreso: fechaIngreso || null, estado: 'activo',
-    // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
-    potencialActual: null, boxActual: null,
-  };
-  personas.push(persona);
-  await escribirPersonas(personas);
+  const id = nuevoId('per'); // se genera UNA sola vez, afuera del reintento
+  const persona = await guardarPersonaConReintento(id, (personas) => {
+    if (supervisorId && !personas.some(p => p.id === supervisorId)) {
+      throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
+    }
+    const yaCreada = personas.find(p => p.id === id);
+    if (yaCreada) return yaCreada; // reintento tras un falso negativo de la verificación
+    const nueva = {
+      id, nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
+      funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
+      telefono: telefono ? String(telefono).trim() : '', fechaNacimiento: fechaNacimiento || null,
+      supervisorId: supervisorId || null,
+      fechaIngreso: fechaIngreso || null, estado: 'activo',
+      // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
+      potencialActual: null, boxActual: null,
+    };
+    personas.push(nueva);
+    return nueva;
+  });
   return { status: 200, body: { ok: true, persona } };
 }
 
@@ -82,30 +117,28 @@ async function accionEditarPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede editar personas.' });
   const { id } = payload || {};
   if (!id) throw httpError(400, { ok: false, error: 'Falta el id de la persona a editar.' });
-  const personas = await leerPersonas();
-  const idx = personas.findIndex(p => p.id === id);
-  if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe.' });
-
   if (payload.funcion !== undefined && !String(payload.funcion || '').trim()) {
     throw httpError(400, { ok: false, error: 'La función no puede quedar vacía.' });
   }
-  // 12/08/2026 ("No esta la opcion de modificar personas, porque sino no
-  // se puede crear un rol superior luego"): mismas validaciones de
-  // supervisorId que ya tenía accionCrearPersona -- editar también puede
-  // reasignar el supervisor, así que necesita la misma protección.
-  if (payload.supervisorId) {
-    if (payload.supervisorId === id) {
-      throw httpError(400, { ok: false, error: 'Una persona no puede ser su propio supervisor.' });
-    }
-    if (!personas.some(p => p.id === payload.supervisorId)) {
-      throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
-    }
+  if (payload.supervisorId && payload.supervisorId === id) {
+    throw httpError(400, { ok: false, error: 'Una persona no puede ser su propio supervisor.' });
   }
   const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
-  const actualizada = Object.assign({}, personas[idx]);
-  campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
-  personas[idx] = actualizada;
-  await escribirPersonas(personas);
+  const actualizada = await guardarPersonaConReintento(id, (personas) => {
+    const idx = personas.findIndex(p => p.id === id);
+    if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe.' });
+    // 12/08/2026 ("No esta la opcion de modificar personas, porque sino no
+    // se puede crear un rol superior luego"): mismas validaciones de
+    // supervisorId que ya tenía accionCrearPersona -- editar también puede
+    // reasignar el supervisor, así que necesita la misma protección.
+    if (payload.supervisorId && !personas.some(p => p.id === payload.supervisorId)) {
+      throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
+    }
+    const nueva = Object.assign({}, personas[idx]);
+    campos.forEach(c => { if (payload[c] !== undefined) nueva[c] = payload[c]; });
+    personas[idx] = nueva;
+    return nueva;
+  });
   return { status: 200, body: { ok: true, persona: actualizada } };
 }
 
