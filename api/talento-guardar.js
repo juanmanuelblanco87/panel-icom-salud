@@ -17,7 +17,15 @@
 //     reservado a RR.HH./admin, es data maestra de la compañía.
 const { leerPersonas, escribirPersonas, leerObjetivos, escribirObjetivos } = require('./_talento-store');
 
-const FUNCIONES_VALIDAS = ['eCommerce', 'Sucursales', 'Coordinador', 'Supervisor', 'Colaborador', 'Cajero'];
+// 12/08/2026 ("en Función dejar 'Otros' para especificar"): esta lista ya
+// NO se usa para validar -- el cliente resuelve "Otros" al texto libre
+// real ANTES de mandarlo (nunca manda el literal "Otros"), así que
+// validar contra esta lista fija rechazaba cualquier función personalizada
+// -- bug real encontrado al revisar el reporte "no edita correctamente".
+// Se deja sólo como referencia de qué opciones arma el desplegable; la
+// validación real es "no vacía", mismo criterio que unidadNegocio/
+// lugarDeTrabajo (tampoco se validan contra una lista fija acá atrás).
+const FUNCIONES_VALIDAS = ['eCommerce', 'Sucursales', 'Coordinador', 'Supervisor', 'Colaborador', 'Cajero', 'Otros'];
 const CHECKPOINTS_VALIDOS = ['seguimiento1', 'seguimiento2', 'cierre'];
 const EPS = 1e-6;
 
@@ -46,11 +54,11 @@ function nuevoId(prefijo) {
 
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
-  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, supervisorId, fechaIngreso } = payload || {};
+  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
   const errores = [];
   if (!nombre || !String(nombre).trim()) errores.push('Falta el nombre.');
   if (!unidadNegocio || !String(unidadNegocio).trim()) errores.push('Falta la unidad de negocio.');
-  if (!FUNCIONES_VALIDAS.includes(funcion)) errores.push('Función inválida: debe ser una de ' + FUNCIONES_VALIDAS.join(', ') + '.');
+  if (!funcion || !String(funcion).trim()) errores.push('Falta la función.');
   if (!lugarDeTrabajo || !String(lugarDeTrabajo).trim()) errores.push('Falta el lugar de trabajo.');
   const personas = await leerPersonas();
   if (supervisorId && !personas.some(p => p.id === supervisorId)) errores.push('El supervisor asignado no existe.');
@@ -58,7 +66,9 @@ async function accionCrearPersona(payload, solicitante) {
 
   const persona = {
     id: nuevoId('per'), nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
-    funcion, lugarDeTrabajo: String(lugarDeTrabajo).trim(), supervisorId: supervisorId || null,
+    funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
+    telefono: telefono ? String(telefono).trim() : '', fechaNacimiento: fechaNacimiento || null,
+    supervisorId: supervisorId || null,
     fechaIngreso: fechaIngreso || null, estado: 'activo',
     // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
     potencialActual: null, boxActual: null,
@@ -76,8 +86,8 @@ async function accionEditarPersona(payload, solicitante) {
   const idx = personas.findIndex(p => p.id === id);
   if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe.' });
 
-  if (payload.funcion !== undefined && !FUNCIONES_VALIDAS.includes(payload.funcion)) {
-    throw httpError(400, { ok: false, error: 'Función inválida: debe ser una de ' + FUNCIONES_VALIDAS.join(', ') + '.' });
+  if (payload.funcion !== undefined && !String(payload.funcion || '').trim()) {
+    throw httpError(400, { ok: false, error: 'La función no puede quedar vacía.' });
   }
   // 12/08/2026 ("No esta la opcion de modificar personas, porque sino no
   // se puede crear un rol superior luego"): mismas validaciones de
@@ -91,7 +101,7 @@ async function accionEditarPersona(payload, solicitante) {
       throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
     }
   }
-  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'supervisorId', 'fechaIngreso', 'estado'];
+  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
   const actualizada = Object.assign({}, personas[idx]);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
   personas[idx] = actualizada;
