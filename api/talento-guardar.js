@@ -72,7 +72,17 @@ function nuevoId(prefijo) {
 // idempotente (segura de llamar de nuevo con una lectura más fresca) y
 // devolver la persona resultante ya puesta en el array.
 function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
-async function guardarPersonaConReintento(idPersona, mutar) {
+// `verificar(relectura, resultado)` decide si la relectura confirma que
+// el cambio quedó -- por defecto (crear/editar) es "está y coincide";
+// accionEliminarPersona manda una propia porque para borrar lo esperado
+// es NO encontrarla.
+function verificarPresente(idPersona) {
+  return (relectura, resultado) => {
+    const enRelectura = relectura.find(p => p.id === idPersona);
+    return !!enRelectura && JSON.stringify(enRelectura) === JSON.stringify(resultado);
+  };
+}
+async function guardarPersonaConReintento(mutar, verificar) {
   const MAX_INTENTOS = 4;
   for (let intento = 0; intento < MAX_INTENTOS; intento++) {
     if (intento > 0) await esperar(300 * intento);
@@ -80,10 +90,7 @@ async function guardarPersonaConReintento(idPersona, mutar) {
     const resultado = mutar(personas);
     await escribirPersonas(personas);
     const relectura = await leerPersonas();
-    const enRelectura = relectura.find(p => p.id === idPersona);
-    if (enRelectura && JSON.stringify(enRelectura) === JSON.stringify(resultado)) {
-      return resultado;
-    }
+    if (verificar(relectura, resultado)) return resultado;
   }
   throw httpError(500, { ok: false, error: 'No se pudo confirmar el guardado -- probablemente por otro guardado en simultáneo. Probá de nuevo en unos segundos.' });
 }
@@ -99,7 +106,7 @@ async function accionCrearPersona(payload, solicitante) {
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
 
   const id = nuevoId('per'); // se genera UNA sola vez, afuera del reintento
-  const persona = await guardarPersonaConReintento(id, (personas) => {
+  const persona = await guardarPersonaConReintento((personas) => {
     if (supervisorId && !personas.some(p => p.id === supervisorId)) {
       throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
     }
@@ -116,7 +123,7 @@ async function accionCrearPersona(payload, solicitante) {
     };
     personas.push(nueva);
     return nueva;
-  });
+  }, verificarPresente(id));
   return { status: 200, body: { ok: true, persona } };
 }
 
@@ -131,7 +138,7 @@ async function accionEditarPersona(payload, solicitante) {
     throw httpError(400, { ok: false, error: 'Una persona no puede ser su propio supervisor.' });
   }
   const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
-  const actualizada = await guardarPersonaConReintento(id, (personas) => {
+  const actualizada = await guardarPersonaConReintento((personas) => {
     const idx = personas.findIndex(p => p.id === id);
     if (idx < 0) throw httpError(404, { ok: false, error: 'La persona no existe.' });
     // 12/08/2026 ("No esta la opcion de modificar personas, porque sino no
@@ -145,8 +152,32 @@ async function accionEditarPersona(payload, solicitante) {
     campos.forEach(c => { if (payload[c] !== undefined) nueva[c] = payload[c]; });
     personas[idx] = nueva;
     return nueva;
-  });
+  }, verificarPresente(id));
   return { status: 200, body: { ok: true, persona: actualizada } };
+}
+
+// 13/08/2026: agregada para poder limpiar los "Prueba 1" duplicados que
+// quedaron de validar el fix del reintento (el script de prueba
+// reintentaba crearPersona -- una acción NO idempotente desde afuera,
+// cada reintento generaba un id nuevo -- ante un error que en realidad
+// ya se había guardado bien, terminó creando 3 personas de prueba en
+// vez de 1). No existía ninguna forma de borrar una persona hasta
+// ahora -- admin-only, y bloqueada si a alguien más lo tienen como
+// supervisor (para no dejar supervisorId huérfanos).
+async function accionEliminarPersona(payload, solicitante) {
+  if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede eliminar personas.' });
+  const { id } = payload || {};
+  if (!id) throw httpError(400, { ok: false, error: 'Falta el id de la persona a eliminar.' });
+  await guardarPersonaConReintento((personas) => {
+    const idx = personas.findIndex(p => p.id === id);
+    if (idx < 0) return null; // ya no está -- reintento tras un falso negativo, o ya se había borrado
+    if (personas.some(p => p.supervisorId === id)) {
+      throw httpError(400, { ok: false, error: 'No se puede eliminar: hay otras personas que la tienen como supervisor. Reasignales el supervisor primero.' });
+    }
+    personas.splice(idx, 1);
+    return null;
+  }, (relectura) => !relectura.some(p => p.id === id));
+  return { status: 200, body: { ok: true } };
 }
 
 async function accionCrearObjetivo(payload, solicitante) {
@@ -214,6 +245,7 @@ async function accionGuardarCheckpoint(payload, solicitante) {
 const ACCIONES = {
   crearPersona: accionCrearPersona,
   editarPersona: accionEditarPersona,
+  eliminarPersona: accionEliminarPersona,
   crearObjetivo: accionCrearObjetivo,
   guardarCheckpoint: accionGuardarCheckpoint,
 };
