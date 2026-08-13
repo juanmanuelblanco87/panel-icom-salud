@@ -28,7 +28,21 @@ async function leerBlobJson(pathname) {
 async function escribirBlobJson(pathname, data) {
   data.generatedAt = new Date().toISOString();
   await put(pathname, JSON.stringify(data), {
-    access: 'public', addRandomSuffix: false, contentType: 'application/json', allowOverwrite: true, cacheControlMaxAge: 60,
+    // 13/08/2026 ("La persona no existe" / "no se ve reflejado abajo",
+    // aun sin ningún otro guardado en simultáneo -- confirmado a mano
+    // con pedidos sueltos, sin concurrencia real): cacheControlMaxAge
+    // controla el header Cache-Control con el que Vercel sirve la URL
+    // pública del blob a través de su CDN -- get() con useCache:false
+    // sólo evita el "Data Cache" propio de Vercel/Next, pero la
+    // respuesta HTTP igual puede venir de un edge de la CDN que cacheó
+    // la versión anterior por hasta ese tiempo. Con 60s de margen, una
+    // lectura hecha segundos después de guardar podía traer la versión
+    // vieja del archivo -- exactamente el síntoma reportado. Estos
+    // blobs se leen todo el tiempo inmediatamente después de escribirse
+    // (guardar una persona y confirmar que quedó), así que no pueden
+    // tener ningún margen de cacheo -- 0 fuerza a que cada lectura
+    // vaya siempre a buscar la versión más nueva.
+    access: 'public', addRandomSuffix: false, contentType: 'application/json', allowOverwrite: true, cacheControlMaxAge: 0,
   });
 }
 

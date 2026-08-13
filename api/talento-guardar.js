@@ -59,16 +59,23 @@ function nuevoId(prefijo) {
 // hacían accionCrearPersona/accionEditarPersona) puede pisar un guardado
 // de otro admin que haya escrito en el medio, o toparse con una lectura
 // que todavía no ve la última escritura -- un "lost update" clásico de
-// leer-modificar-escribir sin lock. Con el volumen real de uso (RR.HH./
-// supervisores guardando de a uno, no a la vez) alcanza con verificar y
-// reintentar: después de escribir, releer y confirmar que el cambio
-// realmente quedó -- si no, releer de cero y reaplicar la mutación sobre
-// esa versión más nueva. `mutar(personas)` tiene que ser idempotente (
-// segura de llamar de nuevo con una lectura más fresca) y devolver la
-// persona resultante ya puesta en el array.
+// leer-modificar-escribir sin lock. La causa de fondo de la lectura
+// vieja resultó ser el cacheo de la CDN (ver _talento-store.js,
+// cacheControlMaxAge ahora en 0), pero se deja este reintento como
+// defensa adicional para el caso de 2 guardados realmente en simultáneo
+// -- con una pequeña espera creciente entre intento e intento, para dar
+// tiempo a que la escritura anterior se termine de propagar. Con el
+// volumen real de uso (RR.HH./supervisores guardando de a uno) alcanza
+// con verificar y reintentar: después de escribir, releer y confirmar
+// que el cambio realmente quedó -- si no, releer de cero y reaplicar la
+// mutación sobre esa versión más nueva. `mutar(personas)` tiene que ser
+// idempotente (segura de llamar de nuevo con una lectura más fresca) y
+// devolver la persona resultante ya puesta en el array.
+function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function guardarPersonaConReintento(idPersona, mutar) {
   const MAX_INTENTOS = 4;
   for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+    if (intento > 0) await esperar(300 * intento);
     const personas = await leerPersonas();
     const resultado = mutar(personas);
     await escribirPersonas(personas);
