@@ -167,7 +167,7 @@ function nuevoId(prefijo) {
 
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
-  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, email, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
+  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
   const errores = [];
   if (!nombre || !String(nombre).trim()) errores.push('Falta el nombre.');
   if (!unidadNegocio || !String(unidadNegocio).trim()) errores.push('Falta la unidad de negocio.');
@@ -182,6 +182,7 @@ async function accionCrearPersona(payload, solicitante) {
     id: nuevoId('per'), nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
     funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
     telefono: telefono ? String(telefono).trim() : '', email: email ? String(email).trim() : '',
+    cuil: cuil ? String(cuil).trim() : '',
     fechaNacimiento: fechaNacimiento || null,
     supervisorId: supervisorId || null,
     fechaIngreso: fechaIngreso || null, estado: 'activo',
@@ -212,7 +213,7 @@ async function accionEditarPersona(payload, solicitante) {
   if (payload.supervisorId && !(await leerPersona(payload.supervisorId))) {
     throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
   }
-  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'email', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
+  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'email', 'cuil', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
   const actualizada = Object.assign({}, existente);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
   await guardarPersona(actualizada);
