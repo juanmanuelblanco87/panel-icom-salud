@@ -29,7 +29,7 @@
 // ni en el historial de git: la elige quien la corre, como query param
 // de una llamada puntual.
 const { leerUsuario, guardarUsuario, leerPersona } = require('./_talento-store');
-const { generarSaltYHash, passwordValida } = require('./_talento-auth');
+const { generarSaltYHash, passwordValida, firmarSesion } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -52,12 +52,13 @@ module.exports = async function handler(req, res) {
       const usuario = (url.searchParams.get('usuario') || '').trim();
       const password = url.searchParams.get('password') || '';
       const nombre = (url.searchParams.get('nombre') || usuario).trim();
+      const email = (url.searchParams.get('email') || '').trim(); // 14/08/2026: opcional acá, pero sin esto este admin no recibe emails de solicitudes de vacaciones
       if (!usuario || !password) {
         res.status(400).json({ ok: false, error: 'Faltan usuario y/o password como query params.' });
         return;
       }
       const { salt, hash } = generarSaltYHash(password);
-      const registro = { usuario, salt, hash, rol: 'admin', personaId: null, nombre };
+      const registro = { usuario, salt, hash, rol: 'admin', personaId: null, unidadNegocio: null, nombre, email };
       await guardarUsuario(registro);
       res.status(200).json({ ok: true, seeded: true, usuario, rol: 'admin' });
       return;
@@ -81,7 +82,15 @@ module.exports = async function handler(req, res) {
         const persona = await leerPersona(registro.personaId);
         if (persona) personaNombre = persona.nombre;
       }
-      res.status(200).json({ ok: true, rol: registro.rol, personaId: registro.personaId, nombre: personaNombre });
+      // 14/08/2026: se agrega `token` -- a partir de acá el cliente lo
+      // manda como "Authorization: Bearer <token>" en cada pedido, y el
+      // resto de los endpoints lo verifican en vez de confiar en
+      // rol/personaId sueltos que mande el cliente (ver _talento-auth.js).
+      const token = firmarSesion({
+        usuario: registro.usuario, rol: registro.rol, personaId: registro.personaId,
+        unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre,
+      });
+      res.status(200).json({ ok: true, rol: registro.rol, personaId: registro.personaId, unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, token });
       return;
     }
 

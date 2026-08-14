@@ -1,42 +1,43 @@
 // api/talento-data.js
 //
-// Gestión de Talento (11/08/2026) -- lectura combinada de personas +
-// objetivos, FILTRADA por rol (admin ve todo; supervisor sólo su propio
-// equipo -- las personas donde supervisorId es su personaId, más él
-// mismo). Mismo patrón de solo-lectura que api/exhibiciones-data.js
-// (Promise.all sobre los dominios separados de api/_talento-store.js,
-// nunca se expone usuarios.json acá).
+// Gestión de Talento (11/08/2026) -- lectura combinada de personas,
+// objetivos, competencias, vacaciones y solicitudes de vacaciones,
+// FILTRADA por rol. Mismo patrón de solo-lectura que
+// api/exhibiciones-data.js (Promise.all sobre los dominios separados de
+// api/_talento-store.js, nunca se expone usuarios.json acá).
 //
-// El rol/personaId viajan como query params (?rol=admin o
-// ?rol=supervisor&personaId=XXX) -- no hay sesión server-side, el
-// cliente los guarda en sessionStorage después de un login exitoso
-// contra api/talento-login.js y los manda en cada pedido. No es un
-// esquema de máxima seguridad (alguien que edite el JS del cliente
-// podría mandar personaId de otro supervisor), pero el dato detrás
-// (objetivos/personal de Minorista) no es más sensible que lo que ya
-// maneja el resto del panel con 1 sola clave compartida para todos, y
-// mantiene el mismo nivel de esfuerzo que el resto de esta app -- si
-// más adelante hace falta más rigor (ej. cuando se sume la app de
-// autogestión de colaboradores), pasar a un token firmado es la mejora
-// natural sin tener que rehacer el resto.
-const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos } = require('./_talento-store');
+// 14/08/2026 (flujo de aprobación de vacaciones, rol Colaborador): el
+// rol/personaId/unidadNegocio ya NO viajan como query params sueltos
+// que el cliente podía inventar (`?rol=admin` y listo) -- salen del
+// token firmado que se verifica acá (ver _talento-auth.js). Esto era
+// justamente la mejora "para cuando se sume la app de autogestión de
+// colaboradores" que ya estaba anotada en este mismo comentario -- ese
+// momento llegó.
+//
+// Filtro por rol, 3 ramas:
+//   - admin: sin filtro, ve todo.
+//   - supervisor: su equipo directo (un solo nivel de jerarquía).
+//   - colaborador: sólo sus propios datos (sin expandir a un equipo).
+//   - gerente: todos los de su misma unidad de negocio.
+const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones } = require('./_talento-store');
+const { requerirSesion } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'GET') {
     res.status(405).json({ ok: false, error: 'Método no soportado, usar GET.' });
     return;
   }
   try {
-    const url = new URL(req.url, 'https://' + req.headers.host);
-    const rol = url.searchParams.get('rol') || '';
-    const personaId = url.searchParams.get('personaId') || '';
+    const solicitante = requerirSesion(req);
+    if (!solicitante) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida -- volvé a iniciar sesión.' }); return; }
+    const { rol, personaId, unidadNegocio } = solicitante;
 
-    let [personas, objetivos, competencias, vacaciones] = await Promise.all([
-      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(),
+    let [personas, objetivos, competencias, vacaciones, solicitudesVacaciones] = await Promise.all([
+      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(),
     ]);
 
     if (rol === 'supervisor' && personaId) {
@@ -49,11 +50,26 @@ module.exports = async function handler(req, res) {
       objetivos = objetivos.filter(o => idsEquipo.has(o.personaId));
       competencias = competencias.filter(c => idsEquipo.has(c.personaId));
       vacaciones = vacaciones.filter(v => idsEquipo.has(v.personaId));
+      solicitudesVacaciones = solicitudesVacaciones.filter(s => idsEquipo.has(s.personaId));
+    } else if (rol === 'colaborador' && personaId) {
+      const idsPropio = new Set([personaId]); // sin expandir a un equipo -- sólo uno mismo
+      personas = personas.filter(p => idsPropio.has(p.id));
+      objetivos = objetivos.filter(o => idsPropio.has(o.personaId));
+      competencias = competencias.filter(c => idsPropio.has(c.personaId));
+      vacaciones = vacaciones.filter(v => idsPropio.has(v.personaId));
+      solicitudesVacaciones = solicitudesVacaciones.filter(s => idsPropio.has(s.personaId));
+    } else if (rol === 'gerente' && unidadNegocio) {
+      const idsUnidad = new Set(personas.filter(p => p.unidadNegocio === unidadNegocio).map(p => p.id));
+      personas = personas.filter(p => idsUnidad.has(p.id));
+      objetivos = objetivos.filter(o => idsUnidad.has(o.personaId));
+      competencias = competencias.filter(c => idsUnidad.has(c.personaId));
+      vacaciones = vacaciones.filter(v => idsUnidad.has(v.personaId));
+      solicitudesVacaciones = solicitudesVacaciones.filter(s => idsUnidad.has(s.personaId));
     }
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones });
+    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }

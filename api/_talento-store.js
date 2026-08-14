@@ -133,10 +133,32 @@ async function eliminarVacacionPeriodo(id) {
   await redis.srem(`${PREFIJO}:vacacionPeriodo:ids`, id);
 }
 
+// -- Solicitudes de Vacaciones -- (14/08/2026, flujo de aprobación) un
+// colaborador pide un período, queda 'pendiente', y alguien con
+// permiso (supervisor directo / gerente de su unidad / admin) la
+// aprueba o rechaza -- ver esAprobadorDeVacaciones en
+// talento-guardar.js. Igual patrón que vacacionPeriodo: colección de
+// solicitudes, no un registro único por persona (evita el mismo
+// problema de leer-modificar-escribir una clave compartida). Nunca se
+// elimina una solicitud -- sólo cambia de estado (pendiente -> aprobada
+// | rechazada), así que no hace falta un eliminarSolicitudVacacion.
+async function leerSolicitudesVacaciones() {
+  return leerColeccion('solicitudVacacion');
+}
+async function leerSolicitudVacacion(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:solicitudVacacion:${id}`);
+}
+async function guardarSolicitudVacacion(s) {
+  await redis.set(`${PREFIJO}:solicitudVacacion:${s.id}`, s);
+  await redis.sadd(`${PREFIJO}:solicitudVacacion:ids`, s.id);
+}
+
 module.exports = {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerUsuarios, leerUsuario, guardarUsuario,
   leerObjetivos, leerObjetivo, guardarObjetivo,
   leerCompetencias, leerCompetencia, guardarCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
+  leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
 };

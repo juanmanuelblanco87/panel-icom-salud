@@ -27,10 +27,14 @@
 // verificarla ni reintentarla.
 const {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
+  leerUsuarios,
   leerObjetivos, leerObjetivo, guardarObjetivo,
   guardarCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
+  leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
 } = require('./_talento-store');
+const { requerirSesion } = require('./_talento-auth');
+const { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta } = require('./_talento-email');
 
 // 12/08/2026 ("en Función dejar 'Otros' para especificar"): esta lista ya
 // NO se usa para validar -- el cliente resuelve "Otros" al texto libre
@@ -121,13 +125,46 @@ function puedeEvaluarCompetencias(solicitante, persona) {
   return solicitante.rol === 'supervisor' && persona.supervisorId === solicitante.personaId;
 }
 
+// 14/08/2026 (flujo de aprobación de vacaciones): quién puede CREAR una
+// solicitud para `persona` -- la propia persona pidiendo para sí
+// (colaborador autoservicio), o quien ya puede gestionarla directamente
+// (admin, o su supervisor) -- así admin/supervisor pueden seguir
+// cargando en nombre de otro si hace falta, sin abrir la puerta a que
+// cualquiera pida vacaciones por cualquiera.
+function puedeCrearSolicitud(solicitante, persona) {
+  if (!solicitante || !persona) return false;
+  if (persona.id === solicitante.personaId) return true;
+  return puedeGestionarPersona(solicitante, persona);
+}
+
+// Quién puede APROBAR/RECHAZAR una solicitud de `persona`: admin
+// (cualquiera), su supervisor directo, o un gerente de su misma unidad
+// de negocio. Un colaborador NUNCA puede aprobar (ni la propia).
+function esAprobadorDeVacaciones(solicitante, persona) {
+  if (!solicitante || !persona) return false;
+  if (solicitante.rol === 'admin') return true;
+  if (solicitante.rol === 'supervisor') return persona.supervisorId === solicitante.personaId;
+  if (solicitante.rol === 'gerente') return !!solicitante.unidadNegocio && persona.unidadNegocio === solicitante.unidadNegocio;
+  return false;
+}
+
+// Saldo disponible = lo que corresponde, menos lo YA tomado (períodos
+// confirmados), menos lo YA pedido y todavía sin resolver (solicitudes
+// 'pendiente') -- así 2 solicitudes simultáneas de la misma persona no
+// pueden sobre-comprometer el mismo saldo.
+function calcularSaldoVacaciones(diasCorresponden, periodosDelAnio, solicitudesPendientesDelAnio) {
+  const diasYaTomados = periodosDelAnio.reduce((s, v) => s + (Number(v.diasTomados) || 0), 0);
+  const diasYaPendientes = solicitudesPendientesDelAnio.reduce((s, x) => s + (Number(x.diasSolicitados) || 0), 0);
+  return { diasYaTomados, diasYaPendientes, disponibles: diasCorresponden - diasYaTomados - diasYaPendientes };
+}
+
 function nuevoId(prefijo) {
   return prefijo + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
 
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
-  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
+  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, email, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
   const errores = [];
   if (!nombre || !String(nombre).trim()) errores.push('Falta el nombre.');
   if (!unidadNegocio || !String(unidadNegocio).trim()) errores.push('Falta la unidad de negocio.');
@@ -141,7 +178,8 @@ async function accionCrearPersona(payload, solicitante) {
   const persona = {
     id: nuevoId('per'), nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
     funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
-    telefono: telefono ? String(telefono).trim() : '', fechaNacimiento: fechaNacimiento || null,
+    telefono: telefono ? String(telefono).trim() : '', email: email ? String(email).trim() : '',
+    fechaNacimiento: fechaNacimiento || null,
     supervisorId: supervisorId || null,
     fechaIngreso: fechaIngreso || null, estado: 'activo',
     // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
@@ -171,7 +209,7 @@ async function accionEditarPersona(payload, solicitante) {
   if (payload.supervisorId && !(await leerPersona(payload.supervisorId))) {
     throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
   }
-  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
+  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'email', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
   const actualizada = Object.assign({}, existente);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
   await guardarPersona(actualizada);
@@ -331,6 +369,142 @@ async function accionEliminarVacacionPeriodo(payload, solicitante) {
   return { status: 200, body: { ok: true } };
 }
 
+async function accionCrearSolicitudVacaciones(payload, solicitante) {
+  const { personaId, fechaInicio, fechaFin, comentario } = payload || {};
+  const persona = await leerPersona(personaId);
+  if (!puedeCrearSolicitud(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para pedir vacaciones para esta persona.' });
+  }
+  const errores = [];
+  if (!fechaInicio) errores.push('Falta la fecha de inicio.');
+  if (!fechaFin) errores.push('Falta la fecha de fin.');
+  if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
+  const inicio = new Date(fechaInicio + 'T00:00:00');
+  const fin = new Date(fechaFin + 'T00:00:00');
+  if (isNaN(inicio.getTime()) || isNaN(fin.getTime())) throw httpError(400, { ok: false, error: 'Fechas inválidas.' });
+  if (fin < inicio) throw httpError(400, { ok: false, error: 'La fecha de fin no puede ser anterior a la de inicio.' });
+
+  const diasSolicitados = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
+  const anioNum = inicio.getFullYear();
+
+  const { diasCorresponden, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, anioNum);
+  if (errorDias) throw httpError(400, { ok: false, error: errorDias });
+  const [periodos, solicitudes] = await Promise.all([leerVacacionesPeriodos(), leerSolicitudesVacaciones()]);
+  const periodosDelAnio = periodos.filter(v => v.personaId === personaId && v.anio === anioNum);
+  const pendientesDelAnio = solicitudes.filter(s => s.personaId === personaId && s.anio === anioNum && s.estado === 'pendiente');
+  const { diasYaTomados, diasYaPendientes, disponibles } = calcularSaldoVacaciones(diasCorresponden, periodosDelAnio, pendientesDelAnio);
+  if (disponibles < diasSolicitados) {
+    throw httpError(400, { ok: false, error: 'Esta solicitud supera el saldo disponible de ' + persona.nombre + ' para ' + anioNum
+      + ' (corresponden ' + diasCorresponden + ' días, ya tomó ' + diasYaTomados + ', tiene ' + diasYaPendientes + ' pendientes de resolución, esta solicitud pide ' + diasSolicitados + ').' });
+  }
+
+  const solicitud = {
+    id: nuevoId('sol'), personaId, anio: anioNum, fechaInicio, fechaFin, diasSolicitados,
+    comentario: comentario ? String(comentario).trim() : '',
+    estado: 'pendiente', fechaSolicitud: new Date().toISOString(),
+    resueltoPor: null, fechaResolucion: null, comentarioResolucion: '', periodoCreadoId: null,
+  };
+  await guardarSolicitudVacacion(solicitud);
+
+  // Best-effort: el guardado ya quedó confirmado en Redis, el email nunca lo bloquea.
+  leerUsuarios().then(usuarios => {
+    const emails = resolverEmailsAprobadores(persona, usuarios);
+    return Promise.all(emails.map(to => enviarEmail(Object.assign({ to }, emailNuevaSolicitud({ persona, solicitud })))));
+  }).catch(() => {});
+
+  return { status: 200, body: { ok: true, solicitud } };
+}
+
+async function accionAprobarSolicitudVacaciones(payload, solicitante) {
+  const { solicitudId, comentarioResolucion } = payload || {};
+  if (!solicitudId) throw httpError(400, { ok: false, error: 'Falta el id de la solicitud.' });
+  const solicitud = await leerSolicitudVacacion(solicitudId);
+  if (!solicitud) throw httpError(404, { ok: false, error: 'La solicitud no existe.' });
+
+  // Idempotente: doble click en "Aprobar" no debe recalcular ni duplicar nada.
+  if (solicitud.estado === 'aprobada') {
+    const periodo = await leerVacacionPeriodo(solicitud.periodoCreadoId);
+    return { status: 200, body: { ok: true, solicitud, periodo } };
+  }
+  if (solicitud.estado === 'rechazada') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue rechazada -- no se puede aprobar. Si corresponde, pedile a la persona que cargue una solicitud nueva.' });
+  }
+
+  const persona = await leerPersona(solicitud.personaId);
+  if (!esAprobadorDeVacaciones(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para aprobar esta solicitud.' });
+  }
+
+  // Se recalcula el saldo con datos frescos -- pudo haber cambiado desde
+  // que se pidió (ej. se cargó otro período en el medio). NO se cuentan
+  // otras solicitudes pendientes acá -- esta es la que se está resolviendo
+  // ahora, sólo importa contra lo YA tomado de verdad.
+  const { diasCorresponden, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, solicitud.anio);
+  if (errorDias) throw httpError(400, { ok: false, error: errorDias });
+  const periodosDelAnio = (await leerVacacionesPeriodos()).filter(v => v.personaId === solicitud.personaId && v.anio === solicitud.anio);
+  const { diasYaTomados } = calcularSaldoVacaciones(diasCorresponden, periodosDelAnio, []);
+  if (diasYaTomados + solicitud.diasSolicitados > diasCorresponden) {
+    throw httpError(400, { ok: false, error: 'El saldo de ' + persona.nombre + ' cambió desde que se pidió esta solicitud y ya no alcanza (corresponden ' + diasCorresponden + ', ya tomó ' + diasYaTomados + ', esta solicitud pide ' + solicitud.diasSolicitados + ').' });
+  }
+
+  const periodo = {
+    id: nuevoId('vac'), personaId: solicitud.personaId, anio: solicitud.anio,
+    fechaInicio: solicitud.fechaInicio, fechaFin: solicitud.fechaFin, diasTomados: solicitud.diasSolicitados,
+    comentario: solicitud.comentario, cargadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fecha: new Date().toISOString(),
+  };
+  await guardarVacacionPeriodo(periodo);
+
+  const actualizada = Object.assign({}, solicitud, {
+    estado: 'aprobada', periodoCreadoId: periodo.id,
+    resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fechaResolucion: new Date().toISOString(),
+    comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
+  });
+  await guardarSolicitudVacacion(actualizada);
+
+  leerUsuarios().then(usuarios => {
+    const propio = usuarios.find(u => u.personaId === persona.id);
+    if (propio && propio.email) return enviarEmail(Object.assign({ to: propio.email }, emailSolicitudResuelta({ persona, solicitud: actualizada })));
+  }).catch(() => {});
+
+  return { status: 200, body: { ok: true, solicitud: actualizada, periodo } };
+}
+
+async function accionRechazarSolicitudVacaciones(payload, solicitante) {
+  const { solicitudId, comentarioResolucion } = payload || {};
+  if (!solicitudId) throw httpError(400, { ok: false, error: 'Falta el id de la solicitud.' });
+  const solicitud = await leerSolicitudVacacion(solicitudId);
+  if (!solicitud) throw httpError(404, { ok: false, error: 'La solicitud no existe.' });
+
+  if (solicitud.estado === 'rechazada') {
+    return { status: 200, body: { ok: true, solicitud } };
+  }
+  if (solicitud.estado === 'aprobada') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue aprobada -- no se puede rechazar. Si hace falta deshacerla, eliminá el período ya cargado desde la pestaña Vacaciones.' });
+  }
+
+  const persona = await leerPersona(solicitud.personaId);
+  if (!esAprobadorDeVacaciones(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para rechazar esta solicitud.' });
+  }
+
+  const actualizada = Object.assign({}, solicitud, {
+    estado: 'rechazada',
+    resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fechaResolucion: new Date().toISOString(),
+    comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
+  });
+  await guardarSolicitudVacacion(actualizada);
+
+  leerUsuarios().then(usuarios => {
+    const propio = usuarios.find(u => u.personaId === persona.id);
+    if (propio && propio.email) return enviarEmail(Object.assign({ to: propio.email }, emailSolicitudResuelta({ persona, solicitud: actualizada })));
+  }).catch(() => {});
+
+  return { status: 200, body: { ok: true, solicitud: actualizada } };
+}
+
 const ACCIONES = {
   crearPersona: accionCrearPersona,
   editarPersona: accionEditarPersona,
@@ -339,24 +513,31 @@ const ACCIONES = {
   guardarCheckpoint: accionGuardarCheckpoint,
   guardarCompetencia: accionGuardarCompetencia,
   guardarVacacionPeriodo: accionGuardarVacacionPeriodo,
+  crearSolicitudVacaciones: accionCrearSolicitudVacaciones,
+  aprobarSolicitudVacaciones: accionAprobarSolicitudVacaciones,
+  rechazarSolicitudVacaciones: accionRechazarSolicitudVacaciones,
   eliminarVacacionPeriodo: accionEliminarVacacionPeriodo,
 };
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: 'Método no soportado, usar POST.' });
     return;
   }
   try {
+    // 14/08/2026: `solicitante` ya NO sale del body (el cliente lo podía
+    // mandar con cualquier rol/personaId inventado) -- sale del token
+    // firmado en el login, verificado acá. Ver _talento-auth.js.
+    const solicitante = requerirSesion(req);
+    if (!solicitante) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida -- volvé a iniciar sesión.' }); return; }
     const body = req.body || {};
-    const { action, payload, solicitante } = body;
+    const { action, payload } = body;
     const fn = ACCIONES[action];
     if (!fn) { res.status(400).json({ ok: false, error: 'action desconocida: ' + action }); return; }
-    if (!solicitante || !solicitante.rol) { res.status(401).json({ ok: false, error: 'Falta identificar al solicitante (no logueado).' }); return; }
     try {
       const { status, body: respBody } = await fn(payload, solicitante);
       res.status(status).json(respBody);
@@ -367,4 +548,14 @@ module.exports = async function handler(req, res) {
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
+};
+
+// 14/08/2026: exportado sólo para poder testear la lógica pura (saldo,
+// permisos) con un script de Node suelto, sin Redis ni red -- mismo
+// criterio ya usado para verificar calcularDiasVacaciones en Fase 2.
+// No afecta el contrato del handler (module.exports sigue siendo la
+// función que Vercel invoca; esto sólo le cuelga propiedades extra).
+module.exports._testing = {
+  calcularDiasVacaciones, calcularSaldoVacaciones,
+  puedeCrearSolicitud, esAprobadorDeVacaciones, puedeGestionarPersona, puedeEvaluarCompetencias,
 };

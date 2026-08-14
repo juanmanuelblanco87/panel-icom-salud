@@ -31,4 +31,62 @@ function passwordValida(password, salt, hash) {
   return crypto.timingSafeEqual(a, b);
 }
 
-module.exports = { generarSaltYHash, passwordValida };
+// 14/08/2026 ("Colaborador" + flujo de aprobación de vacaciones): hasta
+// ahora cada pedido a talento-guardar/talento-data/talento-usuarios
+// mandaba `solicitante:{rol,personaId}` (o `?rol=&personaId=`) tal cual
+// lo tenía el cliente en sessionStorage, SIN verificación -- aceptable
+// mientras sólo entraban RR.HH. y supervisores (población de confianza
+// chica). Sumar el rol Colaborador significa que CUALQUIER empleado
+// entra al sistema -- con el esquema anterior, cualquiera que edite
+// sessionStorage en el navegador podría declararse rol:'admin' y ver o
+// aprobar vacaciones de cualquier otra persona. Confirmado con el
+// usuario: se cierra ese hueco acá con un token firmado (HMAC, nativo
+// de Node -- sin sumar dependencias, mismo criterio que scryptSync).
+//
+// Formato: "<cuerpo-base64url>.<firma-base64url>", cuerpo = JSON de
+// {usuario, rol, personaId, unidadNegocio, nombre, exp}. NO es JWT (no
+// hace falta el header/alg de JWT para un solo uso interno como este),
+// pero la idea es la misma: el cuerpo es público (cualquiera lo puede
+// leer/decodificar), lo que importa es que nadie pueda FALSIFICAR una
+// firma válida sin conocer TALENTO_SESSION_SECRET.
+const TTL_SESION_SEGUNDOS = 60 * 60 * 12; // 12 horas
+
+function firmarSesion(payload) {
+  const exp = Math.floor(Date.now() / 1000) + TTL_SESION_SEGUNDOS;
+  const cuerpo = Buffer.from(JSON.stringify(Object.assign({}, payload, { exp }))).toString('base64url');
+  const firma = crypto.createHmac('sha256', process.env.TALENTO_SESSION_SECRET || '').update(cuerpo).digest('base64url');
+  return cuerpo + '.' + firma;
+}
+
+function verificarSesion(token) {
+  if (!process.env.TALENTO_SESSION_SECRET) return null;
+  if (!token || typeof token !== 'string') return null;
+  const partes = token.split('.');
+  if (partes.length !== 2) return null;
+  const [cuerpo, firma] = partes;
+  const firmaEsperada = crypto.createHmac('sha256', process.env.TALENTO_SESSION_SECRET).update(cuerpo).digest('base64url');
+  const a = Buffer.from(firma), b = Buffer.from(firmaEsperada);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(cuerpo, 'base64url').toString('utf8'));
+  } catch (e) {
+    return null;
+  }
+  if (!payload || typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload; // {usuario, rol, personaId, unidadNegocio, nombre, exp}
+}
+
+// Helper compartido por talento-guardar.js/talento-data.js/
+// talento-usuarios.js: lee "Authorization: Bearer <token>" del
+// request, lo verifica, y devuelve el payload YA VERIFICADO -- o
+// null si falta, es inválido, o venció. A partir de acá, `rol` /
+// `personaId` / `unidadNegocio` salen SIEMPRE de este payload, nunca
+// de lo que el cliente mande en el body/query.
+function requerirSesion(req) {
+  const header = req.headers && req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return null;
+  return verificarSesion(header.slice('Bearer '.length));
+}
+
+module.exports = { generarSaltYHash, passwordValida, firmarSesion, verificarSesion, requerirSesion };
