@@ -44,7 +44,10 @@ const { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolici
 // Se deja sólo como referencia de qué opciones arma el desplegable; la
 // validación real es "no vacía", mismo criterio que unidadNegocio/
 // lugarDeTrabajo (tampoco se validan contra una lista fija acá atrás).
-const FUNCIONES_VALIDAS = ['eCommerce', 'Sucursales', 'Coordinador', 'Supervisor', 'Colaborador', 'Cajero', 'Otros'];
+// 14/08/2026: se sacaron eCommerce/Sucursales/Cajero, se sumó Gerente --
+// esta lista sigue siendo sólo referencia (ver comentario arriba), no se
+// usa para validar acá.
+const FUNCIONES_VALIDAS = ['Coordinador', 'Supervisor', 'Colaborador', 'Gerente', 'Otros'];
 const CHECKPOINTS_VALIDOS = ['seguimiento1', 'seguimiento2', 'cierre'];
 const EPS = 1e-6;
 
