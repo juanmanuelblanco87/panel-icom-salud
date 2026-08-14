@@ -90,6 +90,10 @@ async function guardarObjetivo(o) {
   await redis.set(`${PREFIJO}:objetivo:${o.id}`, o);
   await redis.sadd(`${PREFIJO}:objetivo:ids`, o.id);
 }
+async function eliminarObjetivo(id) {
+  await redis.del(`${PREFIJO}:objetivo:${id}`);
+  await redis.srem(`${PREFIJO}:objetivo:ids`, id);
+}
 
 // -- Competencias -- (13/08/2026, Fase 2) una evaluación por
 // persona+año, clave COMPUESTA determinística (personaId_anio, no un
@@ -157,7 +161,7 @@ async function guardarSolicitudVacacion(s) {
 module.exports = {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerUsuarios, leerUsuario, guardarUsuario,
-  leerObjetivos, leerObjetivo, guardarObjetivo,
+  leerObjetivos, leerObjetivo, guardarObjetivo, eliminarObjetivo,
   leerCompetencias, leerCompetencia, guardarCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,

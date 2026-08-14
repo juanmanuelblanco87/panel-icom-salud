@@ -28,7 +28,7 @@
 const {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerUsuarios,
-  leerObjetivos, leerObjetivo, guardarObjetivo,
+  leerObjetivos, leerObjetivo, guardarObjetivo, eliminarObjetivo,
   guardarCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
@@ -318,6 +318,55 @@ async function accionCrearObjetivo(payload, solicitante) {
   return { status: 200, body: { ok: true, objetivo } };
 }
 
+async function accionEditarObjetivo(payload, solicitante) {
+  const { id, titulo, meta, peso, fechaFin } = payload || {};
+  const objetivo = await leerObjetivo(id);
+  if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
+  const persona = await leerPersona(objetivo.personaId);
+  if (!puedeGestionarPersona(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para editar objetivos de esta persona.' });
+  }
+  const errores = [];
+  if (!titulo || !String(titulo).trim()) errores.push('Falta el título del objetivo.');
+  if (!meta || !String(meta).trim()) errores.push('Falta la meta medible.');
+  const pesoNum = Number(peso);
+  if (!(pesoNum > 0 && pesoNum <= 100)) errores.push('El peso debe ser mayor a 0 y hasta 100.');
+  if (!fechaFin || isNaN(new Date(fechaFin + 'T00:00:00').getTime())) errores.push('Falta la fecha objetivo (fecha límite).');
+
+  const objetivos = await leerObjetivos();
+  const pesoActual = objetivos
+    .filter(o => o.id !== id && o.personaId === objetivo.personaId && o.anio === objetivo.anio)
+    .reduce((s, o) => s + (Number(o.peso) || 0), 0);
+  if (!errores.length && pesoActual + pesoNum > 100 + EPS) {
+    errores.push('El peso total de los objetivos de ' + (persona.nombre || objetivo.personaId) + ' para ' + objetivo.anio
+      + ' superaría el 100% (los otros objetivos ya suman ' + pesoActual + '%, este objetivo suma ' + pesoNum + '%).');
+  }
+  if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
+
+  objetivo.titulo = String(titulo).trim();
+  objetivo.meta = String(meta).trim();
+  objetivo.peso = pesoNum;
+  // Si se corre la fecha límite, los recordatorios ya mandados para la
+  // fecha VIEJA dejan de tener sentido -- se resetea para que el cron
+  // (talento-recordatorios.js) vuelva a avisar según la nueva fecha.
+  if (objetivo.fechaFin !== String(fechaFin)) objetivo.recordatoriosEnviados = [];
+  objetivo.fechaFin = String(fechaFin);
+  await guardarObjetivo(objetivo);
+  return { status: 200, body: { ok: true, objetivo } };
+}
+
+async function accionEliminarObjetivo(payload, solicitante) {
+  const { id } = payload || {};
+  const objetivo = await leerObjetivo(id);
+  if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
+  const persona = await leerPersona(objetivo.personaId);
+  if (!puedeGestionarPersona(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar objetivos de esta persona.' });
+  }
+  await eliminarObjetivo(id);
+  return { status: 200, body: { ok: true } };
+}
+
 async function accionGuardarCheckpoint(payload, solicitante) {
   const { objetivoId, valor, comentario } = payload || {};
   const valorNum = Number(valor);
@@ -559,6 +608,8 @@ const ACCIONES = {
   editarPersona: accionEditarPersona,
   eliminarPersona: accionEliminarPersona,
   crearObjetivo: accionCrearObjetivo,
+  editarObjetivo: accionEditarObjetivo,
+  eliminarObjetivo: accionEliminarObjetivo,
   guardarCheckpoint: accionGuardarCheckpoint,
   guardarCompetencia: accionGuardarCompetencia,
   guardarVacacionPeriodo: accionGuardarVacacionPeriodo,
