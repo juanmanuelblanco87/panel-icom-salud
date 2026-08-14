@@ -165,6 +165,27 @@ function nuevoId(prefijo) {
   return prefijo + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
 
+// 14/08/2026 ("solo se carga con guiones... el guión después de los 2
+// primeros dígitos"): formato estándar de AFIP, XX-XXXXXXXX-X (2
+// dígitos, guión, 8 dígitos, guión, dígito verificador) -- coincide con
+// todos los CUIL que ya se cargaron. Acepta cualquier entrada con 11
+// dígitos (con o sin guiones puestos en cualquier lado) y la reformatea
+// siempre igual; rechaza cualquier otra cosa. `null` = campo vacío
+// (válido, el CUIL es opcional), `undefined` = formato inválido.
+function formatearCuil(cuilCrudo) {
+  const texto = String(cuilCrudo || '').trim();
+  if (!texto) return null;
+  const digitos = texto.replace(/\D/g, '');
+  if (digitos.length !== 11) return undefined;
+  return digitos.slice(0, 2) + '-' + digitos.slice(2, 10) + '-' + digitos.slice(10);
+}
+
+// Para el chequeo de duplicados no importa el formato con el que haya
+// quedado guardado antes -- se compara siempre por los dígitos solos.
+function soloDigitos(cuil) {
+  return String(cuil || '').replace(/\D/g, '');
+}
+
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
   const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
@@ -173,16 +194,23 @@ async function accionCrearPersona(payload, solicitante) {
   if (!unidadNegocio || !String(unidadNegocio).trim()) errores.push('Falta la unidad de negocio.');
   if (!funcion || !String(funcion).trim()) errores.push('Falta la función.');
   if (!lugarDeTrabajo || !String(lugarDeTrabajo).trim()) errores.push('Falta el lugar de trabajo.');
+  const cuilFormateado = formatearCuil(cuil);
+  if (cuilFormateado === undefined) errores.push('El CUIL debe tener 11 dígitos (formato XX-XXXXXXXX-X).');
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
 
   if (supervisorId && !(await leerPersona(supervisorId))) {
     throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
   }
+  if (cuilFormateado) {
+    const personas = await leerPersonas();
+    const conMismoCuil = personas.find(p => p.estado === 'activo' && soloDigitos(p.cuil) === soloDigitos(cuilFormateado));
+    if (conMismoCuil) throw httpError(400, { ok: false, error: 'Ya existe una persona activa con ese CUIL: ' + conMismoCuil.nombre + '. Editá ese registro en vez de crear uno nuevo.' });
+  }
   const persona = {
     id: nuevoId('per'), nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
     funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
     telefono: telefono ? String(telefono).trim() : '', email: email ? String(email).trim() : '',
-    cuil: cuil ? String(cuil).trim() : '',
+    cuil: cuilFormateado || '',
     fechaNacimiento: fechaNacimiento || null,
     supervisorId: supervisorId || null,
     fechaIngreso: fechaIngreso || null, estado: 'activo',
@@ -203,6 +231,11 @@ async function accionEditarPersona(payload, solicitante) {
   if (payload.supervisorId && payload.supervisorId === id) {
     throw httpError(400, { ok: false, error: 'Una persona no puede ser su propio supervisor.' });
   }
+  let cuilFormateado;
+  if (payload.cuil !== undefined) {
+    cuilFormateado = formatearCuil(payload.cuil);
+    if (cuilFormateado === undefined) throw httpError(400, { ok: false, error: 'El CUIL debe tener 11 dígitos (formato XX-XXXXXXXX-X).' });
+  }
 
   const existente = await leerPersona(id);
   if (!existente) throw httpError(404, { ok: false, error: 'La persona no existe.' });
@@ -213,9 +246,15 @@ async function accionEditarPersona(payload, solicitante) {
   if (payload.supervisorId && !(await leerPersona(payload.supervisorId))) {
     throw httpError(400, { ok: false, error: 'El supervisor asignado no existe.' });
   }
-  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'email', 'cuil', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
+  if (cuilFormateado) {
+    const personas = await leerPersonas();
+    const conMismoCuil = personas.find(p => p.id !== id && p.estado === 'activo' && soloDigitos(p.cuil) === soloDigitos(cuilFormateado));
+    if (conMismoCuil) throw httpError(400, { ok: false, error: 'Ya existe otra persona activa con ese CUIL: ' + conMismoCuil.nombre + '.' });
+  }
+  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'email', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
   const actualizada = Object.assign({}, existente);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
+  if (payload.cuil !== undefined) actualizada.cuil = cuilFormateado || '';
   await guardarPersona(actualizada);
   return { status: 200, body: { ok: true, persona: actualizada } };
 }
