@@ -84,4 +84,19 @@ function emailSolicitudResuelta({ persona, solicitud }) {
   };
 }
 
-module.exports = { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta };
+// 14/08/2026 ("un contador de días que faltan para el fin del
+// objetivo" + recordatorios): usado por api/talento-recordatorios.js
+// (cron diario) cuando a un objetivo sin resultado cargado le faltan
+// exactamente `diasRestantes` días para su fechaFin.
+function emailRecordatorioObjetivo({ persona, objetivo, diasRestantes }) {
+  const cuando = diasRestantes === 1 ? 'mañana' : ('en ' + diasRestantes + ' días');
+  return {
+    subject: 'Recordatorio: objetivo "' + objetivo.titulo + '" vence ' + cuando,
+    html: '<p>Hola ' + persona.nombre + ',</p>'
+      + '<p>Tu objetivo <b>' + objetivo.titulo + '</b> vence ' + cuando + ' (' + formatearFecha(objetivo.fechaFin) + ').</p>'
+      + (objetivo.meta ? '<p>Meta: ' + objetivo.meta + '</p>' : '')
+      + '<p>Ingresá a Gestión de Talento (pestaña Objetivos) para revisarlo.</p>',
+  };
+}
+
+module.exports = { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta, emailRecordatorioObjetivo };

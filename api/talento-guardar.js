@@ -48,7 +48,6 @@ const { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolici
 // esta lista sigue siendo sólo referencia (ver comentario arriba), no se
 // usa para validar acá.
 const FUNCIONES_VALIDAS = ['Coordinador', 'Supervisor', 'Colaborador', 'Gerente', 'Otros'];
-const CHECKPOINTS_VALIDOS = ['seguimiento1', 'seguimiento2', 'cierre'];
 const EPS = 1e-6;
 
 // 13/08/2026 (Fase 2, "Perfil de Competencias" + "Matriz de Talento
@@ -279,7 +278,7 @@ async function accionEliminarPersona(payload, solicitante) {
 }
 
 async function accionCrearObjetivo(payload, solicitante) {
-  const { personaId, anio, titulo, meta, peso } = payload || {};
+  const { personaId, anio, titulo, meta, peso, fechaFin } = payload || {};
   const persona = await leerPersona(personaId);
   if (!puedeGestionarPersona(solicitante, persona)) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar objetivos de esta persona.' });
@@ -289,6 +288,7 @@ async function accionCrearObjetivo(payload, solicitante) {
   if (!meta || !String(meta).trim()) errores.push('Falta la meta medible.');
   const pesoNum = Number(peso);
   if (!(pesoNum > 0 && pesoNum <= 100)) errores.push('El peso debe ser mayor a 0 y hasta 100.');
+  if (!fechaFin || isNaN(new Date(fechaFin + 'T00:00:00').getTime())) errores.push('Falta la fecha objetivo (fecha límite).');
   const anioNum = Number(anio) || new Date().getFullYear();
 
   const objetivos = await leerObjetivos();
@@ -303,17 +303,23 @@ async function accionCrearObjetivo(payload, solicitante) {
 
   const objetivo = {
     id: nuevoId('obj'), personaId, anio: anioNum, titulo: String(titulo).trim(), meta: String(meta).trim(),
-    peso: pesoNum, checkpoints: { seguimiento1: null, seguimiento2: null, cierre: null },
+    peso: pesoNum,
+    fechaCarga: new Date().toISOString(),
+    fechaFin: String(fechaFin),
+    // 14/08/2026 (rediseño "fecha objetivo + resultado único"): reemplaza
+    // los 3 checkpoints fijos (seguimiento1/seguimiento2/cierre) de Fase 1
+    // -- ahora hay un único resultado, fechado a fechaFin (no a "hoy"), y
+    // recordatoriosEnviados evita que el cron de talento-recordatorios.js
+    // mande el mismo aviso dos veces.
+    resultado: null,
+    recordatoriosEnviados: [],
   };
   await guardarObjetivo(objetivo);
   return { status: 200, body: { ok: true, objetivo } };
 }
 
 async function accionGuardarCheckpoint(payload, solicitante) {
-  const { objetivoId, checkpoint, valor, comentario } = payload || {};
-  if (!CHECKPOINTS_VALIDOS.includes(checkpoint)) {
-    throw httpError(400, { ok: false, error: 'Checkpoint inválido: debe ser uno de ' + CHECKPOINTS_VALIDOS.join(', ') + '.' });
-  }
+  const { objetivoId, valor, comentario } = payload || {};
   const valorNum = Number(valor);
   if (!(valorNum >= 1 && valorNum <= 4)) throw httpError(400, { ok: false, error: 'El valor debe estar entre 1 y 4.' });
 
@@ -321,12 +327,12 @@ async function accionGuardarCheckpoint(payload, solicitante) {
   if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
   const persona = await leerPersona(objetivo.personaId);
   if (!puedeGestionarPersona(solicitante, persona)) {
-    throw httpError(403, { ok: false, error: 'No tenés permiso para cargar el seguimiento de este objetivo.' });
+    throw httpError(403, { ok: false, error: 'No tenés permiso para cargar el resultado de este objetivo.' });
   }
 
-  objetivo.checkpoints[checkpoint] = {
+  objetivo.resultado = {
     valor: valorNum, comentario: comentario ? String(comentario).trim() : '',
-    fecha: new Date().toISOString(),
+    fecha: objetivo.fechaFin,
     // 'supervisor' es lo único que existe en esta fase -- el campo ya
     // queda listo para 'colaborador' cuando exista la app de
     // autogestión (ver Contexto del plan de Fase 1).
