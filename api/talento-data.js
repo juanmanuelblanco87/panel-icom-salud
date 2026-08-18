@@ -40,6 +40,17 @@ module.exports = async function handler(req, res) {
       leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(),
     ]);
 
+    // 18/08/2026 ("Todos deberian ver los cumpleaños para poder
+    // saludar"): a diferencia de `personas` (filtrado por rol más abajo
+    // -- colaborador sólo se ve a sí mismo, gerente sólo su unidad), este
+    // feed es deliberadamente IGUAL para los 4 roles, y deliberadamente
+    // chico -- sólo id/nombre/fechaNacimiento/foto, nunca CUIL/teléfono/
+    // email/unidad/supervisor. Se calcula sobre el array todavía SIN
+    // filtrar (antes de que las ramas de abajo reasignen `personas`).
+    const cumpleanos = personas
+      .filter(p => p.estado === 'activo' && p.fechaNacimiento)
+      .map(p => ({ id: p.id, nombre: p.nombre, fechaNacimiento: p.fechaNacimiento, foto: p.foto || '' }));
+
     if (rol === 'supervisor' && personaId) {
       const idsEquipo = new Set([personaId]);
       // Un solo nivel de jerarquía alcanza para Minorista hoy (supervisor
@@ -69,7 +80,7 @@ module.exports = async function handler(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones });
+    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
