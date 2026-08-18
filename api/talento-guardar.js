@@ -383,10 +383,17 @@ async function accionEliminarObjetivo(payload, solicitante) {
   return { status: 200, body: { ok: true } };
 }
 
+// 18/08/2026 ("el resultado del objetivo debe ser Cumplio/No Cumplio,
+// y en observaciones el detalle de la argumentación"): reemplaza el
+// valor numérico 1-4 por un veredicto binario + un texto obligatorio
+// (antes "comentario" era opcional -- ahora es la justificación del
+// veredicto, no un dato accesorio). `cumplio` se mapea a 4/1 SÓLO
+// dentro de calcularAvance() en el cliente (Matriz de Talento) para no
+// tocar esa matemática -- acá se guarda el veredicto tal cual.
 async function accionGuardarCheckpoint(payload, solicitante) {
-  const { objetivoId, valor, comentario } = payload || {};
-  const valorNum = Number(valor);
-  if (!(valorNum >= 1 && valorNum <= 4)) throw httpError(400, { ok: false, error: 'El valor debe estar entre 1 y 4.' });
+  const { objetivoId, cumplio, observaciones } = payload || {};
+  if (typeof cumplio !== 'boolean') throw httpError(400, { ok: false, error: 'Falta indicar si se cumplió o no el objetivo.' });
+  if (!observaciones || !String(observaciones).trim()) throw httpError(400, { ok: false, error: 'Las observaciones son obligatorias -- dejá el detalle de la argumentación.' });
 
   const objetivo = await leerObjetivo(objetivoId);
   if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
@@ -396,7 +403,7 @@ async function accionGuardarCheckpoint(payload, solicitante) {
   }
 
   objetivo.resultado = {
-    valor: valorNum, comentario: comentario ? String(comentario).trim() : '',
+    cumplio, observaciones: String(observaciones).trim(),
     fecha: objetivo.fechaFin,
     // 'supervisor' es lo único que existe en esta fase -- el campo ya
     // queda listo para 'colaborador' cuando exista la app de
