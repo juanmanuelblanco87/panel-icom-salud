@@ -185,9 +185,23 @@ function soloDigitos(cuil) {
   return String(cuil || '').replace(/\D/g, '');
 }
 
+// 17/08/2026 ("foto de perfil"): `foto` viaja como data URL (base64) ya
+// redimensionado/comprimido del lado del cliente (ver comprimirFoto en
+// el sub-app, que la deja en ~160x160) -- acá sólo se valida que sea
+// efectivamente una imagen y un techo de tamaño razonable para no
+// guardar algo gigante en Redis.
+const FOTO_MAX_CHARS = 400000; // ~300KB reales en base64 (overhead ~33%)
+function validarFoto(foto) {
+  if (!foto) return '';
+  const f = String(foto);
+  if (!f.startsWith('data:image/')) throw httpError(400, { ok: false, error: 'La foto debe ser una imagen válida.' });
+  if (f.length > FOTO_MAX_CHARS) throw httpError(400, { ok: false, error: 'La foto es demasiado pesada -- probá con otra imagen.' });
+  return f;
+}
+
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
-  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso } = payload || {};
+  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso, foto } = payload || {};
   const errores = [];
   if (!nombre || !String(nombre).trim()) errores.push('Falta el nombre.');
   if (!unidadNegocio || !String(unidadNegocio).trim()) errores.push('Falta la unidad de negocio.');
@@ -205,11 +219,12 @@ async function accionCrearPersona(payload, solicitante) {
     const conMismoCuil = personas.find(p => p.estado === 'activo' && soloDigitos(p.cuil) === soloDigitos(cuilFormateado));
     if (conMismoCuil) throw httpError(400, { ok: false, error: 'Ya existe una persona activa con ese CUIL: ' + conMismoCuil.nombre + '. Editá ese registro en vez de crear uno nuevo.' });
   }
+  const fotoValidada = validarFoto(foto);
   const persona = {
     id: nuevoId('per'), nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
     funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
     telefono: telefono ? String(telefono).trim() : '', email: email ? String(email).trim() : '',
-    cuil: cuilFormateado || '',
+    cuil: cuilFormateado || '', foto: fotoValidada,
     fechaNacimiento: fechaNacimiento || null,
     supervisorId: supervisorId || null,
     fechaIngreso: fechaIngreso || null, estado: 'activo',
@@ -254,6 +269,7 @@ async function accionEditarPersona(payload, solicitante) {
   const actualizada = Object.assign({}, existente);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
   if (payload.cuil !== undefined) actualizada.cuil = cuilFormateado || '';
+  if (payload.foto !== undefined) actualizada.foto = validarFoto(payload.foto);
   await guardarPersona(actualizada);
   return { status: 200, body: { ok: true, persona: actualizada } };
 }
