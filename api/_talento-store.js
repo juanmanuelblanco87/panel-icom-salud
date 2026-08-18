@@ -158,6 +158,26 @@ async function guardarSolicitudVacacion(s) {
   await redis.sadd(`${PREFIJO}:solicitudVacacion:ids`, s.id);
 }
 
+// -- Posts del Muro -- (19/08/2026, "sumar un feed social") colección
+// simple, mismo patrón que objetivo -- un post = una clave. Sin
+// comentarios ni adjuntos por ahora (no se pidieron), sólo texto +
+// likes (array de personaId/usuario que le dieron like).
+async function leerPosts() {
+  return leerColeccion('post');
+}
+async function leerPost(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:post:${id}`);
+}
+async function guardarPost(p) {
+  await redis.set(`${PREFIJO}:post:${p.id}`, p);
+  await redis.sadd(`${PREFIJO}:post:ids`, p.id);
+}
+async function eliminarPost(id) {
+  await redis.del(`${PREFIJO}:post:${id}`);
+  await redis.srem(`${PREFIJO}:post:ids`, id);
+}
+
 module.exports = {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerUsuarios, leerUsuario, guardarUsuario,
@@ -165,4 +185,5 @@ module.exports = {
   leerCompetencias, leerCompetencia, guardarCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
+  leerPosts, leerPost, guardarPost, eliminarPost,
 };

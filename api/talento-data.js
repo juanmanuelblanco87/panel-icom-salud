@@ -19,7 +19,7 @@
 //   - supervisor: su equipo directo (un solo nivel de jerarquía).
 //   - colaborador: sólo sus propios datos (sin expandir a un equipo).
 //   - gerente: todos los de su misma unidad de negocio.
-const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones } = require('./_talento-store');
+const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones, leerPosts } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
@@ -36,9 +36,13 @@ module.exports = async function handler(req, res) {
     if (!solicitante) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida -- volvé a iniciar sesión.' }); return; }
     const { rol, personaId, unidadNegocio } = solicitante;
 
-    let [personas, objetivos, competencias, vacaciones, solicitudesVacaciones] = await Promise.all([
-      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(),
+    let [personas, objetivos, competencias, vacaciones, solicitudesVacaciones, posts] = await Promise.all([
+      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(), leerPosts(),
     ]);
+    // 19/08/2026 ("sumar un feed social (muro)"): igual que cumpleanos,
+    // NO se filtra por rol -- el Muro es de toda la organización, no
+    // data de RR.HH. Orden más reciente primero.
+    posts = posts.slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
 
     // 18/08/2026 ("Todos deberian ver los cumpleaños para poder
     // saludar"): a diferencia de `personas` (filtrado por rol más abajo
@@ -80,7 +84,7 @@ module.exports = async function handler(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos });
+    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos, posts });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }

@@ -32,6 +32,7 @@ const {
   guardarCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
+  leerPost, guardarPost, eliminarPost,
 } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
 const { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta } = require('./_talento-email');
@@ -626,6 +627,49 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
   return { status: 200, body: { ok: true, solicitud: actualizada } };
 }
 
+// 19/08/2026 ("sumar un feed social (muro)"): visible para los 4 roles
+// (como Cumpleaños) -- cualquiera puede publicar y dar like, borrar
+// sólo el propio autor o admin (mismo criterio de moderación mínima
+// que ya usa el resto de la app: nadie puede tocar lo de otro salvo
+// RR.HH.).
+async function accionCrearPost(payload, solicitante) {
+  const { texto } = payload || {};
+  if (!texto || !String(texto).trim()) throw httpError(400, { ok: false, error: 'El post no puede estar vacío.' });
+  let autorNombre = solicitante.nombre || 'RR.HH.';
+  if (solicitante.personaId) {
+    const persona = await leerPersona(solicitante.personaId);
+    if (persona) autorNombre = persona.nombre;
+  }
+  const post = {
+    id: nuevoId('post'), autorId: solicitante.personaId || null, autorNombre,
+    texto: String(texto).trim(), fecha: new Date().toISOString(), likes: [],
+  };
+  await guardarPost(post);
+  return { status: 200, body: { ok: true, post } };
+}
+
+async function accionEliminarPost(payload, solicitante) {
+  const { id } = payload || {};
+  const post = await leerPost(id);
+  if (!post) throw httpError(404, { ok: false, error: 'El post no existe (puede que ya se haya borrado).' });
+  const puedeBorrar = esAdmin(solicitante) || (solicitante.personaId && post.autorId === solicitante.personaId);
+  if (!puedeBorrar) throw httpError(403, { ok: false, error: 'Sólo podés borrar tus propios posts.' });
+  await eliminarPost(id);
+  return { status: 200, body: { ok: true } };
+}
+
+async function accionToggleLikePost(payload, solicitante) {
+  const { id } = payload || {};
+  const post = await leerPost(id);
+  if (!post) throw httpError(404, { ok: false, error: 'El post no existe (puede que ya se haya borrado).' });
+  const quien = solicitante.personaId || ('usuario:' + solicitante.usuario);
+  post.likes = post.likes || [];
+  const idx = post.likes.indexOf(quien);
+  if (idx >= 0) post.likes.splice(idx, 1); else post.likes.push(quien);
+  await guardarPost(post);
+  return { status: 200, body: { ok: true, post } };
+}
+
 const ACCIONES = {
   crearPersona: accionCrearPersona,
   editarPersona: accionEditarPersona,
@@ -640,6 +684,9 @@ const ACCIONES = {
   aprobarSolicitudVacaciones: accionAprobarSolicitudVacaciones,
   rechazarSolicitudVacaciones: accionRechazarSolicitudVacaciones,
   eliminarVacacionPeriodo: accionEliminarVacacionPeriodo,
+  crearPost: accionCrearPost,
+  eliminarPost: accionEliminarPost,
+  toggleLikePost: accionToggleLikePost,
 };
 
 module.exports = async function handler(req, res) {
