@@ -33,6 +33,7 @@ const {
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
   leerPost, guardarPost, eliminarPost,
+  leerLicencia, guardarLicencia, eliminarLicencia,
 } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
 const { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta } = require('./_talento-email');
@@ -222,6 +223,28 @@ function validarImagenPost(imagen) {
   if (f.length > POST_IMAGEN_MAX_CHARS) throw httpError(400, { ok: false, error: 'La imagen es demasiado pesada -- probá con otra.' });
   return f;
 }
+
+// 19/08/2026 ("Novedades... subir un certificado medico o de estudio"):
+// a diferencia de validarFoto/validarImagenPost, un certificado puede
+// ser un PDF escaneado además de una foto -- se acepta cualquiera de
+// los dos. Techo más alto que una imagen de post porque un PDF de un
+// certificado no se puede comprimir del lado del cliente.
+const CERTIFICADO_MAX_CHARS = 4000000; // ~3MB reales en base64
+function validarCertificado(certificado) {
+  if (!certificado) return '';
+  const f = String(certificado);
+  if (!f.startsWith('data:image/') && !f.startsWith('data:application/pdf')) {
+    throw httpError(400, { ok: false, error: 'El certificado debe ser una imagen o un PDF.' });
+  }
+  if (f.length > CERTIFICADO_MAX_CHARS) throw httpError(400, { ok: false, error: 'El certificado es demasiado pesado -- probá con otro archivo.' });
+  return f;
+}
+// Enfermedad y licencia por examen/estudio son las 2 figuras que
+// reconoce la LCT argentina (Art. 208-211 y Art. 158) -- "otro" queda
+// para cualquier otra novedad que no encaje ahí (con motivo en texto
+// libre). Sólo enfermedad/estudio piden certificado obligatorio.
+const MOTIVOS_LICENCIA = ['enfermedad', 'estudio', 'otro'];
+const MOTIVOS_LICENCIA_CON_CERTIFICADO = ['enfermedad', 'estudio'];
 
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
@@ -514,6 +537,105 @@ async function accionEliminarVacacionPeriodo(payload, solicitante) {
   return { status: 200, body: { ok: true } };
 }
 
+// 19/08/2026 ("apartado para Novedades... Licencias por enfermedad"):
+// registro directo (sin flujo de aprobación pendiente/aprobada como
+// Vacaciones) -- admin/supervisor lo carga para su equipo como un
+// hecho ya sucedido, mismo permiso que Vacaciones (puedeGestionarPersona).
+function validarFechasLicencia(fechaInicio, fechaFin) {
+  const errores = [];
+  if (!fechaInicio) errores.push('Falta la fecha de inicio.');
+  if (!fechaFin) errores.push('Falta la fecha de fin.');
+  if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
+  const inicio = new Date(fechaInicio + 'T00:00:00');
+  const fin = new Date(fechaFin + 'T00:00:00');
+  if (isNaN(inicio.getTime()) || isNaN(fin.getTime())) throw httpError(400, { ok: false, error: 'Fechas inválidas.' });
+  if (fin < inicio) throw httpError(400, { ok: false, error: 'La fecha de fin no puede ser anterior a la de inicio.' });
+  return { inicio, fin };
+}
+
+// Separado de la validación del certificado: en una EDICIÓN, "requiere
+// certificado" tiene que poder cumplirse con el que YA estaba guardado
+// (si no se adjuntó uno nuevo), no sólo con lo que vino en este
+// payload puntual -- por eso esto sólo valida motivo/motivoOtroTexto,
+// y el chequeo de certificado obligatorio vive en cada acción, que sí
+// sabe si hay un certificado previo que conservar.
+function validarMotivoLicencia(payload) {
+  const { motivo, motivoOtroTexto } = payload || {};
+  const errores = [];
+  if (!MOTIVOS_LICENCIA.includes(motivo)) errores.push('Elegí un motivo de licencia válido.');
+  if (motivo === 'otro' && (!motivoOtroTexto || !String(motivoOtroTexto).trim())) errores.push('Especificá el motivo.');
+  if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
+}
+
+async function accionCrearLicencia(payload, solicitante) {
+  const { personaId, motivo, motivoOtroTexto, fechaInicio, fechaFin, certificado, comentario } = payload || {};
+  const persona = await leerPersona(personaId);
+  if (!puedeGestionarPersona(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para cargar licencias de esta persona.' });
+  }
+  validarMotivoLicencia(payload);
+  const { inicio, fin } = validarFechasLicencia(fechaInicio, fechaFin);
+  const certificadoValidado = validarCertificado(certificado);
+  if (MOTIVOS_LICENCIA_CON_CERTIFICADO.includes(motivo) && !certificadoValidado) {
+    throw httpError(400, { ok: false, error: 'Este motivo requiere adjuntar un certificado.' });
+  }
+  const dias = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
+
+  const licencia = {
+    id: nuevoId('lic'), personaId, motivo,
+    motivoOtroTexto: motivo === 'otro' ? String(motivoOtroTexto).trim() : '',
+    fechaInicio, fechaFin, dias, certificado: certificadoValidado || null,
+    comentario: comentario ? String(comentario).trim() : '',
+    cargadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fecha: new Date().toISOString(),
+  };
+  await guardarLicencia(licencia);
+  return { status: 200, body: { ok: true, licencia } };
+}
+
+async function accionEditarLicencia(payload, solicitante) {
+  const { id, motivo, motivoOtroTexto, fechaInicio, fechaFin, certificado, comentario } = payload || {};
+  const licencia = await leerLicencia(id);
+  if (!licencia) throw httpError(404, { ok: false, error: 'La licencia no existe (puede que ya se haya eliminado).' });
+  const persona = await leerPersona(licencia.personaId);
+  if (!puedeGestionarPersona(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para editar licencias de esta persona.' });
+  }
+  validarMotivoLicencia(payload);
+  const { inicio, fin } = validarFechasLicencia(fechaInicio, fechaFin);
+  const certificadoValidado = validarCertificado(certificado);
+  // 19/08/2026: si no se manda un certificado nuevo en la edición, se
+  // conserva el que ya estaba (no se pisa con null) -- salvo que el
+  // nuevo motivo ya no lo requiera, en cuyo caso se limpia.
+  const certificadoFinal = certificadoValidado || (MOTIVOS_LICENCIA_CON_CERTIFICADO.includes(motivo) ? licencia.certificado : null);
+  if (MOTIVOS_LICENCIA_CON_CERTIFICADO.includes(motivo) && !certificadoFinal) {
+    throw httpError(400, { ok: false, error: 'Este motivo requiere adjuntar un certificado.' });
+  }
+  const dias = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
+
+  const actualizada = {
+    ...licencia, motivo,
+    motivoOtroTexto: motivo === 'otro' ? String(motivoOtroTexto).trim() : '',
+    fechaInicio, fechaFin, dias, certificado: certificadoFinal,
+    comentario: comentario ? String(comentario).trim() : '',
+  };
+  await guardarLicencia(actualizada);
+  return { status: 200, body: { ok: true, licencia: actualizada } };
+}
+
+async function accionEliminarLicencia(payload, solicitante) {
+  const { id } = payload || {};
+  if (!id) throw httpError(400, { ok: false, error: 'Falta el id de la licencia a eliminar.' });
+  const licencia = await leerLicencia(id);
+  if (!licencia) throw httpError(404, { ok: false, error: 'La licencia no existe (puede que ya se haya eliminado).' });
+  const persona = await leerPersona(licencia.personaId);
+  if (!puedeGestionarPersona(solicitante, persona)) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar esta licencia.' });
+  }
+  await eliminarLicencia(id);
+  return { status: 200, body: { ok: true } };
+}
+
 async function accionCrearSolicitudVacaciones(payload, solicitante) {
   const { personaId, fechaInicio, fechaFin, comentario } = payload || {};
   const persona = await leerPersona(personaId);
@@ -712,6 +834,9 @@ const ACCIONES = {
   crearPost: accionCrearPost,
   eliminarPost: accionEliminarPost,
   toggleLikePost: accionToggleLikePost,
+  crearLicencia: accionCrearLicencia,
+  editarLicencia: accionEditarLicencia,
+  eliminarLicencia: accionEliminarLicencia,
 };
 
 module.exports = async function handler(req, res) {

@@ -178,6 +178,27 @@ async function eliminarPost(id) {
   await redis.srem(`${PREFIJO}:post:ids`, id);
 }
 
+// -- Licencias -- (19/08/2026, "apartado para Novedades... Licencias
+// por enfermedad") colección simple, mismo patrón que objetivo -- una
+// licencia = una clave. Registro directo (sin flujo de aprobación
+// pendiente/aprobada como Vacaciones -- lo carga admin/supervisor
+// como un hecho ya sucedido).
+async function leerLicencias() {
+  return leerColeccion('licencia');
+}
+async function leerLicencia(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:licencia:${id}`);
+}
+async function guardarLicencia(l) {
+  await redis.set(`${PREFIJO}:licencia:${l.id}`, l);
+  await redis.sadd(`${PREFIJO}:licencia:ids`, l.id);
+}
+async function eliminarLicencia(id) {
+  await redis.del(`${PREFIJO}:licencia:${id}`);
+  await redis.srem(`${PREFIJO}:licencia:ids`, id);
+}
+
 module.exports = {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerUsuarios, leerUsuario, guardarUsuario,
@@ -186,4 +207,5 @@ module.exports = {
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
   leerPosts, leerPost, guardarPost, eliminarPost,
+  leerLicencias, leerLicencia, guardarLicencia, eliminarLicencia,
 };

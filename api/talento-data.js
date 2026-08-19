@@ -19,7 +19,7 @@
 //   - supervisor: su equipo directo (un solo nivel de jerarquía).
 //   - colaborador: sólo sus propios datos (sin expandir a un equipo).
 //   - gerente: todos los de su misma unidad de negocio.
-const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones, leerPosts } = require('./_talento-store');
+const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones, leerPosts, leerLicencias } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
@@ -36,8 +36,8 @@ module.exports = async function handler(req, res) {
     if (!solicitante) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida -- volvé a iniciar sesión.' }); return; }
     const { rol, personaId, unidadNegocio } = solicitante;
 
-    let [personas, objetivos, competencias, vacaciones, solicitudesVacaciones, posts] = await Promise.all([
-      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(), leerPosts(),
+    let [personas, objetivos, competencias, vacaciones, solicitudesVacaciones, posts, licencias] = await Promise.all([
+      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(), leerPosts(), leerLicencias(),
     ]);
     // 19/08/2026 ("sumar un feed social (muro)"): igual que cumpleanos,
     // NO se filtra por rol -- el Muro es de toda la organización, no
@@ -66,6 +66,7 @@ module.exports = async function handler(req, res) {
       competencias = competencias.filter(c => idsEquipo.has(c.personaId));
       vacaciones = vacaciones.filter(v => idsEquipo.has(v.personaId));
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsEquipo.has(s.personaId));
+      licencias = licencias.filter(l => idsEquipo.has(l.personaId));
     } else if (rol === 'colaborador' && personaId) {
       const idsPropio = new Set([personaId]); // sin expandir a un equipo -- sólo uno mismo
       personas = personas.filter(p => idsPropio.has(p.id));
@@ -73,6 +74,7 @@ module.exports = async function handler(req, res) {
       competencias = competencias.filter(c => idsPropio.has(c.personaId));
       vacaciones = vacaciones.filter(v => idsPropio.has(v.personaId));
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsPropio.has(s.personaId));
+      licencias = licencias.filter(l => idsPropio.has(l.personaId));
     } else if (rol === 'gerente' && unidadNegocio) {
       const idsUnidad = new Set(personas.filter(p => p.unidadNegocio === unidadNegocio).map(p => p.id));
       personas = personas.filter(p => idsUnidad.has(p.id));
@@ -80,11 +82,12 @@ module.exports = async function handler(req, res) {
       competencias = competencias.filter(c => idsUnidad.has(c.personaId));
       vacaciones = vacaciones.filter(v => idsUnidad.has(v.personaId));
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsUnidad.has(s.personaId));
+      licencias = licencias.filter(l => idsUnidad.has(l.personaId));
     }
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos, posts });
+    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos, posts, licencias });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
