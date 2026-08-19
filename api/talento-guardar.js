@@ -53,15 +53,24 @@ const EPS = 1e-6;
 
 // 13/08/2026 (Fase 2, "Perfil de Competencias" + "Matriz de Talento
 // 9-Box"): las primeras 7 son las que ya usaba el Excel viejo de la
-// empresa (perfil general); las últimas 4 son el modelo gratuito del
+// empresa (perfil general); las siguientes 4 son el modelo gratuito del
 // Corporate Leadership Council ("Aspiration, Ability, Engagement,
 // Agility") -- estándar público para el eje de Potencial de un 9-box.
 // El eje de Desempeño NO se evalúa acá -- reusa calcularAvance() sobre
 // los Objetivos, que ya existe.
+// 19/08/2026 ("otro bucket de Competencias específicas... mejor
+// evaluación de los perfiles"): las últimas 6 son de O*NET Work Styles
+// (Departamento de Trabajo de EE.UU., contenido bajo licencia CC BY
+// 4.0 -- el equivalente público y gratuito a librerías de competencias
+// pagas como Korn Ferry/Hogan, que no se pueden reproducir acá por su
+// licencia). Se suman al MISMO promedio de Potencial que las 4 del CLC
+// (ver ITEMS_COMPETENCIA_POTENCIAL en el sub-app) -- Potencial pasa a
+// promediar 10 ítems en vez de 4.
 const ITEMS_COMPETENCIA = [
   'liderazgo', 'comunicacion', 'actitudColaborativa', 'orientacionResultados',
   'adaptabilidad', 'accountability', 'planificacionSeguimiento',
   'aspiracion', 'habilidad', 'compromiso', 'agilidad',
+  'iniciativa', 'autonomia', 'toleranciaPresion', 'autocontrol', 'orientacionSocial', 'innovacion',
 ];
 
 // 13/08/2026 (Fase 2, "Carga y gestión de vacaciones"): Ley de Contrato
