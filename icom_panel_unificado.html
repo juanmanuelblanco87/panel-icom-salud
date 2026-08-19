@@ -102,6 +102,18 @@
   .sb-logout:hover{color:#fff}
   .sb-logout .sb-icon{font-size:13px}
 
+  /* 19/08/2026 ("un link para quienes SOLO van a acceder al módulo de
+     Gestión de Talento"): con ?modulo=talento en la URL, showShell() le
+     agrega esta clase al sidebar -- reduce el menú a Gestión de Talento
+     nomás (se ocultan las 5 unidades de negocio y el resto de las Apps),
+     sin tocar ningún control de acceso (siguen pidiéndose ambos logins,
+     ver showShell). */
+  #sidebar.solo-talento .sb-section-label,
+  #sidebar.solo-talento .sb-channel,
+  #sidebar.solo-talento .sb-item[data-pane]:not([data-pane="gestion_talento"]){
+    display:none;
+  }
+
   #sidebar.collapsed .sb-logo-text,
   #sidebar.collapsed .sb-label{display:none}
   #sidebar.collapsed .sb-top{justify-content:center;padding:0}
@@ -1046,13 +1058,17 @@ async function showShell(){
   // directo a Gestión de Talento -- se ahorra el click en Ortopedia +
   // Gestión de Talento del menú, útil para compartirle el link a un
   // Colaborador/Gerente que en la práctica nunca va a tocar el resto de
-  // la app. No cambia ningún control de acceso: sigue pidiendo la clave
-  // del shell (login de arriba) y, adentro, el usuario/contraseña propio
-  // de Talento -- el resto del menú lateral sigue visible y accesible
-  // igual que siempre, esto sólo cambia dónde aterriza al entrar.
+  // la app. Además (mismo pedido, segunda vuelta: "quienes SOLO van a
+  // acceder al módulo") se le reduce el menú lateral a esa única opción
+  // -- ver .solo-talento en el CSS -- para que ni siquiera tenga a mano
+  // el resto de los módulos de ventas/stock/dashboard. No cambia NINGÚN
+  // control de acceso: sigue pidiendo la clave del shell (login de
+  // arriba) y, adentro, el usuario/contraseña propio de Talento -- esto
+  // sólo cambia dónde aterriza y qué ve en el menú al entrar.
   if(new URLSearchParams(location.search).get('modulo') === 'talento'){
     switchChannel('minorista');
     switchPane('gestion_talento');
+    document.getElementById('sidebar').classList.add('solo-talento');
   }else{
     switchPane('erp');
   }
