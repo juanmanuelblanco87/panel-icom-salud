@@ -200,6 +200,20 @@ function validarFoto(foto) {
   return f;
 }
 
+// 19/08/2026 ("no puedo subir posteos tipo imagen"): mismo criterio que
+// validarFoto, pero con un techo más alto porque comprimirImagenPost
+// (sub-app) no recorta a cuadrado -- achica el lado más largo a 900px
+// en vez de los 160x160 de un avatar, así que el data URL resultante
+// pesa más.
+const POST_IMAGEN_MAX_CHARS = 900000; // ~675KB reales en base64
+function validarImagenPost(imagen) {
+  if (!imagen) return '';
+  const f = String(imagen);
+  if (!f.startsWith('data:image/')) throw httpError(400, { ok: false, error: 'La imagen del post debe ser una imagen válida.' });
+  if (f.length > POST_IMAGEN_MAX_CHARS) throw httpError(400, { ok: false, error: 'La imagen es demasiado pesada -- probá con otra.' });
+  return f;
+}
+
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
   const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso, foto } = payload || {};
@@ -633,8 +647,10 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
 // que ya usa el resto de la app: nadie puede tocar lo de otro salvo
 // RR.HH.).
 async function accionCrearPost(payload, solicitante) {
-  const { texto } = payload || {};
-  if (!texto || !String(texto).trim()) throw httpError(400, { ok: false, error: 'El post no puede estar vacío.' });
+  const { texto, imagen } = payload || {};
+  const textoLimpio = texto ? String(texto).trim() : '';
+  const imagenValidada = validarImagenPost(imagen);
+  if (!textoLimpio && !imagenValidada) throw httpError(400, { ok: false, error: 'El post no puede estar vacío.' });
   let autorNombre = solicitante.nombre || 'RR.HH.';
   if (solicitante.personaId) {
     const persona = await leerPersona(solicitante.personaId);
@@ -642,7 +658,7 @@ async function accionCrearPost(payload, solicitante) {
   }
   const post = {
     id: nuevoId('post'), autorId: solicitante.personaId || null, autorNombre,
-    texto: String(texto).trim(), fecha: new Date().toISOString(), likes: [],
+    texto: textoLimpio, imagen: imagenValidada || null, fecha: new Date().toISOString(), likes: [],
   };
   await guardarPost(post);
   return { status: 200, body: { ok: true, post } };
