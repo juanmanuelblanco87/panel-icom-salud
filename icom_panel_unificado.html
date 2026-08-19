@@ -1040,7 +1040,22 @@ async function showShell(){
       document.getElementById('sidebar').classList.add('collapsed');
     }
   }catch(e){}
-  switchPane('erp');
+  // Juan Manuel, 19/08/2026 ("un link para quienes sólo van a acceder al
+  // módulo de Gestión de Talento"): con ?modulo=talento en la URL, en vez
+  // de aterrizar en "Ventas en Vivo" (el pane por defecto) se entra
+  // directo a Gestión de Talento -- se ahorra el click en Ortopedia +
+  // Gestión de Talento del menú, útil para compartirle el link a un
+  // Colaborador/Gerente que en la práctica nunca va a tocar el resto de
+  // la app. No cambia ningún control de acceso: sigue pidiendo la clave
+  // del shell (login de arriba) y, adentro, el usuario/contraseña propio
+  // de Talento -- el resto del menú lateral sigue visible y accesible
+  // igual que siempre, esto sólo cambia dónde aterriza al entrar.
+  if(new URLSearchParams(location.search).get('modulo') === 'talento'){
+    switchChannel('minorista');
+    switchPane('gestion_talento');
+  }else{
+    switchPane('erp');
+  }
   // Sembramos la Base de Productos en IndexedDB (si todavía está vacía) ANTES
   // de crear el iframe de Seguimiento. Antes esto corría en paralelo (via
   // erpStartGlobalPolling → pmEnsureLoaded) y en un origen nuevo había una
