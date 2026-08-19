@@ -282,6 +282,67 @@ async function accionCrearPersona(payload, solicitante) {
   return { status: 200, body: { ok: true, persona } };
 }
 
+// 19/08/2026 ("agregar todas las personas que no estén cargadas
+// actualmente" -- importación de una nómina real): permite cargar
+// muchas personas de una vez, pensado para pegar el resultado de una
+// planilla ya procesada. Reusa accionCrearPersona fila por fila
+// (misma validación, mismo chequeo de CUIL duplicado) -- así ninguna
+// regla de alta se duplica ni se puede desincronizar. Además saltea
+// por NOMBRE (normalizado) a quien ya exista activo, para las
+// personas sin CUIL en la planilla (accionCrearPersona ya cubre el
+// caso con CUIL). Una fila con error NO aborta el lote completo --
+// se reporta aparte y se sigue con las demás.
+function normalizarNombre(nombre) {
+  return String(nombre || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+async function accionImportarPersonas(payload, solicitante) {
+  if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede importar personas.' });
+  const { filas } = payload || {};
+  if (!Array.isArray(filas) || !filas.length) throw httpError(400, { ok: false, error: 'No se recibieron filas para importar.' });
+  if (filas.length > 500) throw httpError(400, { ok: false, error: 'Demasiadas filas en un solo lote (máximo 500).' });
+
+  const personasExistentes = await leerPersonas();
+  const nombresVistos = new Set(personasExistentes.filter(p => p.estado === 'activo').map(p => normalizarNombre(p.nombre)));
+
+  const creadas = [];
+  const saltadas = [];
+  const errores = [];
+  for (const fila of filas) {
+    const nombreNorm = normalizarNombre(fila.nombre);
+    if (!nombreNorm) { errores.push({ nombre: fila.nombre || '(sin nombre)', error: 'Falta el nombre.' }); continue; }
+    if (nombresVistos.has(nombreNorm)) { saltadas.push(fila.nombre); continue; }
+    try {
+      const { body } = await accionCrearPersona(Object.assign({}, fila, { supervisorId: null, foto: '' }), solicitante);
+      creadas.push(body.persona);
+      nombresVistos.add(nombreNorm); // evita duplicar si la misma planilla trae la fila 2 veces
+    } catch (e) {
+      errores.push({ nombre: fila.nombre, error: e && e.body ? e.body.error : String((e && e.message) || e) });
+    }
+  }
+
+  // Fase 2: recién ahora que todas están creadas se puede resolver
+  // "reporta a" (texto con el nombre completo del supervisor) contra
+  // el padrón COMPLETO -- las preexistentes Y las recién creadas en
+  // este mismo lote, sin importar en qué orden vinieran las filas.
+  const padron = new Map();
+  personasExistentes.concat(creadas).forEach(p => padron.set(normalizarNombre(p.nombre), p));
+  const supervisoresNoResueltos = [];
+  for (const p of creadas) {
+    const fila = filas.find(f => normalizarNombre(f.nombre) === normalizarNombre(p.nombre));
+    if (!fila || !fila.reportaANombre) continue;
+    const supervisor = padron.get(normalizarNombre(fila.reportaANombre));
+    if (supervisor && supervisor.id !== p.id) {
+      p.supervisorId = supervisor.id;
+      await guardarPersona(p);
+    } else {
+      supervisoresNoResueltos.push({ nombre: p.nombre, reportaA: fila.reportaANombre });
+    }
+  }
+
+  return { status: 200, body: { ok: true, creadas: creadas.length, saltadas, errores, supervisoresNoResueltos } };
+}
+
 async function accionEditarPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede editar personas.' });
   const { id } = payload || {};
@@ -819,6 +880,7 @@ async function accionToggleLikePost(payload, solicitante) {
 
 const ACCIONES = {
   crearPersona: accionCrearPersona,
+  importarPersonas: accionImportarPersonas,
   editarPersona: accionEditarPersona,
   eliminarPersona: accionEliminarPersona,
   crearObjetivo: accionCrearObjetivo,
