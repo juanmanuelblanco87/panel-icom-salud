@@ -248,7 +248,7 @@ const MOTIVOS_LICENCIA_CON_CERTIFICADO = ['enfermedad', 'estudio'];
 
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
-  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso, foto } = payload || {};
+  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, sector, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso, foto } = payload || {};
   const errores = [];
   if (!nombre || !String(nombre).trim()) errores.push('Falta el nombre.');
   if (!unidadNegocio || !String(unidadNegocio).trim()) errores.push('Falta la unidad de negocio.');
@@ -270,6 +270,7 @@ async function accionCrearPersona(payload, solicitante) {
   const persona = {
     id: nuevoId('per'), nombre: String(nombre).trim(), unidadNegocio: String(unidadNegocio).trim(),
     funcion: String(funcion).trim(), lugarDeTrabajo: String(lugarDeTrabajo).trim(),
+    sector: sector ? String(sector).trim() : '',
     telefono: telefono ? String(telefono).trim() : '', email: email ? String(email).trim() : '',
     cuil: cuilFormateado || '', foto: fotoValidada,
     fechaNacimiento: fechaNacimiento || null,
@@ -312,7 +313,7 @@ async function accionEditarPersona(payload, solicitante) {
     const conMismoCuil = personas.find(p => p.id !== id && p.estado === 'activo' && soloDigitos(p.cuil) === soloDigitos(cuilFormateado));
     if (conMismoCuil) throw httpError(400, { ok: false, error: 'Ya existe otra persona activa con ese CUIL: ' + conMismoCuil.nombre + '.' });
   }
-  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'telefono', 'email', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
+  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'sector', 'telefono', 'email', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
   const actualizada = Object.assign({}, existente);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
   if (payload.cuil !== undefined) actualizada.cuil = cuilFormateado || '';
