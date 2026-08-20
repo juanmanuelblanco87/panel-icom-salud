@@ -214,6 +214,43 @@ async function eliminarLicencia(id) {
   await redis.srem(`${PREFIJO}:licencia:ids`, id);
 }
 
+// -- Comentarios del Muro -- (20/08/2026, "deja la opcion de comentar")
+// colección simple, mismo patrón que objetivo -- un comentario = una
+// clave, con postId como referencia (no anidado dentro del post, por
+// la misma razón de siempre: no releer-modificar-escribir la clave del
+// post entero cada vez que alguien comenta).
+async function leerComentariosMuro() {
+  return leerColeccion('comentarioMuro');
+}
+async function leerComentarioMuro(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:comentarioMuro:${id}`);
+}
+async function guardarComentarioMuro(c) {
+  await redis.set(`${PREFIJO}:comentarioMuro:${c.id}`, c);
+  await redis.sadd(`${PREFIJO}:comentarioMuro:ids`, c.id);
+}
+async function eliminarComentarioMuro(id) {
+  await redis.del(`${PREFIJO}:comentarioMuro:${id}`);
+  await redis.srem(`${PREFIJO}:comentarioMuro:ids`, id);
+}
+
+// -- Mensajes (chat interno 1 a 1) -- (20/08/2026) colección simple,
+// mismo patrón que objetivo. La identidad de cada lado es el `usuario`
+// de login (no personaId -- admin y gerente no tienen uno), igual
+// criterio que 'usuario:<usuario>' ya usado para likes/autoría en el
+// Muro. `hilo` es el par [de,para] ordenado alfabéticamente y unido con
+// '|' -- un id determinístico de conversación, para filtrar sin tener
+// que cruzar dos condiciones (de=X,para=Y) O (de=Y,para=X) en cada
+// lectura.
+async function leerMensajes() {
+  return leerColeccion('mensaje');
+}
+async function guardarMensaje(m) {
+  await redis.set(`${PREFIJO}:mensaje:${m.id}`, m);
+  await redis.sadd(`${PREFIJO}:mensaje:ids`, m.id);
+}
+
 module.exports = {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerUsuarios, leerUsuario, guardarUsuario,
@@ -224,4 +261,6 @@ module.exports = {
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
   leerPosts, leerPost, guardarPost, eliminarPost,
   leerLicencias, leerLicencia, guardarLicencia, eliminarLicencia,
+  leerComentariosMuro, leerComentarioMuro, guardarComentarioMuro, eliminarComentarioMuro,
+  leerMensajes, guardarMensaje,
 };

@@ -28,7 +28,7 @@
 // exhibiciones-seed-inicial.js. La clave nunca queda en el código fuente
 // ni en el historial de git: la elige quien la corre, como query param
 // de una llamada puntual.
-const { leerUsuario, guardarUsuario, leerPersona } = require('./_talento-store');
+const { leerUsuario, guardarUsuario, leerPersona, leerPersonas, leerUsuarios } = require('./_talento-store');
 const { generarSaltYHash, passwordValida, firmarSesion } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
@@ -40,27 +40,80 @@ module.exports = async function handler(req, res) {
   try {
     if (req.method === 'GET') {
       const url = new URL(req.url, 'https://' + req.headers.host);
-      if (url.searchParams.get('accion') !== 'seed-admin') {
-        res.status(400).json({ ok: false, error: 'Usar ?accion=seed-admin con los demás parámetros.' });
+      const accion = url.searchParams.get('accion');
+
+      if (accion === 'seed-admin') {
+        const secret = url.searchParams.get('secret');
+        if (!process.env.MAINTENANCE_SECRET || secret !== process.env.MAINTENANCE_SECRET) {
+          res.status(403).json({ ok: false, error: 'secret inválido o no configurado' });
+          return;
+        }
+        const usuario = (url.searchParams.get('usuario') || '').trim();
+        const password = url.searchParams.get('password') || '';
+        const nombre = (url.searchParams.get('nombre') || usuario).trim();
+        const email = (url.searchParams.get('email') || '').trim(); // 14/08/2026: opcional acá, pero sin esto este admin no recibe emails de solicitudes de vacaciones
+        if (!usuario || !password) {
+          res.status(400).json({ ok: false, error: 'Faltan usuario y/o password como query params.' });
+          return;
+        }
+        const { salt, hash } = generarSaltYHash(password);
+        const registro = { usuario, salt, hash, rol: 'admin', personaId: null, unidadNegocio: null, nombre, email };
+        await guardarUsuario(registro);
+        res.status(200).json({ ok: true, seeded: true, usuario, rol: 'admin' });
         return;
       }
-      const secret = url.searchParams.get('secret');
-      if (!process.env.MAINTENANCE_SECRET || secret !== process.env.MAINTENANCE_SECRET) {
-        res.status(403).json({ ok: false, error: 'secret inválido o no configurado' });
+
+      // 20/08/2026 ("crea todos los usuarios, coloca el CUIL como el
+      // usuario y el pass generico de 1234 a todos"): alta MASIVA de
+      // accesos de autogestión para el padrón entero, pensada para
+      // correr UNA sola vez (mismo criterio "server-to-server, GET,
+      // MAINTENANCE_SECRET" que seed-admin y
+      // exhibiciones-seed-inicial.js -- este runtime sólo puede pegarle
+      // con GET a hosts arbitrarios). Reglas:
+      //   - Se saltea cualquier persona que YA tenga un usuario propio
+      //     (match por personaId) -- nunca pisa un acceso existente
+      //     (ni el de un admin/gerente creado a mano, ni una corrida
+      //     anterior de esta misma acción).
+      //   - El usuario es el CUIL sin guiones (sólo dígitos) -- se
+      //     saltea a quien no tenga CUIL cargado o no tenga 11 dígitos.
+      //   - Rol: 'supervisor' si esa persona figura como supervisorId
+      //     de al menos otra persona activa; si no, 'colaborador'.
+      //   - Password fija '1234' para todos -- pensada para el primer
+      //     ingreso, RR.HH. decide si pide cambiarla después (no hay
+      //     today un flujo de "cambiar mi propia contraseña" en el
+      //     cliente, sólo el admin puede resetearla desde Usuarios).
+      if (accion === 'seed-colaboradores') {
+        const secret = url.searchParams.get('secret');
+        if (!process.env.MAINTENANCE_SECRET || secret !== process.env.MAINTENANCE_SECRET) {
+          res.status(403).json({ ok: false, error: 'secret inválido o no configurado' });
+          return;
+        }
+        const [personas, usuariosExistentes] = await Promise.all([leerPersonas(), leerUsuarios()]);
+        const personaIdsConCuenta = new Set(usuariosExistentes.map(u => u.personaId).filter(Boolean));
+        const usuariosYaUsados = new Set(usuariosExistentes.map(u => u.usuario));
+        const idsConSupervisor = new Set(personas.filter(p => p.estado === 'activo').map(p => p.supervisorId).filter(Boolean));
+
+        const creados = [];
+        const omitidos = [];
+        for (const p of personas) {
+          if (p.estado !== 'activo') { omitidos.push({ persona: p.nombre, motivo: 'inactiva' }); continue; }
+          if (personaIdsConCuenta.has(p.id)) { omitidos.push({ persona: p.nombre, motivo: 'ya tiene una cuenta' }); continue; }
+          const digitos = String(p.cuil || '').replace(/\D/g, '');
+          if (digitos.length !== 11) { omitidos.push({ persona: p.nombre, motivo: 'sin CUIL válido (11 dígitos)' }); continue; }
+          if (usuariosYaUsados.has(digitos)) { omitidos.push({ persona: p.nombre, motivo: 'ese usuario (CUIL) ya existe -- CUIL duplicado en Personas' }); continue; }
+
+          const rol = idsConSupervisor.has(p.id) ? 'supervisor' : 'colaborador';
+          const { salt, hash } = generarSaltYHash('1234');
+          const registro = { usuario: digitos, salt, hash, rol, personaId: p.id, unidadNegocio: null, nombre: p.nombre, email: p.email || '' };
+          await guardarUsuario(registro);
+          usuariosYaUsados.add(digitos);
+          creados.push({ persona: p.nombre, usuario: digitos, rol });
+        }
+        res.status(200).json({ ok: true, totalPersonas: personas.length, creados: creados.length, omitidos: omitidos.length, detalleCreados: creados, detalleOmitidos: omitidos });
         return;
       }
-      const usuario = (url.searchParams.get('usuario') || '').trim();
-      const password = url.searchParams.get('password') || '';
-      const nombre = (url.searchParams.get('nombre') || usuario).trim();
-      const email = (url.searchParams.get('email') || '').trim(); // 14/08/2026: opcional acá, pero sin esto este admin no recibe emails de solicitudes de vacaciones
-      if (!usuario || !password) {
-        res.status(400).json({ ok: false, error: 'Faltan usuario y/o password como query params.' });
-        return;
-      }
-      const { salt, hash } = generarSaltYHash(password);
-      const registro = { usuario, salt, hash, rol: 'admin', personaId: null, unidadNegocio: null, nombre, email };
-      await guardarUsuario(registro);
-      res.status(200).json({ ok: true, seeded: true, usuario, rol: 'admin' });
+
+      res.status(400).json({ ok: false, error: 'accion desconocida -- usar seed-admin o seed-colaboradores.' });
       return;
     }
 

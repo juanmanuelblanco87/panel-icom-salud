@@ -34,6 +34,8 @@ const {
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
   leerPost, guardarPost, eliminarPost,
   leerLicencia, guardarLicencia, eliminarLicencia,
+  leerComentarioMuro, guardarComentarioMuro, eliminarComentarioMuro,
+  leerMensajes, guardarMensaje, leerUsuario,
 } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
 const { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta } = require('./_talento-email');
@@ -827,16 +829,100 @@ async function accionEliminarPost(payload, solicitante) {
   return { status: 200, body: { ok: true } };
 }
 
-async function accionToggleLikePost(payload, solicitante) {
-  const { id } = payload || {};
+// 20/08/2026 ("reaccionar" -- antes sólo existía 👍 Me gusta):
+// reemplaza a accionToggleLikePost. Una sola reacción por persona
+// (como Facebook, no "like" + "me encanta" acumulados) -- clickear un
+// emoji distinto CAMBIA la reacción, clickear el mismo la saca.
+// Migración perezosa: los posts viejos sólo tienen `likes` (array
+// plano) -- la primera vez que se toca un post viejo acá, se convierte
+// a `reacciones.👍` y se descarta `likes`. No hace falta migrar los
+// que nadie vuelve a tocar -- el cliente ya sabe leer ambos formatos
+// (ver reaccionesDePost() en el sub-app).
+const REACCIONES_VALIDAS = ['👍', '❤️', '😂', '👏'];
+async function accionToggleReaccion(payload, solicitante) {
+  const { id, emoji } = payload || {};
+  if (!REACCIONES_VALIDAS.includes(emoji)) throw httpError(400, { ok: false, error: 'Reacción inválida.' });
   const post = await leerPost(id);
   if (!post) throw httpError(404, { ok: false, error: 'El post no existe (puede que ya se haya borrado).' });
   const quien = solicitante.personaId || ('usuario:' + solicitante.usuario);
-  post.likes = post.likes || [];
-  const idx = post.likes.indexOf(quien);
-  if (idx >= 0) post.likes.splice(idx, 1); else post.likes.push(quien);
+  if (!post.reacciones) { post.reacciones = { '👍': post.likes || [] }; delete post.likes; }
+  REACCIONES_VALIDAS.forEach(e => { if (!post.reacciones[e]) post.reacciones[e] = []; });
+  REACCIONES_VALIDAS.forEach(e => {
+    const idx = post.reacciones[e].indexOf(quien);
+    if (idx >= 0 && e !== emoji) post.reacciones[e].splice(idx, 1);
+  });
+  const idx = post.reacciones[emoji].indexOf(quien);
+  if (idx >= 0) post.reacciones[emoji].splice(idx, 1); else post.reacciones[emoji].push(quien);
   await guardarPost(post);
   return { status: 200, body: { ok: true, post } };
+}
+
+// 20/08/2026 ("deja la opcion de comentar... para todos los
+// usuarios"): mismo criterio de autoría/moderación que los posts --
+// cualquiera de los 4 roles comenta, borra sólo el propio autor o
+// admin.
+async function accionCrearComentarioMuro(payload, solicitante) {
+  const { postId, texto } = payload || {};
+  const textoLimpio = texto ? String(texto).trim() : '';
+  if (!textoLimpio) throw httpError(400, { ok: false, error: 'El comentario no puede estar vacío.' });
+  const post = await leerPost(postId);
+  if (!post) throw httpError(404, { ok: false, error: 'El post no existe (puede que ya se haya borrado).' });
+  let autorNombre = solicitante.nombre || 'RR.HH.';
+  if (solicitante.personaId) {
+    const persona = await leerPersona(solicitante.personaId);
+    if (persona) autorNombre = persona.nombre;
+  }
+  const comentario = {
+    id: nuevoId('coment'), postId, autorId: solicitante.personaId || null, autorNombre,
+    texto: textoLimpio, fecha: new Date().toISOString(),
+  };
+  await guardarComentarioMuro(comentario);
+  return { status: 200, body: { ok: true, comentario } };
+}
+
+async function accionEliminarComentarioMuro(payload, solicitante) {
+  const { id } = payload || {};
+  const comentario = await leerComentarioMuro(id);
+  if (!comentario) throw httpError(404, { ok: false, error: 'El comentario no existe (puede que ya se haya borrado).' });
+  const puedeBorrar = esAdmin(solicitante) || (solicitante.personaId && comentario.autorId === solicitante.personaId);
+  if (!puedeBorrar) throw httpError(403, { ok: false, error: 'Sólo podés borrar tus propios comentarios.' });
+  await eliminarComentarioMuro(id);
+  return { status: 200, body: { ok: true } };
+}
+
+// 20/08/2026 ("crear un chat para uso interno y mensajeria"): mensajes
+// directos 1 a 1 entre cualquier par de cuentas logueadas -- la
+// identidad de cada lado es el `usuario` de login (no personaId, para
+// que admin/gerente -- que no tienen uno -- también puedan chatear).
+// `hilo` es el id determinístico de la conversación (ver
+// guardarMensaje en _talento-store.js).
+async function accionEnviarMensaje(payload, solicitante) {
+  const { paraUsuario, texto } = payload || {};
+  const textoLimpio = texto ? String(texto).trim() : '';
+  if (!textoLimpio) throw httpError(400, { ok: false, error: 'El mensaje no puede estar vacío.' });
+  const destino = String(paraUsuario || '').trim();
+  if (!destino) throw httpError(400, { ok: false, error: 'Falta el destinatario.' });
+  if (destino === solicitante.usuario) throw httpError(400, { ok: false, error: 'No podés mandarte un mensaje a vos mismo.' });
+  const destinatario = await leerUsuario(destino);
+  if (!destinatario) throw httpError(404, { ok: false, error: 'Ese destinatario no existe.' });
+  const hilo = [solicitante.usuario, destino].sort().join('|');
+  const mensaje = {
+    id: nuevoId('msg'), hilo, deUsuario: solicitante.usuario, paraUsuario: destino,
+    texto: textoLimpio, fecha: new Date().toISOString(), leido: false,
+  };
+  await guardarMensaje(mensaje);
+  return { status: 200, body: { ok: true, mensaje } };
+}
+
+// Se llama al abrir una conversación -- marca como leídos todos los
+// mensajes de ESE hilo que me mandaron a mí (nunca los que yo mandé).
+async function accionMarcarLeidoChat(payload, solicitante) {
+  const { hilo } = payload || {};
+  if (!hilo) throw httpError(400, { ok: false, error: 'Falta el hilo.' });
+  const mensajes = await leerMensajes();
+  const propios = mensajes.filter(m => m.hilo === hilo && m.paraUsuario === solicitante.usuario && !m.leido);
+  await Promise.all(propios.map(m => guardarMensaje(Object.assign({}, m, { leido: true }))));
+  return { status: 200, body: { ok: true, marcados: propios.length } };
 }
 
 const ACCIONES = {
@@ -855,10 +941,14 @@ const ACCIONES = {
   eliminarVacacionPeriodo: accionEliminarVacacionPeriodo,
   crearPost: accionCrearPost,
   eliminarPost: accionEliminarPost,
-  toggleLikePost: accionToggleLikePost,
+  toggleReaccion: accionToggleReaccion,
+  crearComentarioMuro: accionCrearComentarioMuro,
+  eliminarComentarioMuro: accionEliminarComentarioMuro,
   crearLicencia: accionCrearLicencia,
   editarLicencia: accionEditarLicencia,
   eliminarLicencia: accionEliminarLicencia,
+  enviarMensaje: accionEnviarMensaje,
+  marcarLeidoChat: accionMarcarLeidoChat,
 };
 
 module.exports = async function handler(req, res) {
