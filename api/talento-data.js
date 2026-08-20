@@ -48,12 +48,17 @@ module.exports = async function handler(req, res) {
     // saludar"): a diferencia de `personas` (filtrado por rol más abajo
     // -- colaborador sólo se ve a sí mismo, gerente sólo su unidad), este
     // feed es deliberadamente IGUAL para los 4 roles, y deliberadamente
-    // chico -- sólo id/nombre/fechaNacimiento/foto, nunca CUIL/teléfono/
-    // email/unidad/supervisor. Se calcula sobre el array todavía SIN
-    // filtrar (antes de que las ramas de abajo reasignen `personas`).
+    // chico -- sólo id/nombre/fechaNacimiento/fechaIngreso/foto, nunca
+    // CUIL/teléfono/email/unidad/supervisor. Se calcula sobre el array
+    // todavía SIN filtrar (antes de que las ramas de abajo reasignen
+    // `personas`).
+    // 20/08/2026 ("sumemos mismo formato pero para aniversarios de
+    // trabajo"): se suma fechaIngreso al mismo feed (mismo criterio de
+    // sensibilidad que fechaNacimiento) -- entra quien tenga AL MENOS
+    // UNA de las 2 fechas, no hace falta tener las 2.
     const cumpleanos = personas
-      .filter(p => p.estado === 'activo' && p.fechaNacimiento)
-      .map(p => ({ id: p.id, nombre: p.nombre, fechaNacimiento: p.fechaNacimiento, foto: p.foto || '' }));
+      .filter(p => p.estado === 'activo' && (p.fechaNacimiento || p.fechaIngreso))
+      .map(p => ({ id: p.id, nombre: p.nombre, fechaNacimiento: p.fechaNacimiento || null, fechaIngreso: p.fechaIngreso || null, foto: p.foto || '' }));
 
     if (rol === 'supervisor' && personaId) {
       const idsEquipo = new Set([personaId]);
