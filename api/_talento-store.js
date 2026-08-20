@@ -112,6 +112,21 @@ async function guardarCompetencia(c) {
   await redis.sadd(`${PREFIJO}:competencia:ids`, c.id);
 }
 
+// 19/08/2026 ("debe guardar un historial sobre la fecha en que se
+// guardo esa evaluacion y el resultado general"): a diferencia de
+// `competencia` (upsert por personaId_año -- sólo guarda la ÚLTIMA
+// evaluación de ese año), esto es un registro APPEND-ONLY -- cada
+// guardado (aunque sea del mismo año, aunque sea una corrección) se
+// suma como una entrada nueva, nunca se pisa ni se borra. Mismo
+// patrón de colección que objetivo (id al azar, no compuesto).
+async function leerHistorialCompetencias() {
+  return leerColeccion('historialCompetencia');
+}
+async function guardarHistorialCompetencia(h) {
+  await redis.set(`${PREFIJO}:historialCompetencia:${h.id}`, h);
+  await redis.sadd(`${PREFIJO}:historialCompetencia:ids`, h.id);
+}
+
 // -- Vacaciones -- (13/08/2026, Fase 2) colección de PERÍODOS tomados,
 // mismo patrón que objetivo -- deliberadamente NO un único registro por
 // persona con un array de períodos adentro, porque eso volvería a
@@ -204,6 +219,7 @@ module.exports = {
   leerUsuarios, leerUsuario, guardarUsuario,
   leerObjetivos, leerObjetivo, guardarObjetivo, eliminarObjetivo,
   leerCompetencias, leerCompetencia, guardarCompetencia,
+  leerHistorialCompetencias, guardarHistorialCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
   leerPosts, leerPost, guardarPost, eliminarPost,

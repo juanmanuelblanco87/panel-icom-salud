@@ -29,7 +29,7 @@ const {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
   leerUsuarios,
   leerObjetivos, leerObjetivo, guardarObjetivo, eliminarObjetivo,
-  guardarCompetencia,
+  guardarCompetencia, guardarHistorialCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
   leerPost, guardarPost, eliminarPost,
@@ -477,14 +477,35 @@ async function accionGuardarCompetencia(payload, solicitante) {
   });
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
 
+  const fecha = new Date().toISOString();
   const competencia = {
     id: personaId + '_' + anioNum, personaId, anio: anioNum, items: itemsValidados,
     comentario: comentario ? String(comentario).trim() : '',
-    fecha: new Date().toISOString(),
+    fecha,
     evaluadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
   };
   await guardarCompetencia(competencia);
-  return { status: 200, body: { ok: true, competencia } };
+
+  // 19/08/2026 ("debe guardar un historial sobre la fecha en que se
+  // guardo esa evaluacion y el resultado general"): a diferencia de
+  // `competencia` (upsert -- sólo la última evaluación de ese año
+  // sobrevive), esto queda para siempre, aunque se vuelva a evaluar el
+  // mismo año más adelante. "Resultado general" = promedio de los 17
+  // ítems combinados; se guardan también perfil/potencial por
+  // separado (mismos ejes que ya se muestran en "Resultado").
+  const promedio = (lista) => lista.reduce((s, k) => s + itemsValidados[k], 0) / lista.length;
+  const keysPerfil = ITEMS_COMPETENCIA.slice(0, 7);
+  const keysPotencial = ITEMS_COMPETENCIA.slice(7);
+  const historial = {
+    id: nuevoId('histcomp'), personaId, anio: anioNum, fecha,
+    resultadoGeneral: Number(promedio(ITEMS_COMPETENCIA).toFixed(2)),
+    promedioPerfil: Number(promedio(keysPerfil).toFixed(2)),
+    promedioPotencial: Number(promedio(keysPotencial).toFixed(2)),
+    evaluadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+  };
+  await guardarHistorialCompetencia(historial);
+
+  return { status: 200, body: { ok: true, competencia, historial } };
 }
 
 async function accionGuardarVacacionPeriodo(payload, solicitante) {
