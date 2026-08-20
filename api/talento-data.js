@@ -16,7 +16,8 @@
 //
 // Filtro por rol, 3 ramas:
 //   - admin: sin filtro, ve todo.
-//   - supervisor: su equipo directo (un solo nivel de jerarquía).
+//   - supervisor: todo su equipo hacia abajo en el organigrama (no
+//     sólo reportes directos -- 20/08/2026).
 //   - colaborador: sólo sus propios datos (sin expandir a un equipo).
 //   - gerente: todos los de su misma unidad de negocio.
 const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones, leerPosts, leerLicencias, leerHistorialCompetencias, leerComentariosMuro } = require('./_talento-store');
@@ -66,11 +67,23 @@ module.exports = async function handler(req, res) {
       .map(p => ({ id: p.id, nombre: p.nombre, fechaNacimiento: p.fechaNacimiento || null, fechaIngreso: p.fechaIngreso || null, foto: p.foto || '' }));
 
     if (rol === 'supervisor' && personaId) {
+      // 20/08/2026 ("sólo puede ver sus reportes directos, debería ver
+      // sus reportes directos y para abajo el resto también"): antes
+      // era 1 sola pasada (sólo reporte directo) -- ahora es un BFS
+      // completo hacia abajo en el organigrama (reportes de sus
+      // reportes, y así sucesivamente), ya que acá adentro ya está el
+      // array entero de `personas` en memoria (a diferencia de
+      // talento-guardar.js, que resuelve esto persona por persona
+      // recorriendo hacia ARRIBA -- ver esDescendienteDe -- porque ahí
+      // sólo se tiene UNA persona puntual para validar, no el padrón
+      // completo).
       const idsEquipo = new Set([personaId]);
-      // Un solo nivel de jerarquía alcanza para Minorista hoy (supervisor
-      // -> colaboradores directos) -- si más adelante hace falta más de
-      // un nivel, acá es donde se agregaría una segunda pasada.
-      personas.forEach(p => { if (p.supervisorId === personaId) idsEquipo.add(p.id); });
+      let frontera = [personaId];
+      while (frontera.length) {
+        const siguiente = personas.filter(p => frontera.includes(p.supervisorId) && !idsEquipo.has(p.id));
+        siguiente.forEach(p => idsEquipo.add(p.id));
+        frontera = siguiente.map(p => p.id);
+      }
       personas = personas.filter(p => idsEquipo.has(p.id));
       objetivos = objetivos.filter(o => idsEquipo.has(o.personaId));
       competencias = competencias.filter(c => idsEquipo.has(c.personaId));

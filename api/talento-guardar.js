@@ -119,25 +119,63 @@ function esAdmin(solicitante) {
   return !!solicitante && solicitante.rol === 'admin';
 }
 
-// true si el solicitante puede ver/editar objetivos de esta persona:
-// admin siempre; supervisor sólo si es él mismo o su supervisor directo.
-function puedeGestionarPersona(solicitante, persona) {
+// 20/08/2026 ("sólo puede ver sus reportes directos, debería ver...
+// para abajo el resto también"): antes esto sólo alcanzaba al reporte
+// DIRECTO (persona.supervisorId === solicitante.personaId) -- ahora
+// recorre la cadena de supervisorId hacia arriba desde `persona` hasta
+// encontrar a `supervisorId` en algún nivel (todo el equipo hacia
+// abajo en el organigrama, no sólo 1 nivel) o hasta quedarse sin
+// cadena. Tope de 25 saltos -- de sobra para cualquier organigrama
+// real, sólo para no colgarse si hay una referencia circular corrupta
+// en los datos.
+async function esDescendienteDe(persona, supervisorId) {
+  let actual = persona;
+  let saltos = 0;
+  while (actual && actual.supervisorId && saltos < 25) {
+    if (actual.supervisorId === supervisorId) return true;
+    actual = await leerPersona(actual.supervisorId);
+    saltos++;
+  }
+  return false;
+}
+
+// true si el solicitante puede ver/editar vacaciones o licencias de
+// esta persona: admin siempre; supervisor si es él mismo o cualquiera
+// de su equipo hacia abajo (no sólo reporte directo).
+async function puedeGestionarPersona(solicitante, persona) {
   if (!solicitante || !persona) return false;
   if (solicitante.rol === 'admin') return true;
   if (solicitante.rol === 'supervisor') {
-    return persona.id === solicitante.personaId || persona.supervisorId === solicitante.personaId;
+    if (persona.id === solicitante.personaId) return true;
+    return esDescendienteDe(persona, solicitante.personaId);
   }
   return false;
+}
+
+// 20/08/2026 ("no debería poder cargar sus propios objetivos, eso lo
+// hace su supervisor"): variante de puedeGestionarPersona para
+// Objetivos específicamente -- a diferencia de Vacaciones/Licencias
+// (donde cargar lo propio es legítimo, ej. el supervisor pidiendo sus
+// propios días), acá NUNCA se permite autoservicio, ni siquiera para
+// un supervisor sobre sí mismo -- eso lo carga SU propio supervisor
+// (un nivel más arriba). Mismo alcance recursivo que puedeGestionarPersona.
+async function puedeGestionarObjetivo(solicitante, persona) {
+  if (!solicitante || !persona) return false;
+  if (solicitante.rol === 'admin') return true;
+  if (solicitante.rol !== 'supervisor') return false;
+  if (persona.id === solicitante.personaId) return false;
+  return esDescendienteDe(persona, solicitante.personaId);
 }
 
 // 13/08/2026 (Fase 2): a diferencia de puedeGestionarPersona, acá NO se
 // permite persona.id === solicitante.personaId -- evaluar el propio
 // potencial/competencias no puede ser una autoevaluación, sólo admin o
-// el supervisor directo.
-function puedeEvaluarCompetencias(solicitante, persona) {
+// alguien de su equipo hacia abajo (mismo alcance recursivo, 20/08/2026).
+async function puedeEvaluarCompetencias(solicitante, persona) {
   if (!solicitante || !persona) return false;
   if (solicitante.rol === 'admin') return true;
-  return solicitante.rol === 'supervisor' && persona.supervisorId === solicitante.personaId;
+  if (solicitante.rol !== 'supervisor') return false;
+  return esDescendienteDe(persona, solicitante.personaId);
 }
 
 // 14/08/2026 (flujo de aprobación de vacaciones): quién puede CREAR una
@@ -146,7 +184,7 @@ function puedeEvaluarCompetencias(solicitante, persona) {
 // (admin, o su supervisor) -- así admin/supervisor pueden seguir
 // cargando en nombre de otro si hace falta, sin abrir la puerta a que
 // cualquiera pida vacaciones por cualquiera.
-function puedeCrearSolicitud(solicitante, persona) {
+async function puedeCrearSolicitud(solicitante, persona) {
   if (!solicitante || !persona) return false;
   if (persona.id === solicitante.personaId) return true;
   return puedeGestionarPersona(solicitante, persona);
@@ -346,7 +384,7 @@ async function accionEliminarPersona(payload, solicitante) {
 async function accionCrearObjetivo(payload, solicitante) {
   const { personaId, anio, titulo, meta, peso, fechaFin } = payload || {};
   const persona = await leerPersona(personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarObjetivo(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar objetivos de esta persona.' });
   }
   const errores = [];
@@ -389,7 +427,7 @@ async function accionEditarObjetivo(payload, solicitante) {
   const objetivo = await leerObjetivo(id);
   if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
   const persona = await leerPersona(objetivo.personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarObjetivo(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para editar objetivos de esta persona.' });
   }
   const errores = [];
@@ -426,7 +464,7 @@ async function accionEliminarObjetivo(payload, solicitante) {
   const objetivo = await leerObjetivo(id);
   if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
   const persona = await leerPersona(objetivo.personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarObjetivo(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar objetivos de esta persona.' });
   }
   await eliminarObjetivo(id);
@@ -448,7 +486,7 @@ async function accionGuardarCheckpoint(payload, solicitante) {
   const objetivo = await leerObjetivo(objetivoId);
   if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
   const persona = await leerPersona(objetivo.personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarObjetivo(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar el resultado de este objetivo.' });
   }
 
@@ -467,7 +505,7 @@ async function accionGuardarCheckpoint(payload, solicitante) {
 async function accionGuardarCompetencia(payload, solicitante) {
   const { personaId, anio, items, comentario } = payload || {};
   const persona = await leerPersona(personaId);
-  if (!puedeEvaluarCompetencias(solicitante, persona)) {
+  if (!(await puedeEvaluarCompetencias(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para evaluar competencias de esta persona (no se permite autoevaluación).' });
   }
   const anioNum = Number(anio) || new Date().getFullYear();
@@ -514,7 +552,7 @@ async function accionGuardarCompetencia(payload, solicitante) {
 async function accionGuardarVacacionPeriodo(payload, solicitante) {
   const { personaId, fechaInicio, fechaFin, comentario } = payload || {};
   const persona = await leerPersona(personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar vacaciones de esta persona.' });
   }
   const errores = [];
@@ -554,7 +592,7 @@ async function accionEliminarVacacionPeriodo(payload, solicitante) {
   const periodo = await leerVacacionPeriodo(id);
   if (!periodo) throw httpError(404, { ok: false, error: 'El período no existe (puede que ya se haya eliminado).' });
   const persona = await leerPersona(periodo.personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar este período.' });
   }
   await eliminarVacacionPeriodo(id);
@@ -594,7 +632,7 @@ function validarMotivoLicencia(payload) {
 async function accionCrearLicencia(payload, solicitante) {
   const { personaId, motivo, motivoOtroTexto, fechaInicio, fechaFin, certificado, comentario } = payload || {};
   const persona = await leerPersona(personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar licencias de esta persona.' });
   }
   validarMotivoLicencia(payload);
@@ -622,7 +660,7 @@ async function accionEditarLicencia(payload, solicitante) {
   const licencia = await leerLicencia(id);
   if (!licencia) throw httpError(404, { ok: false, error: 'La licencia no existe (puede que ya se haya eliminado).' });
   const persona = await leerPersona(licencia.personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para editar licencias de esta persona.' });
   }
   validarMotivoLicencia(payload);
@@ -653,7 +691,7 @@ async function accionEliminarLicencia(payload, solicitante) {
   const licencia = await leerLicencia(id);
   if (!licencia) throw httpError(404, { ok: false, error: 'La licencia no existe (puede que ya se haya eliminado).' });
   const persona = await leerPersona(licencia.personaId);
-  if (!puedeGestionarPersona(solicitante, persona)) {
+  if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar esta licencia.' });
   }
   await eliminarLicencia(id);
@@ -663,7 +701,7 @@ async function accionEliminarLicencia(payload, solicitante) {
 async function accionCrearSolicitudVacaciones(payload, solicitante) {
   const { personaId, fechaInicio, fechaFin, comentario } = payload || {};
   const persona = await leerPersona(personaId);
-  if (!puedeCrearSolicitud(solicitante, persona)) {
+  if (!(await puedeCrearSolicitud(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para pedir vacaciones para esta persona.' });
   }
   const errores = [];
@@ -989,5 +1027,6 @@ module.exports = async function handler(req, res) {
 // función que Vercel invoca; esto sólo le cuelga propiedades extra).
 module.exports._testing = {
   calcularDiasVacaciones, calcularSaldoVacaciones,
-  puedeCrearSolicitud, esAprobadorDeVacaciones, puedeGestionarPersona, puedeEvaluarCompetencias,
+  puedeCrearSolicitud, esAprobadorDeVacaciones, puedeGestionarPersona, puedeGestionarObjetivo,
+  puedeEvaluarCompetencias, esDescendienteDe,
 };
