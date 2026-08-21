@@ -194,8 +194,16 @@ async function puedeCrearSolicitud(solicitante, persona) {
 // Quién puede APROBAR/RECHAZAR una solicitud de `persona`: admin
 // (cualquiera), su supervisor directo, o un gerente de su misma unidad
 // de negocio. Un colaborador NUNCA puede aprobar (ni la propia).
+// 21/08/2026 ("por algun motivo me puedo 'autoaprobar' las
+// vacaciones"): admin devolvía true sin condición -- nadie chequeaba
+// que la solicitud no fuera la propia. Un supervisor/gerente normal ya
+// quedaba cubierto de hecho (persona.supervisorId/unidadNegocio nunca
+// coincide con uno mismo salvo dato corrupto), pero para admin era un
+// agujero real. Se corta ACÁ, antes de cualquier rama de rol, para que
+// nadie -- ni admin -- pueda aprobar/rechazar su propia solicitud.
 function esAprobadorDeVacaciones(solicitante, persona) {
   if (!solicitante || !persona) return false;
+  if (persona.id === solicitante.personaId) return false;
   if (solicitante.rol === 'admin') return true;
   if (solicitante.rol === 'supervisor') return persona.supervisorId === solicitante.personaId;
   if (solicitante.rol === 'gerente') return !!solicitante.unidadNegocio && persona.unidadNegocio === solicitante.unidadNegocio;
@@ -865,6 +873,39 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
   return { status: 200, body: { ok: true, solicitud: actualizada } };
 }
 
+// 21/08/2026 ("No puedo 'cancelar' la solicitud"): a diferencia de
+// rechazar (lo hace el APROBADOR, dice "no corresponde"), esto lo hace
+// el propio DUEÑO de la solicitud, retractándose antes de que alguien
+// la resuelva -- estado nuevo 'cancelada' (no 'rechazada', para que el
+// historial distinga "me arrepentí" de "me la rechazaron"). Idempotente
+// si ya está cancelada; 409 si ya la resolvió alguien (aprobada o
+// rechazada) -- ya no hay nada que retractar.
+async function accionCancelarSolicitudVacaciones(payload, solicitante) {
+  const { solicitudId } = payload || {};
+  if (!solicitudId) throw httpError(400, { ok: false, error: 'Falta el id de la solicitud.' });
+  const solicitud = await leerSolicitudVacacion(solicitudId);
+  if (!solicitud) throw httpError(404, { ok: false, error: 'La solicitud no existe.' });
+
+  if (solicitud.estado === 'cancelada') {
+    return { status: 200, body: { ok: true, solicitud } };
+  }
+  if (solicitud.estado !== 'pendiente') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue ' + (solicitud.estado === 'aprobada' ? 'aprobada' : 'rechazada') + ' -- ya no se puede cancelar.' });
+  }
+  if (solicitud.personaId !== solicitante.personaId) {
+    throw httpError(403, { ok: false, error: 'Sólo podés cancelar tus propias solicitudes.' });
+  }
+
+  const actualizada = Object.assign({}, solicitud, {
+    estado: 'cancelada',
+    resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fechaResolucion: new Date().toISOString(),
+    comentarioResolucion: '',
+  });
+  await guardarSolicitudVacacion(actualizada);
+  return { status: 200, body: { ok: true, solicitud: actualizada } };
+}
+
 // 19/08/2026 ("sumar un feed social (muro)"): visible para los 4 roles
 // (como Cumpleaños) -- cualquiera puede publicar y dar like, borrar
 // sólo el propio autor o admin (mismo criterio de moderación mínima
@@ -1014,6 +1055,7 @@ const ACCIONES = {
   crearSolicitudVacaciones: accionCrearSolicitudVacaciones,
   aprobarSolicitudVacaciones: accionAprobarSolicitudVacaciones,
   rechazarSolicitudVacaciones: accionRechazarSolicitudVacaciones,
+  cancelarSolicitudVacaciones: accionCancelarSolicitudVacaciones,
   eliminarVacacionPeriodo: accionEliminarVacacionPeriodo,
   crearPost: accionCrearPost,
   eliminarPost: accionEliminarPost,
