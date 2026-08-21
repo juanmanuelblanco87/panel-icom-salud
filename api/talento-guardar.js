@@ -870,7 +870,13 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
 // sólo el propio autor o admin (mismo criterio de moderación mínima
 // que ya usa el resto de la app: nadie puede tocar lo de otro salvo
 // RR.HH.).
+// 21/08/2026 ("en el Muro solo RRHH... y Administradores pueden subir
+// Posteos"): antes cualquiera de los 4 roles podía publicar -- ahora
+// sólo admin. Reaccionar y comentar siguen abiertos a todos (no se
+// tocó accionToggleReaccion/accionCrearComentarioMuro), sólo se
+// restringe quién arranca un post nuevo.
 async function accionCrearPost(payload, solicitante) {
+  if (solicitante.rol !== 'admin') throw httpError(403, { ok: false, error: 'Sólo RR.HH./Admin puede publicar en el Muro.' });
   const { texto, imagen } = payload || {};
   const textoLimpio = texto ? String(texto).trim() : '';
   const imagenValidada = validarImagenPost(imagen);
