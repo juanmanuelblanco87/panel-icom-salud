@@ -66,6 +66,19 @@ module.exports = async function handler(req, res) {
       .filter(p => p.estado === 'activo' && (p.fechaNacimiento || p.fechaIngreso))
       .map(p => ({ id: p.id, nombre: p.nombre, fechaNacimiento: p.fechaNacimiento || null, fechaIngreso: p.fechaIngreso || null, foto: p.foto || '' }));
 
+    // 20/08/2026 ("quisiera que todos los usuarios tengan acceso a
+    // todo el organigrama"): mismo criterio que cumpleanos/posts --
+    // la estructura de toda la empresa no depende de a quién gestiona
+    // cada uno (eso lo sigue filtrando `personas` más abajo para
+    // Objetivos/Competencias/Vacaciones/Novedades -- ESE alcance no
+    // cambia). Se calcula sobre el array SIN filtrar, con sólo los
+    // campos que el organigrama muestra (tooltip/tarjeta de contacto)
+    // -- no manda CUIL ni fechas de nacimiento/ingreso (esas viajan
+    // aparte en `cumpleanos`, con su propio criterio).
+    const organigrama = personas
+      .filter(p => p.estado === 'activo')
+      .map(p => ({ id: p.id, nombre: p.nombre, funcion: p.funcion, supervisorId: p.supervisorId || null, foto: p.foto || '', unidadNegocio: p.unidadNegocio || '', sector: p.sector || '', telefono: p.telefono || '', email: p.email || '' }));
+
     if (rol === 'supervisor' && personaId) {
       // 20/08/2026 ("sólo puede ver sus reportes directos, debería ver
       // sus reportes directos y para abajo el resto también"): antes
@@ -120,7 +133,7 @@ module.exports = async function handler(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos, posts, licencias, historialCompetencias, comentariosMuro, notasObjetivo });
+    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos, posts, licencias, historialCompetencias, comentariosMuro, notasObjetivo, organigrama });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
