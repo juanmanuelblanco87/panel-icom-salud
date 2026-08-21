@@ -367,10 +367,6 @@
       <div class="sb-item" data-pane="ortopedias" data-channels="minorista" onclick="switchPane('ortopedias')">
         <span class="sb-icon">🗺️</span> <span class="sb-label">Ortopedias</span>
       </div>
-      <!-- Juan Manuel, 11/08/2026: "Gestion de Talento", Fase 1 (Personas + Objetivos) -->
-      <div class="sb-item" data-pane="gestion_talento" data-channels="minorista" onclick="switchPane('gestion_talento')">
-        <span class="sb-icon">🧑‍💼</span> <span class="sb-label">Gestión de Talento</span>
-      </div>
     </div>
     <!-- Juan Manuel, 05/08/2026: "Cambia el nombre de la App 'Minorista' por
          'Ortopedia'. Deja el icono." -- solo el texto visible cambia, la
@@ -390,6 +386,18 @@
          -- mismo criterio que Ortopedia arriba, solo el texto visible. -->
     <div class="sb-item sb-channel" data-channel="cirugia_general" onclick="switchChannel('cirugia_general')">
       <span class="sb-icon">🏥</span> <span class="sb-label">Cirugía</span>
+    </div>
+    <!-- Juan Manuel, 21/08/2026 ("mover la app de gestion de talento a la
+         pantalla inicial debajo de Cirugia"): Gestión de Talento pasa de
+         vivir DENTRO de #appsGroup (nido debajo de Ortopedia, sólo
+         visible con esa unidad activa -- ver data-channels="minorista"
+         que tenía antes) a un ítem fijo acá afuera, al mismo nivel que
+         las unidades de negocio -- data-channels="all" para que
+         updateAppVisibilityForChannel() lo deje visible sea cual sea el
+         canal activo (no lleva la clase .sb-channel: no es una unidad,
+         switchPane la sigue manejando igual que cualquier otra app). -->
+    <div class="sb-item" data-pane="gestion_talento" data-channels="all" onclick="switchPane('gestion_talento')">
+      <span class="sb-icon">🧑‍💼</span> <span class="sb-label">Gestión de Talento</span>
     </div>
     <div class="sb-spacer"></div>
     <div class="sb-logout" onclick="doLogout()"><span class="sb-icon">⏻</span> <span class="sb-label">Cerrar sesión</span></div>
