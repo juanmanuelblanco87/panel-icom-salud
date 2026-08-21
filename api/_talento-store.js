@@ -235,6 +235,20 @@ async function eliminarComentarioMuro(id) {
   await redis.srem(`${PREFIJO}:comentarioMuro:ids`, id);
 }
 
+// -- Notas de evolución de Objetivos -- (20/08/2026, "Mis Objetivos:
+// dejar un formulario para ingresar evolución... permite anotar notas
+// sobre los objetivos y esto le llega al supervisor") colección
+// simple, mismo patrón que objetivo -- una nota = una clave,
+// append-only (nunca se edita/borra, es un registro de avance en el
+// tiempo, no un campo que se pisa).
+async function leerNotasObjetivo() {
+  return leerColeccion('notaObjetivo');
+}
+async function guardarNotaObjetivo(n) {
+  await redis.set(`${PREFIJO}:notaObjetivo:${n.id}`, n);
+  await redis.sadd(`${PREFIJO}:notaObjetivo:ids`, n.id);
+}
+
 // -- Mensajes (chat interno 1 a 1) -- (20/08/2026) colección simple,
 // mismo patrón que objetivo. La identidad de cada lado es el `usuario`
 // de login (no personaId -- admin y gerente no tienen uno), igual
@@ -263,4 +277,5 @@ module.exports = {
   leerLicencias, leerLicencia, guardarLicencia, eliminarLicencia,
   leerComentariosMuro, leerComentarioMuro, guardarComentarioMuro, eliminarComentarioMuro,
   leerMensajes, guardarMensaje,
+  leerNotasObjetivo, guardarNotaObjetivo,
 };

@@ -36,6 +36,7 @@ const {
   leerLicencia, guardarLicencia, eliminarLicencia,
   leerComentarioMuro, guardarComentarioMuro, eliminarComentarioMuro,
   leerMensajes, guardarMensaje, leerUsuario,
+  guardarNotaObjetivo,
 } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
 const { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta } = require('./_talento-email');
@@ -500,6 +501,36 @@ async function accionGuardarCheckpoint(payload, solicitante) {
   };
   await guardarObjetivo(objetivo);
   return { status: 200, body: { ok: true, objetivo } };
+}
+
+// 20/08/2026 ("Mis Objetivos: dejar un formulario para ingresar
+// evolución... que guarde automáticamente la fecha... permite anotar
+// notas... esto le llega al supervisor"): a diferencia de
+// accionGuardarCheckpoint (que fija el resultado FINAL, sólo lo carga
+// quien puede gestionar el objetivo -- el supervisor de arriba), esto
+// es un registro de avance escrito por el DUEÑO del objetivo sobre sí
+// mismo -- append-only, nunca se edita ni se borra. "Le llega al
+// supervisor" en el sentido de que queda visible la próxima vez que
+// él consulte ese objetivo (mismo alcance que puedeGestionarObjetivo,
+// ver el filtro por rol en talento-data.js) -- no dispara un email
+// aparte, coherente con que tampoco lo dispara cargar un objetivo o un
+// checkpoint.
+async function accionAgregarNotaObjetivo(payload, solicitante) {
+  const { objetivoId, texto } = payload || {};
+  const textoLimpio = texto ? String(texto).trim() : '';
+  if (!textoLimpio) throw httpError(400, { ok: false, error: 'La nota no puede estar vacía.' });
+  const objetivo = await leerObjetivo(objetivoId);
+  if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
+  if (!(solicitante.rol === 'admin' || objetivo.personaId === solicitante.personaId)) {
+    throw httpError(403, { ok: false, error: 'Sólo el dueño del objetivo puede anotar su propia evolución.' });
+  }
+  const nota = {
+    id: nuevoId('notaObj'), objetivoId, personaId: objetivo.personaId,
+    autorId: solicitante.personaId || null, texto: textoLimpio,
+    fecha: new Date().toISOString(),
+  };
+  await guardarNotaObjetivo(nota);
+  return { status: 200, body: { ok: true, nota } };
 }
 
 async function accionGuardarCompetencia(payload, solicitante) {
@@ -971,6 +1002,7 @@ const ACCIONES = {
   editarObjetivo: accionEditarObjetivo,
   eliminarObjetivo: accionEliminarObjetivo,
   guardarCheckpoint: accionGuardarCheckpoint,
+  agregarNotaObjetivo: accionAgregarNotaObjetivo,
   guardarCompetencia: accionGuardarCompetencia,
   guardarVacacionPeriodo: accionGuardarVacacionPeriodo,
   crearSolicitudVacaciones: accionCrearSolicitudVacaciones,

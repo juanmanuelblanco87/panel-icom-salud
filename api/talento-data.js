@@ -20,7 +20,7 @@
 //     sólo reportes directos -- 20/08/2026).
 //   - colaborador: sólo sus propios datos (sin expandir a un equipo).
 //   - gerente: todos los de su misma unidad de negocio.
-const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones, leerPosts, leerLicencias, leerHistorialCompetencias, leerComentariosMuro } = require('./_talento-store');
+const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones, leerPosts, leerLicencias, leerHistorialCompetencias, leerComentariosMuro, leerNotasObjetivo } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
@@ -37,8 +37,8 @@ module.exports = async function handler(req, res) {
     if (!solicitante) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida -- volvé a iniciar sesión.' }); return; }
     const { rol, personaId, unidadNegocio } = solicitante;
 
-    let [personas, objetivos, competencias, vacaciones, solicitudesVacaciones, posts, licencias, historialCompetencias, comentariosMuro] = await Promise.all([
-      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(), leerPosts(), leerLicencias(), leerHistorialCompetencias(), leerComentariosMuro(),
+    let [personas, objetivos, competencias, vacaciones, solicitudesVacaciones, posts, licencias, historialCompetencias, comentariosMuro, notasObjetivo] = await Promise.all([
+      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(), leerPosts(), leerLicencias(), leerHistorialCompetencias(), leerComentariosMuro(), leerNotasObjetivo(),
     ]);
     // 19/08/2026 ("sumar un feed social (muro)"): igual que cumpleanos,
     // NO se filtra por rol -- el Muro es de toda la organización, no
@@ -91,6 +91,7 @@ module.exports = async function handler(req, res) {
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsEquipo.has(s.personaId));
       licencias = licencias.filter(l => idsEquipo.has(l.personaId));
       historialCompetencias = historialCompetencias.filter(h => idsEquipo.has(h.personaId));
+      notasObjetivo = notasObjetivo.filter(n => idsEquipo.has(n.personaId));
     } else if (rol === 'colaborador' && personaId) {
       const idsPropio = new Set([personaId]); // sin expandir a un equipo -- sólo uno mismo
       personas = personas.filter(p => idsPropio.has(p.id));
@@ -100,6 +101,7 @@ module.exports = async function handler(req, res) {
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsPropio.has(s.personaId));
       licencias = licencias.filter(l => idsPropio.has(l.personaId));
       historialCompetencias = historialCompetencias.filter(h => idsPropio.has(h.personaId));
+      notasObjetivo = notasObjetivo.filter(n => idsPropio.has(n.personaId));
     } else if (rol === 'gerente' && unidadNegocio) {
       const idsUnidad = new Set(personas.filter(p => p.unidadNegocio === unidadNegocio).map(p => p.id));
       personas = personas.filter(p => idsUnidad.has(p.id));
@@ -109,11 +111,16 @@ module.exports = async function handler(req, res) {
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsUnidad.has(s.personaId));
       licencias = licencias.filter(l => idsUnidad.has(l.personaId));
       historialCompetencias = historialCompetencias.filter(h => idsUnidad.has(h.personaId));
+      notasObjetivo = notasObjetivo.filter(n => idsUnidad.has(n.personaId));
     }
+    // 20/08/2026: orden ascendente (más viejo primero) -- un registro de
+    // avance se lee de arriba hacia abajo en el tiempo, mismo criterio
+    // que comentariosMuro.
+    notasObjetivo = notasObjetivo.slice().sort((a, b) => (a.fecha > b.fecha ? 1 : -1));
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos, posts, licencias, historialCompetencias, comentariosMuro });
+    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos, posts, licencias, historialCompetencias, comentariosMuro, notasObjetivo });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
