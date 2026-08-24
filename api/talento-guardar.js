@@ -371,6 +371,33 @@ async function accionEditarPersona(payload, solicitante) {
   return { status: 200, body: { ok: true, persona: actualizada } };
 }
 
+// 21/08/2026 ("todos los usuarios puedan agregar o modificar su
+// avatar... numero de celular, su correo... etc."): a diferencia de
+// accionEditarPersona (admin-only, cualquier campo, cualquier
+// persona), esto es mucho más chico a propósito -- cualquiera con
+// personaId (supervisor/colaborador; admin/gerente no tienen uno, no
+// hay "su propio registro" que editar) puede tocar SÓLO su propia
+// foto/teléfono/email, nunca otro campo (función, unidad, supervisor,
+// etc. siguen siendo data maestra, sólo RR.HH.) ni la persona de otro
+// -- siempre solicitante.personaId, nunca un id que venga en el payload.
+async function accionActualizarMiPerfil(payload, solicitante) {
+  if (!solicitante.personaId) throw httpError(403, { ok: false, error: 'Tu cuenta no tiene un registro de persona propio para editar.' });
+  const existente = await leerPersona(solicitante.personaId);
+  if (!existente) throw httpError(404, { ok: false, error: 'Tu registro de persona no existe.' });
+
+  const { telefono, email, foto } = payload || {};
+  const actualizada = Object.assign({}, existente);
+  if (telefono !== undefined) actualizada.telefono = telefono ? String(telefono).trim() : '';
+  if (email !== undefined) {
+    const emailLimpio = email ? String(email).trim() : '';
+    if (emailLimpio && !/\S+@\S+\.\S+/.test(emailLimpio)) throw httpError(400, { ok: false, error: 'El email no es válido.' });
+    actualizada.email = emailLimpio;
+  }
+  if (foto !== undefined) actualizada.foto = validarFoto(foto);
+  await guardarPersona(actualizada);
+  return { status: 200, body: { ok: true, persona: actualizada } };
+}
+
 // 13/08/2026: agregada para poder limpiar los "Prueba 1" duplicados que
 // quedaron de validar el fix anterior. No existía ninguna forma de
 // borrar una persona hasta ahora -- admin-only, y bloqueada si a
@@ -1045,6 +1072,7 @@ const ACCIONES = {
   crearPersona: accionCrearPersona,
   editarPersona: accionEditarPersona,
   eliminarPersona: accionEliminarPersona,
+  actualizarMiPerfil: accionActualizarMiPerfil,
   crearObjetivo: accionCrearObjetivo,
   editarObjetivo: accionEditarObjetivo,
   eliminarObjetivo: accionEliminarObjetivo,
