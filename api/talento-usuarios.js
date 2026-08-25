@@ -24,7 +24,7 @@
 // `email` pasa a ser requerido para los 4 roles -- ahora hace falta
 // para mandar notificaciones (ver _talento-email.js).
 const { leerUsuarios, leerUsuario, guardarUsuario, leerPersona } = require('./_talento-store');
-const { generarSaltYHash, requerirSesion } = require('./_talento-auth');
+const { generarSaltYHash, passwordValida, requerirSesion } = require('./_talento-auth');
 
 const ROLES_VALIDOS = ['admin', 'supervisor', 'colaborador', 'gerente'];
 
@@ -84,9 +84,41 @@ async function accionCambiarPassword(payload, solicitante) {
   return { status: 200, body: { ok: true, usuario } };
 }
 
+// 25/08/2026 ("coloca la opcion para que los usuarios puedan cambiar sus
+// pass"): a diferencia de accionCambiarPassword de arriba (admin-only,
+// resetea la de CUALQUIER usuario sin pedirle nada) esta es de
+// autoservicio para los 4 roles -- cambia la contraseña del propio
+// solicitante (nunca la de otro, ni siquiera admin puede usar esta
+// acción para tocar la de alguien más), y pide la actual como prueba de
+// identidad antes de aceptar la nueva.
+async function accionCambiarMiPassword(payload, solicitante) {
+  const passwordActual = String((payload && payload.passwordActual) || '');
+  const passwordNueva = String((payload && payload.passwordNueva) || '');
+  if (!passwordActual) throw httpError(400, { ok: false, error: 'Ingresá tu contraseña actual.' });
+  if (!passwordNueva || passwordNueva.length < 4) throw httpError(400, { ok: false, error: 'La contraseña nueva debe tener al menos 4 caracteres.' });
+
+  const existente = await leerUsuario(solicitante.usuario);
+  if (!existente) throw httpError(404, { ok: false, error: 'Tu usuario no existe.' });
+  if (!passwordValida(passwordActual, existente.salt, existente.hash)) {
+    // 400, NO 401 -- fetchAutenticado() (cliente) trata CUALQUIER 401 como
+    // "la sesión venció" y fuerza cerrarSesion() (logout + reload), lo que
+    // borraría este mismo mensaje antes de que se llegue a ver. 401 queda
+    // reservado exclusivamente para el token de sesión inválido/vencido
+    // (ver requerirSesion en _talento-auth.js, ya lo maneja el handler de
+    // más abajo antes de llegar acá) -- esto es un rechazo de NEGOCIO
+    // (clave equivocada), no un problema de sesión.
+    throw httpError(400, { ok: false, error: 'La contraseña actual no es correcta.' });
+  }
+
+  const { salt, hash } = generarSaltYHash(passwordNueva);
+  await guardarUsuario(Object.assign({}, existente, { salt, hash }));
+  return { status: 200, body: { ok: true } };
+}
+
 const ACCIONES = {
   crearUsuario: accionCrearUsuario,
   cambiarPassword: accionCambiarPassword,
+  cambiarMiPassword: accionCambiarMiPassword,
 };
 
 module.exports = async function handler(req, res) {
