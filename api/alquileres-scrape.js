@@ -124,17 +124,131 @@ function htmlATextoPlano(html) {
 const PALABRA_CLAVE_PRECIO = /(alquiler|por\s+mes|por\s+semana|por\s+d[ií]a|precio|renta)/i;
 const IMPORTE_ARS = /\$\s?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?/;
 
-function extraerHeuristica(textoPlano) {
+// 25/08/2026 (reporte con captura: "el scraper de alquileres trae
+// cualquier valor... en el link hay distintos productos, debería
+// buscar por alquiler mensual y andador en este caso"): probando en
+// vivo contra el sitio real del reporte (ortopediadelina.com.ar)
+// aparecieron 2 problemas reales, no sólo "elige el producto
+// equivocado":
+//   1. El precio y su período casi nunca quedan en la MISMA línea una
+//      vez que el HTML se aplana a texto plano -- ej. la página real
+//      trae "$25,000" en una línea y "por semana" recién en la
+//      siguiente. El heurístico viejo exigía las 2 cosas juntas en una
+//      sola línea, así que ni siquiera encontraba el precio correcto
+//      del producto correcto -- encontraba cualquier OTRO precio de la
+//      página que sí tuviera ambas cosas juntas por casualidad (de ahí
+//      el "$100000" del reporte, de una sección totalmente distinta).
+//   2. Sin ninguna noción de a qué producto pertenece cada precio, en
+//      una página con varios productos (la ortopedia entera, no sólo
+//      andadores) cualquier precio con alguna palabra clave cerca vale
+//      lo mismo que cualquier otro.
+// Fix en 2 pasadas, sólo cuando se conoce el producto buscado (nombre +
+// período del catálogo, ver el llamador más abajo):
+//   a) período de cada precio = la palabra de período (mes/semana/día)
+//      más cercana en una ventana CHICA (unas pocas líneas) -- cubre
+//      el caso típico "$25,000" / línea siguiente "por semana".
+//   b) el precio sólo es candidato si el NOMBRE del producto aparece
+//      en una ventana más GRANDE alrededor (una sección de producto
+//      completa en un catálogo suele ocupar bastantes líneas de texto
+//      aplanado) -- entre los candidatos válidos, se prioriza el que
+//      además coincide en período.
+// Sin nombre de producto (compatibilidad con cualquier llamador viejo)
+// se mantiene el comportamiento de siempre. Nunca se inventa un precio:
+// si no hay ninguno cerca del nombre buscado, se devuelve null, mismo
+// criterio que el resto del archivo.
+const PALABRA_CLAVE_PERIODO = {
+  dia: /(por\s+d[ií]a|diari[oa]|\/\s*d[ií]a)/i,
+  semana: /(por\s+semana|semanal|\/\s*semana)/i,
+  mes: /(por\s+mes\b|mensual|\/\s*mes\b)/i,
+};
+const STOPWORDS_PRODUCTO = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'y', 'con', 'para', 'en', 'a', 'un', 'una', 'al', 'por', 'sin', 'c', 'u']);
+// Palabras que describen el TIPO de alquiler, no el producto en sí --
+// si no se excluyen, "alquiler"/"mensual" matchean casi cualquier línea
+// de una página de alquileres y anulan la disambiguación por nombre.
+const PALABRAS_GENERICAS_ALQUILER = new Set(['alquiler', 'alquileres', 'renta', 'rentas', 'precio', 'precios', 'mensual', 'semanal', 'quincenal', 'diario', 'diaria', 'mes', 'meses', 'semana', 'semanas', 'dia', 'dias', 'quincena']);
+
+function normalizarTexto(s) {
+  return String(s || '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // saca acentos para comparar "andadores" con "andador" igual
+    .replace(/[^a-z0-9\s]/g, ' ');
+}
+function palabrasClaveDe(nombre) {
+  return normalizarTexto(nombre).split(/\s+/).filter(w => w.length >= 3 && !STOPWORDS_PRODUCTO.has(w) && !PALABRAS_GENERICAS_ALQUILER.has(w));
+}
+
+function extraerHeuristica(textoPlano, opts) {
+  opts = opts || {};
   const lineas = textoPlano.split('\n').map(l => l.trim()).filter(Boolean);
-  for (const linea of lineas) {
-    if (!PALABRA_CLAVE_PRECIO.test(linea)) continue;
+
+  const preciosEncontrados = [];
+  lineas.forEach((linea, i) => {
     const m = linea.match(IMPORTE_ARS);
-    if (m) {
-      const num = Number(m[0].replace(/[^\d]/g, ''));
-      if (num > 0) return { precio: num, metodo: 'heuristica' };
+    if (!m) return;
+    const num = Number(m[0].replace(/[^\d]/g, ''));
+    if (num > 0) preciosEncontrados.push({ indice: i, precio: num });
+  });
+  if (!preciosEncontrados.length) return null;
+
+  const palabrasProducto = opts.nombreProducto ? palabrasClaveDe(opts.nombreProducto) : [];
+  if (!palabrasProducto.length) {
+    // Sin nombre de producto: comportamiento de siempre -- el primer
+    // precio de la página con alguna palabra clave de alquiler/precio
+    // cerca (ventana chica), sin intentar identificar el producto.
+    for (const cand of preciosEncontrados) {
+      const desde = Math.max(0, cand.indice - 4), hasta = Math.min(lineas.length - 1, cand.indice + 4);
+      if (lineas.slice(desde, hasta + 1).some(l => PALABRA_CLAVE_PRECIO.test(l))) {
+        return { precio: cand.precio, metodo: 'heuristica' };
+      }
     }
+    return null;
   }
-  return null;
+
+  const VENTANA_PERIODO = 4;
+  const VENTANA_PRODUCTO = 25;
+  function periodoDeLinea(indice) {
+    for (let d = 0; d <= VENTANA_PERIODO; d++) {
+      const candidatas = d === 0 ? [indice] : [indice - d, indice + d];
+      for (const idx of candidatas) {
+        if (idx < 0 || idx >= lineas.length) continue;
+        for (const clave of Object.keys(PALABRA_CLAVE_PERIODO)) {
+          if (PALABRA_CLAVE_PERIODO[clave].test(lineas[idx])) return clave;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Juan Manuel, 25/08/2026 (2do problema encontrado probando en vivo,
+  // después del fix de período de arriba): una ventana SIMÉTRICA
+  // alrededor del precio (mirar para adelante y para atrás por igual)
+  // podía preferir una mención del producto que en realidad pertenece
+  // a la sección de OTRO precio más adelante en la página -- ej. en el
+  // sitio real del reporte, una frase promocional ("Por sólo $3.000
+  // más que el quincenal...") quedaba más cerca de una mención de
+  // "andador" en el llamado a la acción de la sección SIGUIENTE que el
+  // precio mensual real de la propia sección. En un catálogo, el
+  // título del producto casi siempre aparece ANTES de su precio, no
+  // después -- por eso la ventana mira mucho más para atrás (el
+  // catálogo entero, hasta 25 líneas) que para adelante (sólo unas
+  // pocas, por si el nombre viene pegado justo después del precio).
+  const VENTANA_PRODUCTO_ATRAS = VENTANA_PRODUCTO;
+  const VENTANA_PRODUCTO_ADELANTE = 3;
+  const minimoPalabras = Math.min(2, palabrasProducto.length);
+  let mejor = null, mejorPuntaje = -Infinity;
+  for (const cand of preciosEncontrados) {
+    const desde = Math.max(0, cand.indice - VENTANA_PRODUCTO_ATRAS), hasta = Math.min(lineas.length - 1, cand.indice + VENTANA_PRODUCTO_ADELANTE);
+    let distanciaProducto = Infinity;
+    for (let j = desde; j <= hasta; j++) {
+      const lineaNorm = normalizarTexto(lineas[j]);
+      const coincidencias = palabrasProducto.filter(p => lineaNorm.includes(p)).length;
+      if (coincidencias >= minimoPalabras) distanciaProducto = Math.min(distanciaProducto, Math.abs(j - cand.indice));
+    }
+    if (distanciaProducto === Infinity) continue; // este precio no está cerca del producto buscado -- se descarta
+    const coincidePeriodo = opts.periodo && periodoDeLinea(cand.indice) === opts.periodo;
+    const puntaje = (coincidePeriodo ? 100000 : 0) - distanciaProducto;
+    if (puntaje > mejorPuntaje) { mejorPuntaje = puntaje; mejor = cand; }
+  }
+  return mejor ? { precio: mejor.precio, metodo: 'heuristica' } : null;
 }
 
 module.exports = async function handler(req, res) {
@@ -146,11 +260,19 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const url = new URL(req.url, 'http://x').searchParams.get('url');
+  const params = new URL(req.url, 'http://x').searchParams;
+  const url = params.get('url');
   if (!url || !/^https?:\/\//i.test(url)) {
     res.status(400).json({ ok: false, error: 'Link inválido.' });
     return;
   }
+  // 25/08/2026 ("hay distintos productos, debería buscar por alquiler
+  // mensual y andador"): opcionales -- si el cliente los manda (ver
+  // actualizarDesdeLink en el sub-app), la heurística de texto los usa
+  // para no confundir el precio de ESTE producto con el de cualquier
+  // otro de la misma página (ver extraerHeuristica más arriba).
+  const nombreProducto = params.get('nombre') || '';
+  const periodo = params.get('periodo') || '';
   // 25/08/2026: fetch anónimo a MercadoLibre confirmado bloqueado
   // (403, incluso contra /sites/MLA sin ningún ítem) -- se delega al
   // proxy de ia40-dashboard (ver consultarPrecioMeli más arriba), que
@@ -188,7 +310,7 @@ module.exports = async function handler(req, res) {
     }
     const html = Buffer.from(buffer).toString('utf8');
 
-    const resultado = extraerDeJsonLd(html) || extraerDeMetaTags(html) || extraerHeuristica(htmlATextoPlano(html));
+    const resultado = extraerDeJsonLd(html) || extraerDeMetaTags(html) || extraerHeuristica(htmlATextoPlano(html), { nombreProducto, periodo });
     if (!resultado) {
       res.status(200).json({ ok: false, error: 'No se pudo encontrar un precio en esta página -- cargalo a mano.' });
       return;
