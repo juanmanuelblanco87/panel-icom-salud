@@ -13,12 +13,14 @@
 // Probado contra 2 sitios reales (Juan Manuel, 25/08/2026):
 //   - MercadoLibre: el fetch anónimo devuelve 403 (Forbidden) --
 //     confirmado incluso contra /sites/MLA, el endpoint público más
-//     básico de todos, sin ningún ítem de por medio. Con el
-//     access_token de la cuenta real de Icom Salud (mismo mecanismo
-//     ya probado en producción en ia40-dashboard/lib/meliApi.ts) SÍ
-//     funciona -- ver extraerIdMeli/obtenerPrecioItem más abajo y
-//     api/_alquileres-meli.js. Si la cuenta todavía no está conectada,
-//     se avisa explícito en vez de fallar en silencio.
+//     básico de todos, sin ningún ítem de por medio. Este proyecto no
+//     tiene su propio Client ID/Secret de MeLi ("no puedo acceder al
+//     secret") -- en vez de duplicar el OAuth acá, se delega al
+//     proxy de sólo lectura de otro proyecto de Icom Salud
+//     (ia40-dashboard, que ya tiene la cuenta real conectada y
+//     probada en producción para costos de envío -- ver
+//     lib/meliApi.ts/lib/meliItemPrice.ts ahí). Ver
+//     consultarPrecioMeli más abajo.
 //   - Un sitio de competencia (ortopedia) con precios de alquiler en
 //     texto plano ("$65.000 por mes") SÍ se puede leer directo -- no
 //     viene en datos estructurados, así que se cae a una heurística
@@ -42,10 +44,38 @@
 // mensaje -- nunca se inventa un número.
 const { requerirSesion } = require('./_talento-auth');
 const { puedeEditarAlquileres } = require('./alquileres-guardar');
-const { extraerIdMeli, obtenerPrecioItem, MeliAuthError } = require('./_alquileres-meli');
 
 const TIMEOUT_MS = 8000;
 const MAX_BYTES = 2_000_000; // 2MB -- una página de producto normal pesa mucho menos que esto
+
+// 25/08/2026: URL del proyecto ia40-dashboard (no es secreto, es
+// pública) -- el secreto real es MELI_PROXY_SECRET, que viaja en el
+// header Authorization de cada pedido, nunca en la URL.
+const IA40_MELI_PROXY_URL = 'https://ia40-dashboard-hztm.vercel.app/api/meli-price-proxy';
+
+async function consultarPrecioMeli(url) {
+  const secret = process.env.MELI_PROXY_SECRET;
+  if (!secret) {
+    return { ok: false, error: 'Falta MELI_PROXY_SECRET en las variables de entorno de Vercel de este proyecto.' };
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const resp = await fetch(`${IA40_MELI_PROXY_URL}?url=${encodeURIComponent(url)}`, {
+      headers: { authorization: `Bearer ${secret}` },
+      signal: controller.signal,
+    });
+    const data = await resp.json().catch(() => null);
+    if (!data) return { ok: false, error: `El proxy de MercadoLibre respondió ${resp.status} sin JSON válido.` };
+    if (!data.ok) return { ok: false, error: data.error || 'No se pudo consultar el precio en MercadoLibre.' };
+    return { ok: true, precio: data.precio, metodo: data.metodo || 'meli-api' };
+  } catch (err) {
+    const timeout = err && err.name === 'AbortError';
+    return { ok: false, error: timeout ? 'El proxy de MercadoLibre tardó demasiado en responder.' : 'No se pudo conectar con el proxy de MercadoLibre.' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 function extraerDeJsonLd(html) {
   const bloques = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
@@ -122,31 +152,16 @@ module.exports = async function handler(req, res) {
     return;
   }
   // 25/08/2026: fetch anónimo a MercadoLibre confirmado bloqueado
-  // (403, incluso contra /sites/MLA sin ningún ítem) -- PERO con el
-  // access_token de la cuenta real de Icom Salud (mismo mecanismo ya
-  // probado en producción en ia40-dashboard/lib/meliApi.ts) la API SÍ
-  // responde. Se usa esa vía en vez de intentar el fetch directo, que
-  // ya sabemos que va a fallar.
+  // (403, incluso contra /sites/MLA sin ningún ítem) -- se delega al
+  // proxy de ia40-dashboard (ver consultarPrecioMeli más arriba), que
+  // sí puede porque tiene la cuenta real conectada por OAuth.
   if (/mercadolibre\.com/i.test(url)) {
-    const idMeli = extraerIdMeli(url);
-    if (!idMeli) {
-      res.status(200).json({ ok: false, error: 'No se encontró un código de producto (MLA...) en este link de MercadoLibre.' });
+    const resultado = await consultarPrecioMeli(url);
+    if (!resultado.ok) {
+      res.status(200).json({ ok: false, error: resultado.error });
       return;
     }
-    try {
-      const resultado = await obtenerPrecioItem(idMeli);
-      if (resultado.precio == null) {
-        res.status(200).json({ ok: false, error: resultado.error || 'No se pudo encontrar el precio en MercadoLibre.' });
-        return;
-      }
-      res.status(200).json({ ok: true, precio: resultado.precio, metodo: resultado.metodo });
-    } catch (err) {
-      if (err instanceof MeliAuthError) {
-        res.status(200).json({ ok: false, error: 'La cuenta de Mercado Libre todavía no está conectada -- conectala desde "Conectar cuenta de MercadoLibre" en Alquileres.' });
-        return;
-      }
-      res.status(200).json({ ok: false, error: 'No se pudo consultar la API de Mercado Libre: ' + String((err && err.message) || err) });
-    }
+    res.status(200).json({ ok: true, precio: resultado.precio, metodo: resultado.metodo });
     return;
   }
 

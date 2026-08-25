@@ -27,7 +27,6 @@ const path = require('path');
 const { requerirSesion } = require('./_talento-auth');
 const { leerAlquilerConfigs, leerAlquileresGlobals, leerAlquilerSnapshots } = require('./_alquileres-store');
 const { calcularSugerencia, mesesDesdeUltimoCambioDePrecio, mesActual } = require('./_alquileres-formula');
-const { estaConectado } = require('./_alquileres-meli');
 
 function leerCatalogo() {
   const raw = fs.readFileSync(path.join(__dirname, '..', 'data', 'alquileres_catalogo.json'), 'utf8');
@@ -121,13 +120,12 @@ async function handler(req, res) {
   }
 
   try {
-    const [{ productos, globals }, meliConectado] = await Promise.all([calcularProductos(), estaConectado()]);
+    const { productos, globals } = await calcularProductos();
     res.status(200).json({
       ok: true,
       updatedAt: new Date().toISOString(),
       globals,
       productos,
-      meliConectado,
       // rol/unidadNegocio ya verificados por requerirSesion -- el
       // cliente los usa SOLO para decidir qué mostrar habilitado
       // (mostrar/ocultar botones), la autorización real de guardar
