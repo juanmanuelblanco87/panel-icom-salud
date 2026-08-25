@@ -59,7 +59,7 @@ async function guardarAlquilerSnapshot(s) {
 const GLOBALS_KEY = `${PREFIJO}:globals`;
 async function leerAlquileresGlobals() {
   const g = await redis.get(GLOBALS_KEY);
-  return g || { inflationMode: 'simple', accumPct: 0, monthlyPct: 0, monthsN: 0, redondeo: 100 };
+  return g || { monthlyPct: 0, redondeo: 100 };
 }
 async function guardarAlquileresGlobals(g) {
   await redis.set(GLOBALS_KEY, g);

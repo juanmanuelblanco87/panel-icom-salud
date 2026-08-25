@@ -4,36 +4,29 @@
 // api/_talento-auth.js) puede leer -- sólo admin/gerente(Ortopedia)
 // pueden guardar cambios (ver api/alquileres-guardar.js).
 //
-// Cruza 3 fuentes:
-//  1. data/alquileres_catalogo.json -- catálogo de productos (nombre,
-//     período, sku de Oppen si ya está confirmado). Un producto nuevo
-//     se agrega ahí, no acá.
-//  2. api/_alquileres-store.js (Redis) -- config por producto (usos
-//     máximos, multiplicador depósito, precio producto nuevo, precio
-//     de mercado + link, override manual) + parámetros globales.
-//  3. Oppen, vía un fetch interno al propio /api/oppen-invoices (NO se
-//     duplica acá la autenticación/paginación/conversión de moneda
-//     contra oppen.io -- ese archivo ya la tiene resuelta y probada a
-//     fondo; se reusa tal cual, mismo criterio que ya sigue el resto
-//     del repo de no tocar código sensible ya probado). Precio
-//     vigente = promedio de RowNet/Qty de los últimos ~120 días para
-//     el sku de cada producto (bySku.totalNeto/bySku.unidades) --
-//     Oppen no tiene un campo de "precio de alquiler" listo para usar
-//     (confirmado: ItemCost sólo trae costo, Stock.Cost viene vacío
-//     siempre), así que se deriva de las facturas reales, igual que ya
-//     hace ese endpoint para costo unitario.
+// 25/08/2026 (corrección de fondo, "queda en pending y no carga" /
+// 504): ANTES este endpoint llamaba a Oppen en vivo en cada carga de
+// pantalla (120 días de facturas de toda la empresa) -- muy lento,
+// terminaba en timeout. ESA consulta pesada se movió por completo a
+// api/alquileres-snapshot.js, que corre 1 vez por mes (cron) o a
+// pedido -- acá sólo se LEE lo que ya quedó guardado (Redis, rápido):
+// el último snapshot de cada producto es el "precio vigente" que se
+// muestra, nunca se re-deriva de Oppen en este path.
 //
-// `calcularProductos(req)` se exporta aparte (no sólo el handler HTTP)
-// para que api/alquileres-snapshot.js (el cron mensual) pueda reusar
-// EXACTAMENTE el mismo cálculo sin duplicarlo -- el snapshot tiene que
-// guardar los mismos números que la pantalla está mostrando ese día.
+// Cruza 3 fuentes, todas rápidas (sin red externa):
+//  1. data/alquileres_catalogo.json -- catálogo de productos.
+//  2. api/_alquileres-store.js (Redis) -- config por producto +
+//     parámetros globales.
+//  3. api/_alquileres-store.js (Redis) -- historial de snapshots, del
+//     que se toma el más reciente por producto (precio vigente) y se
+//     deriva mesesSinActualizar (cuántos meses lleva ese precio sin
+//     cambiar, ver _alquileres-formula.js) para el ajuste por
+//     inflación.
 const fs = require('fs');
 const path = require('path');
 const { requerirSesion } = require('./_talento-auth');
-const { leerAlquilerConfigs, leerAlquileresGlobals } = require('./_alquileres-store');
-const { calcularSugerencia } = require('./_alquileres-formula');
-
-const DIAS_VENTANA_PRECIO_VIGENTE = 120;
+const { leerAlquilerConfigs, leerAlquileresGlobals, leerAlquilerSnapshots } = require('./_alquileres-store');
+const { calcularSugerencia, mesesDesdeUltimoCambioDePrecio, mesActual } = require('./_alquileres-formula');
 
 function leerCatalogo() {
   const raw = fs.readFileSync(path.join(__dirname, '..', 'data', 'alquileres_catalogo.json'), 'utf8');
@@ -45,47 +38,27 @@ function limpiarSku(sku) {
   return s || null;
 }
 
-function fechaHace(dias) {
-  const d = new Date(Date.now() - dias * 86400000);
-  return d.toISOString().slice(0, 10);
-}
-
-async function obtenerByskuDeOppen(req) {
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  const base = `${proto}://${req.headers.host}`;
-  const from = fechaHace(DIAS_VENTANA_PRECIO_VIGENTE);
-  const resp = await fetch(`${base}/api/oppen-invoices?from=${from}`);
-  if (!resp.ok) throw new Error(`oppen-invoices respondió ${resp.status}`);
-  const data = await resp.json();
-  if (!data.ok) throw new Error('oppen-invoices no devolvió ok:true');
-  return data.bySku || {};
-}
-
-async function calcularProductos(req) {
+async function calcularProductos() {
   const catalogo = leerCatalogo();
-  const [configs, globals] = await Promise.all([leerAlquilerConfigs(), leerAlquileresGlobals()]);
+  const [configs, globals, snapshots] = await Promise.all([
+    leerAlquilerConfigs(), leerAlquileresGlobals(), leerAlquilerSnapshots(),
+  ]);
   const configPorId = new Map(configs.map(c => [c.id, c]));
-
-  // Si Oppen falla (credenciales, timeout, etc.) no queremos que la
-  // pantalla entera se rompa -- se sigue mostrando el catálogo con
-  // precioVigenteOppen:null en cada fila y un aviso, no un error 500
-  // general.
-  let bySku = {};
-  let oppenError = null;
-  try {
-    bySku = await obtenerByskuDeOppen(req);
-  } catch (e) {
-    oppenError = String(e.message || e);
-    console.error('alquileres-data: no se pudo derivar precio vigente de Oppen:', e);
-  }
+  const snapshotsPorProducto = new Map();
+  snapshots.forEach(s => {
+    if (!snapshotsPorProducto.has(s.productoId)) snapshotsPorProducto.set(s.productoId, []);
+    snapshotsPorProducto.get(s.productoId).push(s);
+  });
+  const mes = mesActual();
 
   const productos = catalogo.map(p => {
     const config = configPorId.get(p.id) || {};
     const skuOppen = limpiarSku(config.skuOppen != null ? config.skuOppen : p.skuOppen);
-    const datoOppen = skuOppen ? bySku[skuOppen] : null;
-    const precioVigenteOppen = (datoOppen && datoOppen.unidades > 0)
-      ? datoOppen.totalNeto / datoOppen.unidades
-      : null;
+
+    const historialAsc = (snapshotsPorProducto.get(p.id) || []).slice().sort((a, b) => a.mes.localeCompare(b.mes));
+    const ultimoSnapshot = historialAsc[historialAsc.length - 1] || null;
+    const precioVigenteOppen = ultimoSnapshot ? ultimoSnapshot.precioVigenteOppen : null;
+    const mesesSinActualizar = mesesDesdeUltimoCambioDePrecio(historialAsc, precioVigenteOppen, mes);
 
     const configEfectiva = {
       usosMaximos: config.usosMaximos ?? null,
@@ -96,7 +69,7 @@ async function calcularProductos(req) {
       overrideManual: config.overrideManual ?? null,
     };
 
-    const { sugerido, metodo, piso, ajustadoInflacion } = calcularSugerencia(configEfectiva, precioVigenteOppen, globals);
+    const { sugerido, metodo, piso, ajustadoInflacion } = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, globals);
     const deposito = sugerido != null ? Math.round(sugerido * (configEfectiva.multiplicadorDeposito || 0)) : null;
     const deltaPct = precioVigenteOppen && sugerido != null
       ? ((sugerido - precioVigenteOppen) / precioVigenteOppen) * 100
@@ -108,13 +81,14 @@ async function calcularProductos(req) {
       periodo: p.periodo,
       skuOppen,
       skuConfirmado: !!skuOppen,
-      precioVigenteOppen: precioVigenteOppen != null ? Math.round(precioVigenteOppen) : null,
+      precioVigenteOppen,
+      ultimoSnapshotMes: ultimoSnapshot ? ultimoSnapshot.mes : null,
       config: configEfectiva,
-      sugerencia: { sugerido, metodo, piso, ajustadoInflacion, deposito, deltaPct },
+      sugerencia: { sugerido, metodo, piso, ajustadoInflacion, deposito, deltaPct, mesesSinActualizar },
     };
   });
 
-  return { productos, globals, oppenError };
+  return { productos, globals };
 }
 
 async function handler(req, res) {
@@ -127,11 +101,10 @@ async function handler(req, res) {
   }
 
   try {
-    const { productos, globals, oppenError } = await calcularProductos(req);
+    const { productos, globals } = await calcularProductos();
     res.status(200).json({
       ok: true,
       updatedAt: new Date().toISOString(),
-      oppenError,
       globals,
       productos,
       // rol/unidadNegocio ya verificados por requerirSesion -- el

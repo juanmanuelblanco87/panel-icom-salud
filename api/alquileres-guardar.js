@@ -45,12 +45,15 @@ async function accionGuardarConfig(payload, solicitante) {
   return config;
 }
 
+// 25/08/2026 ("la inflación acumulada se debe medir desde la última
+// actualización de precios"): ya no hace falta un "% acumulado" a
+// mano ni un modo simple/compuesto -- los meses a componer se derivan
+// del historial de snapshots (ver mesesDesdeUltimoCambioDePrecio en
+// _alquileres-formula.js). El único parámetro global que queda es la
+// tasa mensual estimada.
 async function accionGuardarGlobals(payload, solicitante) {
   const globals = {
-    inflationMode: payload.inflationMode === 'compuesto' ? 'compuesto' : 'simple',
-    accumPct: numOrNull(payload.accumPct) ?? 0,
     monthlyPct: numOrNull(payload.monthlyPct) ?? 0,
-    monthsN: numOrNull(payload.monthsN) ?? 0,
     redondeo: numOrNull(payload.redondeo) || 100,
     actualizadoPor: { rol: solicitante.rol, usuario: solicitante.usuario },
     fecha: new Date().toISOString(),
@@ -64,7 +67,7 @@ const ACCIONES = {
   guardarGlobals: accionGuardarGlobals,
 };
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: 'Método no soportado, usar POST.' });
     return;
@@ -91,4 +94,7 @@ module.exports = async function handler(req, res) {
     if (status === 500) console.error('alquileres-guardar error:', err);
     res.status(status).json({ ok: false, error: String(err.message || err) });
   }
-};
+}
+
+module.exports = handler;
+module.exports.puedeEditarAlquileres = puedeEditarAlquileres;
