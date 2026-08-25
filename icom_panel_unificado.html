@@ -399,6 +399,21 @@
          updateAppVisibilityForChannel() lo deje visible sea cual sea el
          canal activo (no lleva la clase .sb-channel: no es una unidad,
          switchPane la sigue manejando igual que cualquier otra app). -->
+    <!-- Juan Manuel, 25/08/2026 ("suma la app entera de importaciones
+         arriba de gestion de talento y abajo de cirugia"): mismo
+         criterio que Gestión de Talento arriba -- ítem fijo, no una
+         unidad de negocio (sin .sb-channel), data-channels="all" para
+         que quede visible sea cual sea el canal activo. A diferencia
+         de Gestión de Talento (sub-app propia, embebida en base64 en
+         B64_GESTION_TALENTO), Importaciones es un proyecto Next.js
+         COMPLETO Y SEPARADO (ia40-dashboard, con su propia base de
+         datos) ya desplegado en su propia URL de Vercel -- no se puede
+         embeber como blob de HTML estático, así que el iframe apunta
+         directo a esa URL en vivo (ver loadPane, "importaciones" es el
+         único pane que usa iframe.src en vez de iframe.srcdoc). -->
+    <div class="sb-item" data-pane="importaciones" data-channels="all" onclick="switchPane('importaciones')">
+      <span class="sb-icon">🚢</span> <span class="sb-label">Importaciones</span>
+    </div>
     <div class="sb-item" data-pane="gestion_talento" data-channels="all" onclick="switchPane('gestion_talento')">
       <span class="sb-icon">🧑‍💼</span> <span class="sb-label">Gestión de Talento</span>
     </div>
@@ -417,6 +432,7 @@
     <div class="pane" id="pane-alquileres"><div class="pane-loading">Cargando Alquileres…</div></div>
     <div class="pane" id="pane-exhibiciones"><div class="pane-loading">Cargando Exhibiciones…</div></div>
     <div class="pane" id="pane-ortopedias"><div class="pane-loading">Cargando Ortopedias…</div></div>
+    <div class="pane" id="pane-importaciones"><div class="pane-loading">Cargando Importaciones…</div></div>
     <div class="pane" id="pane-gestion_talento"><div class="pane-loading">Cargando Gestión de Talento…</div></div>
     <!-- Juan Manuel, 05/08/2026 ("el Dashboard de Minorista se cuelga...
          vamos a eliminarlo y crearlo de nuevo para todas las unidades de
@@ -847,6 +863,27 @@ function loadPane(name){
   // de la unidad -- ver stocksRpcCall). Por eso B64_DASHBOARD directamente
   // ya no existe: dashInit() arma todo sobre el HTML nativo de #pane-dashboard.
   if(name==='dashboard'){ loaded[name] = true; dashInit(); return; }
+  // Juan Manuel, 25/08/2026 ("suma la app entera de importaciones"):
+  // a diferencia de cualquier otro pane de este mapa (todos sub-apps
+  // propias, embebidas en base64 y cargadas con iframe.srcdoc),
+  // Importaciones es un proyecto Next.js completo y separado
+  // (ia40-dashboard, con su propia base de datos), ya desplegado en su
+  // propia URL de Vercel -- no hay nada que decodificar acá, el
+  // iframe apunta directo a esa URL en vivo (iframe.src, no srcdoc).
+  // Ese proyecto tiene su PROPIO login (portal de acceso vía cookie,
+  // ver su middleware.ts) -- entrar ahí adentro del iframe pide
+  // usuario/contraseña de Importaciones, independiente de la sesión
+  // del shell.
+  if(name==='importaciones'){
+    const container = document.getElementById('pane-importaciones');
+    container.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.title = 'importaciones';
+    iframe.src = 'https://ia40-dashboard-hztm.vercel.app/';
+    container.appendChild(iframe);
+    loaded[name] = true;
+    return;
+  }
   const map = {seguimiento:B64_SEGUIMIENTO, forecast:B64_FORECAST, alquileres:B64_ALQUILERES, stocks:B64_STOCKS, exhibiciones:B64_EXHIBICIONES, ortopedias:B64_ORTOPEDIAS, gestion_talento:B64_GESTION_TALENTO};
   let html = b64ToUtf8(map[name]);
   if(name==='stocks'){
