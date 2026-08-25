@@ -2620,16 +2620,46 @@ const DASH_GROUP_CONFIG = {
 };
 
 // Paleta genérica -- a diferencia de ICOM_PIE_COLORS (4 unidades fijas,
-// color por identidad), Institución/Visitador no son un set chico y
+// color por identidad), Institución/Visitador/Canal no son un set chico y
 // conocido de antemano, así que no hay un mapa fijo posible. Hash simple
 // del label para que el MISMO label tenga SIEMPRE el mismo color entre los
 // 3 gráficos (barras, torta Hoy, torta Año), calculados cada uno por
 // separado.
-const DASH_PALETTE = ['#2a78d6','#1baf7a','#eda100','#7c3aed','#eb6834','#0891b2','#c0422a','#be185d'];
+//
+// 25/08/2026 ("estos colores no conversan con los de la pantalla
+// inicial... curaduría de colores"): la paleta original sumaba violeta
+// (#7c3aed), cian (#0891b2, casi indistinguible del azul de arriba) y 2
+// tonos de rojo/magenta (#c0422a, #be185d) -- ninguno de esos 4 tiene
+// relación con la identidad de color ya establecida en ICOM_PIE_COLORS
+// (azul/naranja/verde-azulado/ámbar), y #c0422a en particular es EL MISMO
+// rojo que usa toda la app para errores (.login-error, .pm-btn.danger,
+// etc.) -- un canal con ese color se lee como "algo anda mal", no como
+// una categoría neutral. Reemplazados por una versión más oscura/densa
+// de cada uno de los 4 colores YA establecidos (misma familia de tono,
+// sólo cambia el valor/saturación) -- entre ellos, el navy #1a3d70 es
+// literalmente el color primario de toda la app (sidebar, botones,
+// títulos), así que de paso ata el gráfico a la identidad visual real
+// del panel en vez de a colores elegidos sueltos. Nunca más violeta,
+// cian ni rojo/magenta en esta paleta.
+const DASH_PALETTE = ['#2a78d6','#1baf7a','#eda100','#eb6834','#1a3d70','#0e7d5c','#a8760a','#b8491f'];
+// 25/08/2026 (mismo pedido de arriba, "curaduría de colores"): el hash
+// simple podía darle el MISMO color a 2+ etiquetas reales sin que hubiera
+// forma de saberlo de antemano -- confirmado con el caso real reportado
+// (Mercado Libre/Central/Bella Vista terminaban las 3 con el mismo
+// color). dashTopN (más abajo) ya recorta a un puñado de etiquetas por
+// vista (el resto va a "Otros"), así que alcanza con asignar el próximo
+// color LIBRE de la paleta la primera vez que aparece cada label --
+// nunca se repite mientras no se superen los 8 colores disponibles.
+// dashColorRegistry se reinicia en cada dashSwitchToChannelView (nueva
+// vista = nuevo conjunto de etiquetas), así que sigue siendo estable
+// entre los 3 gráficos (barras, torta Hoy, torta Año) de una misma vista.
+let dashColorRegistry = {};
 function dashColorFor(label){
   if(label==='Otros') return '#9aa0a6';
-  let h=0; for(let i=0;i<label.length;i++) h=(h*31+label.charCodeAt(i))|0;
-  return DASH_PALETTE[Math.abs(h)%DASH_PALETTE.length];
+  if(dashColorRegistry[label]) return dashColorRegistry[label];
+  const color = DASH_PALETTE[Object.keys(dashColorRegistry).length % DASH_PALETTE.length];
+  dashColorRegistry[label] = color;
+  return color;
 }
 
 // Agrupa los totales ($$) de un pedido de facturas por la dimensión propia
@@ -2943,6 +2973,7 @@ function dashInit(){
 function dashSwitchToChannelView(channel){
   const cfg = DASH_GROUP_CONFIG[channel];
   if(!cfg) return; // 'icom' no tiene Dashboard propio -- usa la vista agregada de Ventas en Vivo
+  dashColorRegistry = {}; // nueva vista = nuevo conjunto de etiquetas, ver dashColorFor
   ['dashGroupLabelMensual','dashGroupLabelHoy','dashGroupLabelAnio'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.textContent = cfg.label;
