@@ -94,6 +94,7 @@ async function calcularProductos() {
     return {
       id: p.id,
       nombre: p.nombre,
+      categoria: p.categoria || 'Otros',
       periodo: p.periodo,
       skuOppen,
       skuConfirmado: !!skuOppen,
