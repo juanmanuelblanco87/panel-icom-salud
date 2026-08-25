@@ -32,10 +32,17 @@
     },
     "api/talento-guardar.js": {
       "maxDuration": 30
+    },
+    "api/alquileres-data.js": {
+      "maxDuration": 60
+    },
+    "api/alquileres-snapshot.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
-    { "path": "/api/talento-recordatorios", "schedule": "0 12 * * *" }
+    { "path": "/api/talento-recordatorios", "schedule": "0 12 * * *" },
+    { "path": "/api/alquileres-snapshot", "schedule": "0 13 1 * *" }
   ],
   "rewrites": [
     { "source": "/", "destination": "/icom_panel_unificado.html" }
