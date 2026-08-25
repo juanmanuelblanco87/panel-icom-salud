@@ -955,18 +955,36 @@ async function intentarLoginImportaciones(){
       err.style.display = 'block';
       return;
     }
-    mostrarImportacionesIframe();
+    mostrarImportacionesIframe(j.token);
   }catch(e){
     err.textContent = 'No se pudo conectar con el servidor.';
     err.style.display = 'block';
   }
 }
-function mostrarImportacionesIframe(){
+// 25/08/2026 ("Quedo un doble ingreso, quita el 2do en importaciones"):
+// ia40-dashboard tiene SU PROPIO login aparte (portal por cookie, ver
+// su middleware.ts) -- pasar el gate de acá arriba no alcanzaba para
+// saltearlo, así que quedaban 2 logins seguidos. En vez de sacarle la
+// protección a ia40-dashboard (quedaría accesible sin login a
+// cualquiera con la URL, entre por acá o no), se le pide a
+// api/importaciones-token.js (nuevo, sólo responde a admin/gerente ya
+// logueados acá) el secreto compartido PANEL_ACCESS_TOKEN y se lo manda
+// como query param -- el middleware de ia40-dashboard lo reconoce y se
+// loguea sola. Si por lo que sea ese pedido falla, se cae de vuelta al
+// iframe SIN el query param -- peor UX (pide su login propio) pero
+// nunca rompe el acceso.
+async function mostrarImportacionesIframe(sessionToken){
   const container = document.getElementById('pane-importaciones');
+  let src = 'https://ia40-dashboard-hztm.vercel.app/';
+  try{
+    const resp = await fetch('/api/importaciones-token', { headers: { Authorization: 'Bearer ' + sessionToken } });
+    const j = await resp.json().catch(()=>null);
+    if(resp.ok && j && j.ok && j.token) src += '?panelAuth=' + encodeURIComponent(j.token);
+  }catch(e){ /* ver comentario de arriba -- se sigue igual, sin el auto-login */ }
   container.innerHTML = '';
   const iframe = document.createElement('iframe');
   iframe.title = 'importaciones';
-  iframe.src = 'https://ia40-dashboard-hztm.vercel.app/';
+  iframe.src = src;
   container.appendChild(iframe);
   loaded['importaciones'] = true;
 }
