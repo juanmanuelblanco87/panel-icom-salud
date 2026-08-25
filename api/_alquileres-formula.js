@@ -97,6 +97,7 @@ function mesesDesdeUltimoCambioDePrecio(snapshotsOrdenadosAsc, precioActual, mes
 }
 
 const GM_DEFAULT_PCT = 50; // ver comentario de arriba -- confirmado con el usuario, 25/08/2026
+const COSTO_ADMINISTRATIVO_DEFAULT = 1000; // "dejalo con default 1000 pero editable" -- confirmado con el usuario, 25/08/2026
 const FRACCION_COSTO_DEL_NUEVO = 0.5; // "el costo es el 50% del precio de venta"
 const DESCUENTO_VS_COMPETENCIA = 0.10; // "quedemos siempre por debajo de la competencia, un 10%"
 const TOPE_PCT_DEL_NUEVO = 0.35; // "que el costo del alquiler no supere el 35% de lo que cuesta uno nuevo"
@@ -104,10 +105,11 @@ const TOPE_PCT_DEL_NUEVO = 0.35; // "que el costo del alquiler no supere el 35% 
 // config: { usosMaximos, precioProductoNuevo, precioMercado, overrideManual }
 // precioVigenteOppen: number|null (derivado de Oppen, ver alquileres-data.js)
 // mesesSinActualizar: number|null (ver mesesDesdeUltimoCambioDePrecio)
-// g: { monthlyPct, redondeo, gmObjetivoPct }
+// g: { monthlyPct, redondeo, gmObjetivoPct, costoAdministrativo }
 function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
   const redondeo = (g && g.redondeo) || 100;
   const gmObjetivoPct = (g && g.gmObjetivoPct != null) ? g.gmObjetivoPct : GM_DEFAULT_PCT;
+  const costoAdministrativo = (g && g.costoAdministrativo != null) ? g.costoAdministrativo : COSTO_ADMINISTRATIVO_DEFAULT;
 
   // Juan Manuel, 25/08/2026 ("Agrega el costo y margen al lado de
   // periodo"): costoPorUso se calcula SIEMPRE (aunque el método
@@ -117,9 +119,19 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
   // margenPct se calcula al final, contra el `sugerido` DEFINITIVO (ya
   // topeado si correspondía) -- es el margen REAL que se obtiene al
   // precio que efectivamente se va a cobrar, no el objetivo teórico.
-  const costoPorUso = (config && config.usosMaximos > 0 && config.precioProductoNuevo > 0)
+  //
+  // 25/08/2026 (2do pedido, "Agrega un costo Administrativo que se
+  // suma al costo de producto"): costoAdministrativo es un parámetro
+  // GLOBAL (uno solo para toda la operación, editable en Parámetros
+  // globales -- no por producto), pensado para cubrir gastos que el
+  // 50%-del-precio-nuevo no captura (entrega/retiro, limpieza,
+  // administración). Sólo se suma cuando YA hay un costo de producto
+  // (usosMaximos + precioProductoNuevo cargados) -- "se suma AL costo
+  // de producto", no reemplaza la necesidad de esos datos.
+  const costoProductoPorUso = (config && config.usosMaximos > 0 && config.precioProductoNuevo > 0)
     ? (config.precioProductoNuevo * FRACCION_COSTO_DEL_NUEVO) / config.usosMaximos
     : null;
+  const costoPorUso = costoProductoPorUso != null ? costoProductoPorUso + costoAdministrativo : null;
   function conMargen(resultado) {
     const margenPct = (costoPorUso != null && resultado.sugerido > 0)
       ? ((resultado.sugerido - costoPorUso) / resultado.sugerido) * 100

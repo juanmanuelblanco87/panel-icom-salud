@@ -66,6 +66,11 @@ async function accionGuardarGlobals(payload, solicitante) {
     // 25/08/2026 ("agrega el GM de la operación"): margen bruto
     // objetivo -- ver _alquileres-formula.js (piso = costo / (1-GM%)).
     gmObjetivoPct: numOrNull(payload.gmObjetivoPct) ?? 50,
+    // 25/08/2026 ("Agrega un costo Administrativo que se suma al costo
+    // de producto"): monto fijo por alquiler, global (no por
+    // producto), se suma al costo derivado del precio del nuevo antes
+    // de aplicar el margen -- ver _alquileres-formula.js.
+    costoAdministrativo: numOrNull(payload.costoAdministrativo) ?? 1000,
     actualizadoPor: { rol: solicitante.rol, usuario: solicitante.usuario },
     fecha: new Date().toISOString(),
   };

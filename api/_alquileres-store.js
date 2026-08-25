@@ -59,12 +59,13 @@ async function guardarAlquilerSnapshot(s) {
 const GLOBALS_KEY = `${PREFIJO}:globals`;
 async function leerAlquileresGlobals() {
   const g = await redis.get(GLOBALS_KEY);
-  // 25/08/2026: gmObjetivoPct es nuevo (ver _alquileres-formula.js) --
-  // si ya había parámetros guardados de antes de este campo, se le
-  // suma el default (50%, confirmado con el usuario) en vez de dejarlo
+  // 25/08/2026: gmObjetivoPct/costoAdministrativo son nuevos (ver
+  // _alquileres-formula.js) -- si ya había parámetros guardados de
+  // antes de estos campos, se les suma el default en vez de dejarlos
   // undefined.
   if (g && g.gmObjetivoPct == null) g.gmObjetivoPct = 50;
-  return g || { monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50 };
+  if (g && g.costoAdministrativo == null) g.costoAdministrativo = 1000;
+  return g || { monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50, costoAdministrativo: 1000 };
 }
 async function guardarAlquileresGlobals(g) {
   await redis.set(GLOBALS_KEY, g);
