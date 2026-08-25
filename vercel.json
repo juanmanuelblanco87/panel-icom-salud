@@ -38,6 +38,9 @@
     },
     "api/alquileres-snapshot.js": {
       "maxDuration": 60
+    },
+    "api/alquileres-scrape.js": {
+      "maxDuration": 15
     }
   },
   "crons": [
