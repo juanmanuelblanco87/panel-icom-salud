@@ -34,7 +34,15 @@ async function accionGuardarConfig(payload, solicitante) {
     skuOppen: payload.skuOppen ? String(payload.skuOppen).trim() : null,
     usosMaximos: numOrNull(payload.usosMaximos),
     multiplicadorDeposito: numOrNull(payload.multiplicadorDeposito) ?? 1.5,
+    // 25/08/2026 ("no veo el lugar para pegar el link... no sé si
+    // referencia del mercado se refiere al de alquiler o producto
+    // nuevo"): son 2 referencias DISTINTAS, cada una con su propio
+    // link -- precioProductoNuevo/linkProductoNuevo alimenta el piso
+    // de amortización; precioMercado/linkMercado es el alquiler de la
+    // competencia, sólo de referencia visual (nunca se mezcla en la
+    // fórmula, ver _alquileres-formula.js).
     precioProductoNuevo: numOrNull(payload.precioProductoNuevo),
+    linkProductoNuevo: payload.linkProductoNuevo ? String(payload.linkProductoNuevo).trim() : null,
     precioMercado: numOrNull(payload.precioMercado),
     linkMercado: payload.linkMercado ? String(payload.linkMercado).trim() : null,
     overrideManual: numOrNull(payload.overrideManual),

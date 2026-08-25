@@ -57,13 +57,29 @@ async function calcularProductos() {
 
     const historialAsc = (snapshotsPorProducto.get(p.id) || []).slice().sort((a, b) => a.mes.localeCompare(b.mes));
     const ultimoSnapshot = historialAsc[historialAsc.length - 1] || null;
-    const precioVigenteOppen = ultimoSnapshot ? ultimoSnapshot.precioVigenteOppen : null;
-    const mesesSinActualizar = mesesDesdeUltimoCambioDePrecio(historialAsc, precioVigenteOppen, mes);
+    // 25/08/2026 ("en los productos que no encuentre creados en Oppen
+    // pintalos de otro color... y coloca el precio de la tabla
+    // original"): sin snapshot todavía (Oppen nunca encontró facturas
+    // para este sku en la ventana escaneada), se cae al precio de
+    // referencia del prototipo original -- mejor un número real
+    // (aunque desactualizado) que "s/d" en toda la tabla mientras se
+    // junta historial propio. `desatendido:true` es la señal para que
+    // el cliente lo pinte distinto -- "este precio no viene de una
+    // factura real reciente, needs revisión".
+    const desatendido = !ultimoSnapshot;
+    const precioVigenteOppen = ultimoSnapshot ? ultimoSnapshot.precioVigenteOppen : (p.precioReferenciaOriginal ?? null);
+    // mesesSinActualizar sigue dependiendo del historial real -- el
+    // precio de referencia no tiene una fecha de origen conocida, así
+    // que NUNCA alimenta el ajuste por inflación (calcularSugerencia
+    // ya devuelve ajustadoInflacion:null si mesesSinActualizar es
+    // null, sin necesidad de una rama aparte acá).
+    const mesesSinActualizar = ultimoSnapshot ? mesesDesdeUltimoCambioDePrecio(historialAsc, precioVigenteOppen, mes) : null;
 
     const configEfectiva = {
       usosMaximos: config.usosMaximos ?? null,
       multiplicadorDeposito: config.multiplicadorDeposito ?? 1.5,
       precioProductoNuevo: config.precioProductoNuevo ?? null,
+      linkProductoNuevo: config.linkProductoNuevo ?? null,
       precioMercado: config.precioMercado ?? null,
       linkMercado: config.linkMercado ?? null,
       overrideManual: config.overrideManual ?? null,
@@ -81,7 +97,9 @@ async function calcularProductos() {
       periodo: p.periodo,
       skuOppen,
       skuConfirmado: !!skuOppen,
+      skuVerificado: !!p.skuVerificado,
       precioVigenteOppen,
+      desatendido,
       ultimoSnapshotMes: ultimoSnapshot ? ultimoSnapshot.mes : null,
       config: configEfectiva,
       sugerencia: { sugerido, metodo, piso, ajustadoInflacion, deposito, deltaPct, mesesSinActualizar },
