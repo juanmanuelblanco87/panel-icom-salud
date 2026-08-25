@@ -40,7 +40,10 @@
       "maxDuration": 60
     },
     "api/alquileres-scrape.js": {
-      "maxDuration": 15
+      "maxDuration": 40
+    },
+    "api/alquileres-meli-callback.js": {
+      "maxDuration": 20
     }
   },
   "crons": [

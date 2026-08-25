@@ -10,17 +10,23 @@
 // (ver actualizarDesdeLink() en el sub-app), mismo criterio de
 // "siempre con un humano en el medio" que el resto del módulo.
 //
-// Probado contra 2 sitios reales (Juan Manuel, mismo día):
-//   - MercadoLibre: bloquea cualquier acceso que no sea un navegador
-//     real (403 Forbidden) -- confirmado, no hay forma de scrapearlo
-//     con un fetch simple. Se detecta el dominio y se avisa directo,
-//     sin ni siquiera intentar la request.
+// Probado contra 2 sitios reales (Juan Manuel, 25/08/2026):
+//   - MercadoLibre: el fetch anónimo devuelve 403 (Forbidden) --
+//     confirmado incluso contra /sites/MLA, el endpoint público más
+//     básico de todos, sin ningún ítem de por medio. Con el
+//     access_token de la cuenta real de Icom Salud (mismo mecanismo
+//     ya probado en producción en ia40-dashboard/lib/meliApi.ts) SÍ
+//     funciona -- ver extraerIdMeli/obtenerPrecioItem más abajo y
+//     api/_alquileres-meli.js. Si la cuenta todavía no está conectada,
+//     se avisa explícito en vez de fallar en silencio.
 //   - Un sitio de competencia (ortopedia) con precios de alquiler en
-//     texto plano ("$65.000 por mes") SÍ se puede leer -- no viene en
-//     datos estructurados, así que se cae a una heurística de texto.
+//     texto plano ("$65.000 por mes") SÍ se puede leer directo -- no
+//     viene en datos estructurados, así que se cae a una heurística
+//     de texto (ver las 3 estrategias en cascada más abajo).
 //
-// 3 estrategias en cascada, de la más confiable a la más arriesgada --
-// se corta en la primera que encuentre algo, nunca se combinan:
+// Para cualquier link que NO sea de MercadoLibre, 3 estrategias en
+// cascada, de la más confiable a la más arriesgada -- se corta en la
+// primera que encuentre algo, nunca se combinan:
 //   1. JSON-LD (<script type="application/ld+json">, schema.org
 //      Product/Offer) -- la fuente más confiable, la usan muchos
 //      e-commerce reales para SEO.
@@ -36,6 +42,7 @@
 // mensaje -- nunca se inventa un número.
 const { requerirSesion } = require('./_talento-auth');
 const { puedeEditarAlquileres } = require('./alquileres-guardar');
+const { extraerIdMeli, obtenerPrecioItem, MeliAuthError } = require('./_alquileres-meli');
 
 const TIMEOUT_MS = 8000;
 const MAX_BYTES = 2_000_000; // 2MB -- una página de producto normal pesa mucho menos que esto
@@ -114,11 +121,32 @@ module.exports = async function handler(req, res) {
     res.status(400).json({ ok: false, error: 'Link inválido.' });
     return;
   }
-  // Confirmado (25/08/2026): MercadoLibre devuelve 403 a cualquier
-  // acceso que no sea un navegador real -- avisar directo en vez de
-  // gastar 8s esperando un rechazo ya sabido.
+  // 25/08/2026: fetch anónimo a MercadoLibre confirmado bloqueado
+  // (403, incluso contra /sites/MLA sin ningún ítem) -- PERO con el
+  // access_token de la cuenta real de Icom Salud (mismo mecanismo ya
+  // probado en producción en ia40-dashboard/lib/meliApi.ts) la API SÍ
+  // responde. Se usa esa vía en vez de intentar el fetch directo, que
+  // ya sabemos que va a fallar.
   if (/mercadolibre\.com/i.test(url)) {
-    res.status(200).json({ ok: false, error: 'MercadoLibre bloquea el acceso automático a sus páginas -- cargá este precio a mano.' });
+    const idMeli = extraerIdMeli(url);
+    if (!idMeli) {
+      res.status(200).json({ ok: false, error: 'No se encontró un código de producto (MLA...) en este link de MercadoLibre.' });
+      return;
+    }
+    try {
+      const resultado = await obtenerPrecioItem(idMeli);
+      if (resultado.precio == null) {
+        res.status(200).json({ ok: false, error: resultado.error || 'No se pudo encontrar el precio en MercadoLibre.' });
+        return;
+      }
+      res.status(200).json({ ok: true, precio: resultado.precio, metodo: resultado.metodo });
+    } catch (err) {
+      if (err instanceof MeliAuthError) {
+        res.status(200).json({ ok: false, error: 'La cuenta de Mercado Libre todavía no está conectada -- conectala desde "Conectar cuenta de MercadoLibre" en Alquileres.' });
+        return;
+      }
+      res.status(200).json({ ok: false, error: 'No se pudo consultar la API de Mercado Libre: ' + String((err && err.message) || err) });
+    }
     return;
   }
 

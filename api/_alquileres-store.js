@@ -65,8 +65,23 @@ async function guardarAlquileresGlobals(g) {
   await redis.set(GLOBALS_KEY, g);
 }
 
+// -- OAuth de Mercado Libre (25/08/2026) -- UN solo registro (misma
+// cuenta real de Icom Salud/Cobus para toda la empresa, no por
+// usuario ni por producto). Mismo patrón que la tabla `meli_oauth` de
+// ia40-dashboard (Postgres) -- acá va a Redis, independiente de esa
+// base (mismo Client ID/Secret de MeLi, pero token propio de este
+// proyecto, sin acoplar los 2 proyectos entre sí).
+const MELI_OAUTH_KEY = `${PREFIJO}:meli_oauth`;
+async function leerMeliOAuth() {
+  return await redis.get(MELI_OAUTH_KEY);
+}
+async function guardarMeliOAuth(tokens) {
+  await redis.set(MELI_OAUTH_KEY, tokens);
+}
+
 module.exports = {
   leerAlquilerConfigs, leerAlquilerConfig, guardarAlquilerConfig,
   leerAlquilerSnapshots, guardarAlquilerSnapshot,
   leerAlquileresGlobals, guardarAlquileresGlobals,
+  leerMeliOAuth, guardarMeliOAuth,
 };
