@@ -172,8 +172,36 @@ function normalizarTexto(s) {
     .normalize('NFD').replace(/[̀-ͯ]/g, '') // saca acentos para comparar "andadores" con "andador" igual
     .replace(/[^a-z0-9\s]/g, ' ');
 }
-function palabrasClaveDe(nombre) {
-  return normalizarTexto(nombre).split(/\s+/).filter(w => w.length >= 3 && !STOPWORDS_PRODUCTO.has(w) && !PALABRAS_GENERICAS_ALQUILER.has(w));
+// Juan Manuel, 25/08/2026 (2do reporte, "Malísimo... creo que hay que
+// tomar la palabra principal de la categoría"): 2 problemas más,
+// encontrados probando con el nombre REAL del catálogo ("Alquiler
+// Mensual Andador sin Ruedas") en vez de uno inventado:
+//   1. Exigir 2 palabras coincidentes (`andador` + `ruedas`) era
+//      demasiado estricto -- el sitio de la competencia nunca
+//      distingue "con/sin ruedas" (esa es una distinción interna
+//      nuestra), así que nunca había 2 coincidencias y el resultado
+//      era null (nada encontrado) para un producto que sí estaba en la
+//      página.
+//   2. "Andadores" (de la categoría, plural) NO matcheaba por substring
+//      con "andador" (singular, como aparece varias veces en la
+//      página) -- sólo al revés. raizPalabra() le saca el plural a la
+//      palabra clave ANTES de buscarla, así "andador" (la raíz de
+//      "andadores") sí aparece como substring tanto de "andador" como
+//      de "andadores".
+// Fix: la palabra clave principal sale de la CATEGORÍA (más genérica y
+// más parecida a cómo describe sus productos un sitio externo que
+// nuestro nombre interno más específico) -- nombreProducto queda como
+// respaldo sólo si no hay categoría. Alcanza con 1 sola coincidencia
+// (no 2): "la palabra principal", como pidió el usuario.
+function raizPalabra(p) {
+  if (p.length > 5 && p.endsWith('es')) return p.slice(0, -2); // andadores -> andador, colchones -> colchon
+  if (p.length > 4 && p.endsWith('s')) return p.slice(0, -1); // sillas -> silla
+  return p;
+}
+function palabrasClaveDe(texto) {
+  return normalizarTexto(texto).split(/\s+/)
+    .filter(w => w.length >= 3 && !STOPWORDS_PRODUCTO.has(w) && !PALABRAS_GENERICAS_ALQUILER.has(w))
+    .map(raizPalabra);
 }
 
 function extraerHeuristica(textoPlano, opts) {
@@ -189,7 +217,13 @@ function extraerHeuristica(textoPlano, opts) {
   });
   if (!preciosEncontrados.length) return null;
 
-  const palabrasProducto = opts.nombreProducto ? palabrasClaveDe(opts.nombreProducto) : [];
+  // La categoría (ej. "Andadores") es la fuente PRINCIPAL -- más
+  // genérica y más parecida a cómo un sitio externo describe sus
+  // productos que nuestro nombre interno, que suele traer distinciones
+  // (ej. "sin Ruedas") que la competencia no necesariamente hace. Si no
+  // hay categoría, se cae al nombre completo (respaldo).
+  const palabrasProducto = opts.categoria ? palabrasClaveDe(opts.categoria)
+    : (opts.nombreProducto ? palabrasClaveDe(opts.nombreProducto) : []);
   if (!palabrasProducto.length) {
     // Sin nombre de producto: comportamiento de siempre -- el primer
     // precio de la página con alguna palabra clave de alquiler/precio
@@ -218,30 +252,33 @@ function extraerHeuristica(textoPlano, opts) {
     return null;
   }
 
-  // Juan Manuel, 25/08/2026 (2do problema encontrado probando en vivo,
-  // después del fix de período de arriba): una ventana SIMÉTRICA
+  // Juan Manuel, 25/08/2026 (2do y 3er problema encontrado probando en
+  // vivo, después del fix de período de arriba): una ventana SIMÉTRICA
   // alrededor del precio (mirar para adelante y para atrás por igual)
   // podía preferir una mención del producto que en realidad pertenece
-  // a la sección de OTRO precio más adelante en la página -- ej. en el
-  // sitio real del reporte, una frase promocional ("Por sólo $3.000
-  // más que el quincenal...") quedaba más cerca de una mención de
-  // "andador" en el llamado a la acción de la sección SIGUIENTE que el
-  // precio mensual real de la propia sección. En un catálogo, el
-  // título del producto casi siempre aparece ANTES de su precio, no
-  // después -- por eso la ventana mira mucho más para atrás (el
-  // catálogo entero, hasta 25 líneas) que para adelante (sólo unas
-  // pocas, por si el nombre viene pegado justo después del precio).
+  // a OTRA cosa más adelante en la página -- ej. en el sitio real del
+  // reporte, una frase promocional ("Por sólo $3.000 más que el
+  // quincenal...") quedaba a 1 línea de un link "Ver Más Andadores"
+  // (la navegación hacia la sección siguiente), más cerca que el
+  // precio mensual real de la propia sección de Andadores. Probado con
+  // una ventana chica hacia adelante (3 líneas) -- seguía fallando por
+  // ese mismo link. En un catálogo, el título del producto casi
+  // siempre aparece ANTES de su precio (nunca después de un texto
+  // suelto como un link de navegación) -- por eso la ventana mira
+  // SÓLO hacia atrás.
   const VENTANA_PRODUCTO_ATRAS = VENTANA_PRODUCTO;
-  const VENTANA_PRODUCTO_ADELANTE = 3;
-  const minimoPalabras = Math.min(2, palabrasProducto.length);
+  // 25/08/2026 ("la palabra principal de la categoría"): alcanza con 1
+  // sola coincidencia -- exigir 2 (como antes) fallaba justo con
+  // categorías de 1-2 palabras cuando el sitio de la competencia no
+  // repite ambas juntas cerca del precio.
   let mejor = null, mejorPuntaje = -Infinity;
   for (const cand of preciosEncontrados) {
-    const desde = Math.max(0, cand.indice - VENTANA_PRODUCTO_ATRAS), hasta = Math.min(lineas.length - 1, cand.indice + VENTANA_PRODUCTO_ADELANTE);
+    const desde = Math.max(0, cand.indice - VENTANA_PRODUCTO_ATRAS), hasta = cand.indice;
     let distanciaProducto = Infinity;
     for (let j = desde; j <= hasta; j++) {
       const lineaNorm = normalizarTexto(lineas[j]);
-      const coincidencias = palabrasProducto.filter(p => lineaNorm.includes(p)).length;
-      if (coincidencias >= minimoPalabras) distanciaProducto = Math.min(distanciaProducto, Math.abs(j - cand.indice));
+      const coincide = palabrasProducto.some(p => lineaNorm.includes(p));
+      if (coincide) distanciaProducto = Math.min(distanciaProducto, Math.abs(j - cand.indice));
     }
     if (distanciaProducto === Infinity) continue; // este precio no está cerca del producto buscado -- se descarta
     const coincidePeriodo = opts.periodo && periodoDeLinea(cand.indice) === opts.periodo;
@@ -272,6 +309,7 @@ module.exports = async function handler(req, res) {
   // para no confundir el precio de ESTE producto con el de cualquier
   // otro de la misma página (ver extraerHeuristica más arriba).
   const nombreProducto = params.get('nombre') || '';
+  const categoria = params.get('categoria') || '';
   const periodo = params.get('periodo') || '';
   // 25/08/2026: fetch anónimo a MercadoLibre confirmado bloqueado
   // (403, incluso contra /sites/MLA sin ningún ítem) -- se delega al
@@ -310,7 +348,7 @@ module.exports = async function handler(req, res) {
     }
     const html = Buffer.from(buffer).toString('utf8');
 
-    const resultado = extraerDeJsonLd(html) || extraerDeMetaTags(html) || extraerHeuristica(htmlATextoPlano(html), { nombreProducto, periodo });
+    const resultado = extraerDeJsonLd(html) || extraerDeMetaTags(html) || extraerHeuristica(htmlATextoPlano(html), { nombreProducto, categoria, periodo });
     if (!resultado) {
       res.status(200).json({ ok: false, error: 'No se pudo encontrar un precio en esta página -- cargalo a mano.' });
       return;
