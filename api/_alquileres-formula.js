@@ -109,18 +109,33 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
   const redondeo = (g && g.redondeo) || 100;
   const gmObjetivoPct = (g && g.gmObjetivoPct != null) ? g.gmObjetivoPct : GM_DEFAULT_PCT;
 
+  // Juan Manuel, 25/08/2026 ("Agrega el costo y margen al lado de
+  // periodo"): costoPorUso se calcula SIEMPRE (aunque el método
+  // ganador termine siendo otro, ej. 'manual' o 'ajuste inflación') --
+  // es el dato de costo real, útil como referencia en la tabla
+  // independientemente de qué método haya definido el precio final.
+  // margenPct se calcula al final, contra el `sugerido` DEFINITIVO (ya
+  // topeado si correspondía) -- es el margen REAL que se obtiene al
+  // precio que efectivamente se va a cobrar, no el objetivo teórico.
+  const costoPorUso = (config && config.usosMaximos > 0 && config.precioProductoNuevo > 0)
+    ? (config.precioProductoNuevo * FRACCION_COSTO_DEL_NUEVO) / config.usosMaximos
+    : null;
+  function conMargen(resultado) {
+    const margenPct = (costoPorUso != null && resultado.sugerido > 0)
+      ? ((resultado.sugerido - costoPorUso) / resultado.sugerido) * 100
+      : null;
+    return Object.assign({ costoPorUso: costoPorUso != null ? round(costoPorUso, redondeo) : null, margenPct }, resultado);
+  }
+
   if (config && config.overrideManual != null) {
-    return {
+    return conMargen({
       sugerido: config.overrideManual, metodo: 'manual', mesesSinActualizar,
       pisoCostoMargen: null, ajustadoInflacion: null, techoCompetencia: null, techoReposicion: null, limitadoPorTecho: false,
-    };
+    });
   }
 
   // PISO: el mayor de los 2 disponibles (mismo criterio de siempre --
   // "el mayor de los pisos gana", nunca se promedian).
-  const costoPorUso = (config && config.usosMaximos > 0 && config.precioProductoNuevo > 0)
-    ? (config.precioProductoNuevo * FRACCION_COSTO_DEL_NUEVO) / config.usosMaximos
-    : null;
   // Margen bruto = (precio - costo) / precio  =>  precio = costo / (1 - GM%)
   const pisoCostoMargen = (costoPorUso != null && gmObjetivoPct != null && gmObjetivoPct < 100)
     ? round(costoPorUso / (1 - gmObjetivoPct / 100), redondeo)
@@ -146,7 +161,7 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
   const techo = techos.length ? Math.min(...techos) : null;
 
   if (base == null) {
-    return { sugerido: null, metodo: 'sin datos', mesesSinActualizar, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho: false };
+    return conMargen({ sugerido: null, metodo: 'sin datos', mesesSinActualizar, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho: false });
   }
 
   const limitadoPorTecho = techo != null && base > techo;
@@ -158,7 +173,7 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
     metodo = base === pisoCostoMargen ? 'piso costo + margen' : 'ajuste inflación';
   }
 
-  return { sugerido, metodo, mesesSinActualizar, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho };
+  return conMargen({ sugerido, metodo, mesesSinActualizar, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho });
 }
 
 module.exports = {
