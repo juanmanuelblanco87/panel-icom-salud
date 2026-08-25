@@ -63,6 +63,9 @@ async function accionGuardarGlobals(payload, solicitante) {
   const globals = {
     monthlyPct: numOrNull(payload.monthlyPct) ?? 0,
     redondeo: numOrNull(payload.redondeo) || 100,
+    // 25/08/2026 ("agrega el GM de la operación"): margen bruto
+    // objetivo -- ver _alquileres-formula.js (piso = costo / (1-GM%)).
+    gmObjetivoPct: numOrNull(payload.gmObjetivoPct) ?? 50,
     actualizadoPor: { rol: solicitante.rol, usuario: solicitante.usuario },
     fecha: new Date().toISOString(),
   };

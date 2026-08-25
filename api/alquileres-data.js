@@ -85,7 +85,7 @@ async function calcularProductos() {
       overrideManual: config.overrideManual ?? null,
     };
 
-    const { sugerido, metodo, piso, ajustadoInflacion } = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, globals);
+    const { sugerido, metodo, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho } = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, globals);
     const deposito = sugerido != null ? Math.round(sugerido * (configEfectiva.multiplicadorDeposito || 0)) : null;
     const deltaPct = precioVigenteOppen && sugerido != null
       ? ((sugerido - precioVigenteOppen) / precioVigenteOppen) * 100
@@ -103,7 +103,7 @@ async function calcularProductos() {
       desatendido,
       ultimoSnapshotMes: ultimoSnapshot ? ultimoSnapshot.mes : null,
       config: configEfectiva,
-      sugerencia: { sugerido, metodo, piso, ajustadoInflacion, deposito, deltaPct, mesesSinActualizar },
+      sugerencia: { sugerido, metodo, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho, deposito, deltaPct, mesesSinActualizar },
     };
   });
 

@@ -59,7 +59,12 @@ async function guardarAlquilerSnapshot(s) {
 const GLOBALS_KEY = `${PREFIJO}:globals`;
 async function leerAlquileresGlobals() {
   const g = await redis.get(GLOBALS_KEY);
-  return g || { monthlyPct: 0, redondeo: 100 };
+  // 25/08/2026: gmObjetivoPct es nuevo (ver _alquileres-formula.js) --
+  // si ya había parámetros guardados de antes de este campo, se le
+  // suma el default (50%, confirmado con el usuario) en vez de dejarlo
+  // undefined.
+  if (g && g.gmObjetivoPct == null) g.gmObjetivoPct = 50;
+  return g || { monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50 };
 }
 async function guardarAlquileresGlobals(g) {
   await redis.set(GLOBALS_KEY, g);

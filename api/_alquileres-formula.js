@@ -1,21 +1,6 @@
 // api/_alquileres-formula.js
 //
-// Alquileres -- fórmula de precio sugerido, simplificada a pedido del
-// usuario a partir de un prototipo que mezclaba 3 señales con pesos
-// (IPC/Payback/Mercado, global + override por producto): "quedó súper
-// complejo por demás". Se reemplaza por 2 números claros:
-//   - Piso de amortización = precio del producto nuevo ÷ usos máximos
-//     (nunca se sugiere por debajo de esto -- es un LÍMITE, no un peso
-//     más en una mezcla).
-//   - Precio vigente ajustado por inflación (el precio real vigente,
-//     derivado de Oppen -- ver alquileres-data.js -- compuesto por la
-//     inflación mensual estimada, durante los meses que ese precio
-//     lleva SIN CAMBIAR -- ver mesesDesdeUltimoCambioDePrecio).
-// La sugerencia final es el MAYOR de los dos. El precio de mercado
-// queda afuera de esta cuenta a propósito -- el usuario mismo dice que
-// esa fuente no es confiable, así que se muestra sólo como referencia
-// (con link) en la UI, nunca mezclado matemáticamente en el número que
-// la gente va a usar.
+// Alquileres -- fórmula de precio sugerido.
 //
 // 25/08/2026 ("la inflación acumulada se debe [medir] desde la última
 // actualización de precios, para eso es necesario ir guardando mes a
@@ -28,10 +13,40 @@
 // el mismo -- sólo el % de inflación MENSUAL es un parámetro (mucho
 // más estable en el tiempo que un acumulado que hay que ir corriendo).
 //
-// Mismo criterio que calcularDiasVacaciones en Gestión de Talento:
-// esta función vive server-side (fuente de verdad para el snapshot
-// mensual) y se porta literalmente al cliente (mismo cálculo, sólo
-// para previsualizar en pantalla antes de guardar).
+// 25/08/2026 (2do rediseño, "no me gusta la logica... casi la mitad de
+// precio que la competencia"): la versión anterior tomaba el MAYOR
+// entre 2 pisos (amortización simple del 100% del precio nuevo, y
+// ajuste por inflación) y nunca miraba el mercado -- si el precio
+// vigente arrancó bajo, se quedaba bajo para siempre (la inflación lo
+// ajusta, pero nunca lo corrige contra la realidad del mercado). Pedido
+// explícito del usuario, con números concretos:
+//   - PISO (mínimo aceptable, cuida rentabilidad): costo real por uso
+//     (50% del precio de venta del producto nuevo, dividido la
+//     cantidad de usos) con el margen bruto objetivo aplicado --
+//     precio = costo / (1 - GM%) -- MISMO criterio que ya usa
+//     ajustadoInflacion (el mayor de los pisos disponibles gana).
+//   - TECHO (tope duro, nunca se sugiere por encima): el menor entre
+//     (a) 90% del precio de la competencia -- "quedemos siempre un 10%
+//     por debajo" -- y (b) 35% del precio del producto nuevo --
+//     "que el costo del alquiler no supere el 35% de lo que cuesta uno
+//     nuevo". A diferencia del piso (siempre gana el juego), el techo
+//     es una restricción de negocio que NUNCA se cruza -- si el piso
+//     (costo+margen) pide más de lo que el techo permite, se avisa el
+//     conflicto (`limitadoPorTecho:true`) y se sugiere el techo, nunca
+//     el piso -- mejor perder margen a propósito, con aviso, que
+//     sugerir un precio que el usuario dijo explícitamente que no
+//     quiere.
+// El precio de mercado (competencia) sigue siendo un dato scrapeado,
+// no siempre confiable -- pedido explícito del usuario igual, así que
+// entra como TECHO (nunca mezclado/promediado). OJO: a diferencia del
+// diseño anterior (donde mercado no participaba en absoluto), un dato
+// de competencia scrapeado MAL (ej. un precio irrisorio de otra
+// sección de la página, el mismo bug que ya se corrigió una vez en
+// alquileres-scrape.js) ahora SÍ puede arrastrar el precio sugerido
+// para abajo -- por eso conviene revisar el precio de competencia
+// scrapeado ("revisá este valor") antes de confiar en la sugerencia
+// resultante, mismo criterio de "una persona en el medio" del resto
+// del módulo.
 
 function round(v, inc) {
   if (v == null || !inc) return v;
@@ -81,35 +96,73 @@ function mesesDesdeUltimoCambioDePrecio(snapshotsOrdenadosAsc, precioActual, mes
   return mesesEntre(mesInicioRacha, mesActualStr);
 }
 
-// config: { usosMaximos, precioProductoNuevo, overrideManual }
+const GM_DEFAULT_PCT = 50; // ver comentario de arriba -- confirmado con el usuario, 25/08/2026
+const FRACCION_COSTO_DEL_NUEVO = 0.5; // "el costo es el 50% del precio de venta"
+const DESCUENTO_VS_COMPETENCIA = 0.10; // "quedemos siempre por debajo de la competencia, un 10%"
+const TOPE_PCT_DEL_NUEVO = 0.35; // "que el costo del alquiler no supere el 35% de lo que cuesta uno nuevo"
+
+// config: { usosMaximos, precioProductoNuevo, precioMercado, overrideManual }
 // precioVigenteOppen: number|null (derivado de Oppen, ver alquileres-data.js)
 // mesesSinActualizar: number|null (ver mesesDesdeUltimoCambioDePrecio)
-// g: { monthlyPct, redondeo }
+// g: { monthlyPct, redondeo, gmObjetivoPct }
 function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
   const redondeo = (g && g.redondeo) || 100;
+  const gmObjetivoPct = (g && g.gmObjetivoPct != null) ? g.gmObjetivoPct : GM_DEFAULT_PCT;
 
   if (config && config.overrideManual != null) {
-    return { sugerido: config.overrideManual, metodo: 'manual', piso: null, ajustadoInflacion: null, mesesSinActualizar };
+    return {
+      sugerido: config.overrideManual, metodo: 'manual', mesesSinActualizar,
+      pisoCostoMargen: null, ajustadoInflacion: null, techoCompetencia: null, techoReposicion: null, limitadoPorTecho: false,
+    };
   }
 
-  const piso = (config && config.usosMaximos > 0 && config.precioProductoNuevo > 0)
-    ? round(config.precioProductoNuevo / config.usosMaximos, redondeo)
+  // PISO: el mayor de los 2 disponibles (mismo criterio de siempre --
+  // "el mayor de los pisos gana", nunca se promedian).
+  const costoPorUso = (config && config.usosMaximos > 0 && config.precioProductoNuevo > 0)
+    ? (config.precioProductoNuevo * FRACCION_COSTO_DEL_NUEVO) / config.usosMaximos
+    : null;
+  // Margen bruto = (precio - costo) / precio  =>  precio = costo / (1 - GM%)
+  const pisoCostoMargen = (costoPorUso != null && gmObjetivoPct != null && gmObjetivoPct < 100)
+    ? round(costoPorUso / (1 - gmObjetivoPct / 100), redondeo)
     : null;
 
   const ajustadoInflacion = (precioVigenteOppen != null && mesesSinActualizar != null)
     ? round(precioVigenteOppen * (1 + inflacionCompuesta((g && g.monthlyPct) || 0, mesesSinActualizar)), redondeo)
     : null;
 
-  const candidatos = [piso, ajustadoInflacion].filter(v => v != null);
-  if (!candidatos.length) {
-    return { sugerido: null, metodo: 'sin datos', piso, ajustadoInflacion, mesesSinActualizar };
+  const candidatosPiso = [pisoCostoMargen, ajustadoInflacion].filter(v => v != null);
+  const base = candidatosPiso.length ? Math.max(...candidatosPiso) : null;
+
+  // TECHO: el MENOR de los 2 disponibles -- a diferencia del piso, acá
+  // "el más restrictivo gana" (nunca se sugiere por encima de NINGUNO
+  // de los 2 límites de negocio).
+  const techoCompetencia = (config && config.precioMercado > 0)
+    ? round(config.precioMercado * (1 - DESCUENTO_VS_COMPETENCIA), redondeo)
+    : null;
+  const techoReposicion = (config && config.precioProductoNuevo > 0)
+    ? round(config.precioProductoNuevo * TOPE_PCT_DEL_NUEVO, redondeo)
+    : null;
+  const techos = [techoCompetencia, techoReposicion].filter(v => v != null);
+  const techo = techos.length ? Math.min(...techos) : null;
+
+  if (base == null) {
+    return { sugerido: null, metodo: 'sin datos', mesesSinActualizar, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho: false };
   }
-  const sugerido = Math.max(...candidatos);
-  const metodo = sugerido === piso ? 'piso amortización' : 'ajuste inflación';
-  return { sugerido, metodo, piso, ajustadoInflacion, mesesSinActualizar };
+
+  const limitadoPorTecho = techo != null && base > techo;
+  const sugerido = limitadoPorTecho ? techo : base;
+  let metodo;
+  if (limitadoPorTecho) {
+    metodo = techo === techoCompetencia ? 'topeado por competencia' : 'topeado por costo de reposición';
+  } else {
+    metodo = base === pisoCostoMargen ? 'piso costo + margen' : 'ajuste inflación';
+  }
+
+  return { sugerido, metodo, mesesSinActualizar, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho };
 }
 
 module.exports = {
   round, mesActual, mesesEntre, inflacionCompuesta,
   mesesDesdeUltimoCambioDePrecio, calcularSugerencia,
+  GM_DEFAULT_PCT,
 };
