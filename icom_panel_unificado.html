@@ -355,6 +355,17 @@
        redondeadas, con un margen entre ambas que deja ver el gris de
        fondo, igual que entre cualquier otro par de cards del pane. */
     .erp-pie-pair{background:transparent;box-shadow:none;padding:0;margin-bottom:0}
+    /* 26/08/2026 ("habiamos dicho de separar con espacio gris"): sin esto,
+       el par se apila (y usa el estilo de "arriba/abajo" de acá abajo)
+       recién cuando el ancho real cae por debajo de min-width:280px * 2
+       -- un umbral que NO coincide con los 768px de este media query. En
+       la franja intermedia (~600-768px) el navegador seguía poniéndolas
+       lado a lado (con lugar de sobra) pero ya con el estilo pensado
+       para apiladas puesto -- quedaban una al lado de la otra SIN
+       ningún separador visible. Forzar columna acá adentro hace que
+       "cuándo se apilan" y "qué estilo de separador usan" sean SIEMPRE
+       la misma condición. */
+    .erp-pie-pair-row{flex-direction:column}
     .erp-pie-half-left,
     .erp-pie-half-right{
       background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);
@@ -577,7 +588,7 @@
         </div>
 
         <div class="erp-card erp-pie-pair">
-          <div style="display:flex;flex-wrap:wrap">
+          <div class="erp-pie-pair-row" style="display:flex;flex-wrap:wrap">
             <div class="erp-pie-half-left" style="flex:1;min-width:280px;padding-right:16px">
               <h2>Peso por <span id="dashGroupLabelHoy"></span> — Hoy</h2>
               <div id="dashPieHoy"><span class="pm-empty">Cargando…</span></div>
@@ -715,7 +726,7 @@
                en vez de un div separador aparte, para que no rompa el
                flex-wrap en pantallas angostas (donde las dos mitades pasan
                a apilarse una debajo de la otra). -->
-          <div style="display:flex;flex-wrap:wrap">
+          <div class="erp-pie-pair-row" style="display:flex;flex-wrap:wrap">
             <div class="erp-pie-half-left" style="flex:1;min-width:280px;padding-right:16px">
               <!-- Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "En el
                    grafico de tortas de la izquierda en el titulo hay que
