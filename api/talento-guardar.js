@@ -35,7 +35,7 @@ const {
   leerPost, guardarPost, eliminarPost,
   leerLicencia, guardarLicencia, eliminarLicencia,
   leerComentarioMuro, guardarComentarioMuro, eliminarComentarioMuro,
-  leerMensajes, guardarMensaje, leerUsuario,
+  leerMensajes, guardarMensaje, leerUsuario, guardarUsuario,
   guardarNotaObjetivo,
 } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
@@ -375,24 +375,43 @@ async function accionEditarPersona(payload, solicitante) {
 // avatar... numero de celular, su correo... etc."): a diferencia de
 // accionEditarPersona (admin-only, cualquier campo, cualquier
 // persona), esto es mucho más chico a propósito -- cualquiera con
-// personaId (supervisor/colaborador; admin/gerente no tienen uno, no
-// hay "su propio registro" que editar) puede tocar SÓLO su propia
+// personaId (supervisor/colaborador) puede tocar SÓLO su propia
 // foto/teléfono/email, nunca otro campo (función, unidad, supervisor,
 // etc. siguen siendo data maestra, sólo RR.HH.) ni la persona de otro
 // -- siempre solicitante.personaId, nunca un id que venga en el payload.
+//
+// 26/08/2026 ("la ruedita solo da cambiar contraseña, debe dar Avatar
+// y datos personales tambien"): admin/gerente NO tienen una Persona
+// propia (no hay "su propio registro" en ese padrón -- exigirles
+// CUIL/unidad/función sólo para poder cargar un teléfono de contacto
+// sería desproporcionado) -- para esos 2 roles, foto/teléfono/email se
+// guardan directo en su propio registro de USUARIO (leerUsuario/
+// guardarUsuario, mismo store que ya usa cambiarMiPassword) en vez de
+// una Persona. La respuesta queda con la MISMA forma ({persona:{...}})
+// en los 2 casos para que el cliente no tenga que distinguir cuál fue.
 async function accionActualizarMiPerfil(payload, solicitante) {
-  if (!solicitante.personaId) throw httpError(403, { ok: false, error: 'Tu cuenta no tiene un registro de persona propio para editar.' });
-  const existente = await leerPersona(solicitante.personaId);
-  if (!existente) throw httpError(404, { ok: false, error: 'Tu registro de persona no existe.' });
-
   const { telefono, email, foto } = payload || {};
-  const actualizada = Object.assign({}, existente);
-  if (telefono !== undefined) actualizada.telefono = telefono ? String(telefono).trim() : '';
   if (email !== undefined) {
     const emailLimpio = email ? String(email).trim() : '';
     if (emailLimpio && !/\S+@\S+\.\S+/.test(emailLimpio)) throw httpError(400, { ok: false, error: 'El email no es válido.' });
-    actualizada.email = emailLimpio;
   }
+
+  if (!solicitante.personaId) {
+    const registroUsuario = await leerUsuario(solicitante.usuario);
+    if (!registroUsuario) throw httpError(404, { ok: false, error: 'Tu cuenta no existe.' });
+    const actualizado = Object.assign({}, registroUsuario);
+    if (telefono !== undefined) actualizado.telefono = telefono ? String(telefono).trim() : '';
+    if (email !== undefined) actualizado.email = email ? String(email).trim() : '';
+    if (foto !== undefined) actualizado.foto = validarFoto(foto);
+    await guardarUsuario(actualizado);
+    return { status: 200, body: { ok: true, persona: { nombre: actualizado.nombre, telefono: actualizado.telefono || '', email: actualizado.email || '', foto: actualizado.foto || '' } } };
+  }
+
+  const existente = await leerPersona(solicitante.personaId);
+  if (!existente) throw httpError(404, { ok: false, error: 'Tu registro de persona no existe.' });
+  const actualizada = Object.assign({}, existente);
+  if (telefono !== undefined) actualizada.telefono = telefono ? String(telefono).trim() : '';
+  if (email !== undefined) actualizada.email = email ? String(email).trim() : '';
   if (foto !== undefined) actualizada.foto = validarFoto(foto);
   await guardarPersona(actualizada);
   return { status: 200, body: { ok: true, persona: actualizada } };

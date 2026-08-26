@@ -685,7 +685,7 @@
              primero, antes del gráfico ICOM, Vendedores y Canales, en TODAS
              las apps (sin gating por canal). -->
         <div class="erp-kpis" id="erpKpis">
-          <div class="erp-kpi"><div class="lbl">Total Neto (mes)</div><div class="val" id="erpKpiTotal">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Total Neto</div><div class="val" id="erpKpiTotal">—</div></div>
           <div class="erp-kpi"><div class="lbl">Unidades</div><div class="val" id="erpKpiUnidades">—</div></div>
           <div class="erp-kpi"><div class="lbl">Facturas procesadas</div><div class="val" id="erpKpiInvoices">—</div></div>
           <div class="erp-kpi"><div class="lbl">Última actualización</div><div class="val" id="erpKpiUpdated" style="font-size:13px">—</div></div>
@@ -1205,7 +1205,17 @@ function switchChannel(channel){
   const activeNav = document.querySelector('.sb-item[data-pane].active');
   const activeScope = activeNav ? (activeNav.getAttribute('data-channels') || 'all') : 'all';
   const stillValid = erpPaneScopeMatches(activeScope, channel);
-  switchPane(stillValid && activeNav ? activeNav.getAttribute('data-pane') : 'erp');
+  // 26/08/2026 ("cuando presiono Ortopedia... necesito que se expandan
+  // las opciones dentro de Ortopedia para que el usuario de click en la
+  // que desee"): en mobile tocar una unidad de negocio sólo debe
+  // reordenar/expandir SU lista de Apps (ya hecho arriba, vía
+  // appsGroup) para que el usuario elija -- no saltar directo a un pane
+  // ni cerrar el menú de encima, que es lo que pasaba antes al llamar
+  // switchPane sin más (siempre cierra el overlay, ver ahí). En
+  // desktop el menú siempre está a la vista así que el salto directo a
+  // "Ventas en Vivo" sigue teniendo sentido y no cambia.
+  const esMobile = window.innerWidth <= 768;
+  switchPane(stillValid && activeNav ? activeNav.getAttribute('data-pane') : 'erp', {keepMobileOpen: esMobile});
 
   if(CHANNELS[channel].readyPanes.includes('erp')){
     // Pide SIEMPRE un fetch fresco de "Hoy" para la unidad recién elegida
@@ -1251,7 +1261,8 @@ function renderChannelPlaceholder(name){
   closeMobileSidebar();
 }
 
-function switchPane(name){
+function switchPane(name, opts){
+  opts = opts || {};
   if(!CHANNELS[currentChannel].readyPanes.includes(name) && CHANNEL_SPECIFIC_PANES.includes(name)){
     renderChannelPlaceholder(name);
     return;
@@ -1270,7 +1281,13 @@ function switchPane(name){
   // (ver switchChannel, que vuelve a llamar switchPane('dashboard') si
   // segía siendo el pane activo) -- ambos casos pasan por acá.
   if(name==='dashboard') dashSwitchToChannelView(currentChannel);
-  closeMobileSidebar(); // en mobile el menú es un overlay — se cierra solo al elegir un pane
+  // 26/08/2026 ("que se expandan las opciones dentro de Ortopedia para
+  // que el usuario elija"): switchChannel (más abajo) llama acá con
+  // opts.keepMobileOpen=true en mobile, para el pane "de respaldo" que
+  // se elige sólo para que el contenido de atrás quede coherente -- ese
+  // toque no fue "elegir una app", fue "elegir una unidad de negocio",
+  // así que el menú tiene que seguir abierto.
+  if(!opts.keepMobileOpen) closeMobileSidebar(); // en mobile el menú es un overlay — se cierra solo al elegir un pane
 }
 
 function closeMobileSidebar(){
@@ -1438,32 +1455,43 @@ async function abrirConfigUsuario(){
   document.getElementById('cuPassNueva').value = '';
   document.getElementById('cuMsgPassword').style.display = 'none';
   cuFotoActual = undefined;
-  const tienePersona = !!(sesion && sesion.personaId);
-  document.getElementById('cuDatosPersona').style.display = tienePersona ? 'block' : 'none';
-  if(!tienePersona) return;
+  // 26/08/2026 ("debe dar la opcion de cambiar Avatar y datos personales
+  // tambien"): antes esto se ocultaba entero para admin/gerente (sin
+  // Persona propia) -- ahora se ve siempre, para los 4 roles. Sólo
+  // cambia DE DÓNDE sale el valor actual al reabrir (con personaId: la
+  // Persona vía talento-data, igual que antes; sin personaId: el propio
+  // registro de usuario vía la acción 'miCuenta' -- ver
+  // accionActualizarMiPerfil en api/talento-guardar.js, que ya guarda
+  // en uno u otro lado según corresponda).
   document.getElementById('cuAvatarWrap').innerHTML = cuAvatarHtml({nombre: sesion.nombre, foto: sesion.foto}, 64);
   document.getElementById('btnQuitarCuFoto').style.display = sesion.foto ? 'inline-block' : 'none';
   document.getElementById('cuTelefono').value = '';
   document.getElementById('cuEmail').value = '';
   document.getElementById('cuMsg').style.display = 'none';
-  // Trae teléfono/email/foto actuales -- el login no los manda (ver
-  // api/talento-login.js), sólo rol/personaId/nombre.
+  const aplicarDatos = (datos) => {
+    if(!datos) return;
+    document.getElementById('cuAvatarWrap').innerHTML = cuAvatarHtml(datos, 64);
+    document.getElementById('btnQuitarCuFoto').style.display = datos.foto ? 'inline-block' : 'none';
+    document.getElementById('cuTelefono').value = datos.telefono || '';
+    document.getElementById('cuEmail').value = datos.email || '';
+    if((datos.foto || '') !== (sesion.foto || '')){
+      sesion.foto = datos.foto || '';
+      sessionStorage.setItem(SESION_KEY, JSON.stringify(sesion));
+      renderSbSesionInfo();
+    }
+  };
   try{
-    const res = await fetch('/api/talento-data', { headers: { Authorization: 'Bearer ' + sesion.token } });
-    const j = await res.json().catch(()=>null);
-    if(res.ok && j && j.ok){
-      const persona = (j.personas || []).find(p => p.id === sesion.personaId);
-      if(persona){
-        document.getElementById('cuAvatarWrap').innerHTML = cuAvatarHtml(persona, 64);
-        document.getElementById('btnQuitarCuFoto').style.display = persona.foto ? 'inline-block' : 'none';
-        document.getElementById('cuTelefono').value = persona.telefono || '';
-        document.getElementById('cuEmail').value = persona.email || '';
-        if((persona.foto || '') !== (sesion.foto || '')){
-          sesion.foto = persona.foto || '';
-          sessionStorage.setItem(SESION_KEY, JSON.stringify(sesion));
-          renderSbSesionInfo();
-        }
-      }
+    if(sesion.personaId){
+      const res = await fetch('/api/talento-data', { headers: { Authorization: 'Bearer ' + sesion.token } });
+      const j = await res.json().catch(()=>null);
+      if(res.ok && j && j.ok) aplicarDatos((j.personas || []).find(p => p.id === sesion.personaId));
+    }else{
+      const res = await fetch('/api/talento-usuarios', {
+        method: 'POST', headers: {'Content-Type':'application/json', Authorization: 'Bearer ' + sesion.token},
+        body: JSON.stringify({action:'miCuenta'}),
+      });
+      const j = await res.json().catch(()=>null);
+      if(res.ok && j && j.ok) aplicarDatos(j.cuenta);
     }
   }catch(e){}
 }

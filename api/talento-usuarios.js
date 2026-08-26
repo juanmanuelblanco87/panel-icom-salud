@@ -115,10 +115,25 @@ async function accionCambiarMiPassword(payload, solicitante) {
   return { status: 200, body: { ok: true } };
 }
 
+// 26/08/2026 ("Configurar usuario", avatar/teléfono para admin/gerente):
+// esos 2 roles no tienen Persona propia (ver accionActualizarMiPerfil en
+// talento-guardar.js, que para ellos guarda foto/teléfono/email acá, en
+// su propio registro de usuario) -- así que al reabrir el modal no hay
+// forma de traer esos valores actuales vía talento-data (personas
+// reales solamente). Este GET-liviano es SIEMPRE sobre la cuenta del
+// propio solicitante (solicitante.usuario sale del token verificado,
+// nunca de un parámetro) -- no expone nada de otras cuentas.
+async function accionMiCuenta(payload, solicitante) {
+  const registro = await leerUsuario(solicitante.usuario);
+  if (!registro) throw httpError(404, { ok: false, error: 'Tu cuenta no existe.' });
+  return { status: 200, body: { ok: true, cuenta: { nombre: registro.nombre, telefono: registro.telefono || '', email: registro.email || '', foto: registro.foto || '' } } };
+}
+
 const ACCIONES = {
   crearUsuario: accionCrearUsuario,
   cambiarPassword: accionCambiarPassword,
   cambiarMiPassword: accionCambiarMiPassword,
+  miCuenta: accionMiCuenta,
 };
 
 module.exports = async function handler(req, res) {
