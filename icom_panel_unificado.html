@@ -115,17 +115,21 @@
      engranaje de acceso a Mi Perfil (antes vivía sólo adentro de
      Gestión de Talento, ver #cuOverlay más abajo) en la misma fila, y
      se agrega padding-bottom (antes era 0 -- por eso el texto quedaba
-     pegado contra el borde de #sb-logout, sin aire entre medio). */
+     pegado contra el borde de #sb-logout, sin aire entre medio).
+     26/08/2026 (3ra vuelta, "deja solo el avatar y coloca 'Mi Cuenta',
+     asi quitamos la ruedita que no queda muy bien ahi"): se saca el
+     engranaje aparte -- ahora toda la fila (avatar + "Mi Cuenta") es
+     un solo botón clickeable, mismo criterio visual que .sb-item de
+     arriba (hover con fondo claro). El nombre/rol reales quedan de
+     tooltip (title) en vez de texto visible, ya no hay lugar para
+     mostrarlos sin el 2do renglón que tenía antes. */
   .sb-sesion-info{padding:10px 17px 14px;border-top:1px solid rgba(255,255,255,.12)}
-  .sb-sesion-row{display:flex;align-items:center;gap:8px}
+  .sb-sesion-row{display:flex;align-items:center;gap:8px;cursor:pointer;border-radius:6px;padding:4px 6px;margin:-4px -6px}
+  .sb-sesion-row:hover{background:rgba(255,255,255,.08)}
   .sb-sesion-avatar{flex-shrink:0}
-  .sb-sesion-texto{flex:1;min-width:0;font-size:10.5px;color:rgba(255,255,255,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sb-sesion-texto b{color:#fff;font-weight:600}
-  .sb-sesion-gear{flex-shrink:0;border:none;background:transparent;color:rgba(255,255,255,.5);font-size:14px;cursor:pointer;padding:5px;border-radius:5px;line-height:1;display:flex}
-  .sb-sesion-gear:hover{color:#fff;background:rgba(255,255,255,.08)}
+  .sb-sesion-texto{flex:1;min-width:0;font-size:12px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #sidebar.collapsed .sb-sesion-row{justify-content:center}
-  #sidebar.collapsed .sb-sesion-texto,
-  #sidebar.collapsed .sb-sesion-gear{display:none}
+  #sidebar.collapsed .sb-sesion-texto{display:none}
 
   /* 19/08/2026 ("un link para quienes SOLO van a acceder al módulo de
      Gestión de Talento"): con ?modulo=talento en la URL, showShell() le
@@ -199,9 +203,7 @@
        haya quedado la clase .collapsed puesta desde una sesión de
        escritorio previa. */
     #sidebar.collapsed .sb-sesion-row{justify-content:flex-start}
-    #sidebar.collapsed .sb-sesion-texto,
-    #sidebar.collapsed .sb-sesion-gear{display:block}
-    #sidebar.collapsed .sb-sesion-gear{display:flex}
+    #sidebar.collapsed .sb-sesion-texto{display:block}
     .sb-item, .sb-logout{padding:14px 17px;font-size:14px} /* área táctil más grande */
   }
 
@@ -1447,16 +1449,13 @@ function cuComprimirFoto(file){
 function renderSbSesionInfo(){
   if(!sesion) return;
   const info = document.getElementById('sbSesionInfo');
+  const tooltip = cuEscapeHtml((sesion.nombre || '') + ' · ' + (ROL_LABEL[sesion.rol] || sesion.rol));
   info.innerHTML =
-    '<div class="sb-sesion-row">'
+    '<div class="sb-sesion-row" onclick="abrirConfigUsuario()" title="' + tooltip + '">'
     + '<div class="sb-sesion-avatar" id="sbSesionAvatar"></div>'
-    + '<div class="sb-sesion-texto"><b></b></div>'
-    + '<button type="button" class="sb-sesion-gear" onclick="abrirConfigUsuario()" title="Configurar usuario">⚙</button>'
+    + '<div class="sb-sesion-texto">Mi Cuenta</div>'
     + '</div>';
   document.getElementById('sbSesionAvatar').innerHTML = cuAvatarHtml({nombre: sesion.nombre, foto: sesion.foto}, 28);
-  const b = info.querySelector('.sb-sesion-texto b');
-  b.textContent = sesion.nombre || '';
-  b.parentNode.appendChild(document.createTextNode(' · ' + (ROL_LABEL[sesion.rol] || sesion.rol)));
 }
 
 let cuFotoActual = undefined; // undefined = "no se tocó", '' = "se quitó"
