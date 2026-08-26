@@ -28,7 +28,15 @@
 // archivo actualizado y lo active. Repetir este bump cada vez que haga
 // falta un refresco forzado (además del auto-refresco normal, que ya
 // pasa solo con 1 visita de atraso como mucho).
-const CACHE_NAME = 'icom-shell-v2';
+// 26/08/2026 (2do bump, "toco Movilidad y me abre inmediatamente Ventas
+// en Vivo" -- el fix de sidebar YA estaba en icom_panel_unificado.html
+// en ese momento): los 2 commits siguientes al primer bump (torta con
+// espacio gris, sidebar que expande en vez de saltar directo) quedaron
+// atrás de la caché v2 ya instalada -- stale-while-revalidate sirve lo
+// viejo de inmediato y sólo actualiza en 2do plano para la PRÓXIMA
+// visita, así que cualquiera que ya tuviera v2 instalada seguía viendo
+// código de ANTES de esos 2 commits. Mismo bump de siempre.
+const CACHE_NAME = 'icom-shell-v3';
 const SHELL_URLS = [
   '/',
   '/icom_panel_unificado.html',
