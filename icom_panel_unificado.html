@@ -344,8 +344,24 @@
        acumulado año) se apilan en mobile por el flex-wrap del contenedor
        -- el borde/padding IZQUIERDO pensado para separarlas lado a lado
        no sirve de nada apiladas (nada separa el total de arriba del
-       título de abajo). Se reemplaza por un borde/espacio ARRIBA. */
-    .erp-pie-half-right{border-left:none !important;padding-left:0 !important;border-top:1px solid #e6e8ee;padding-top:16px;margin-top:16px}
+       título de abajo).
+       26/08/2026 (2da vuelta, "necesito que dejes un espacio gris como
+       con los otros graficos"): un borde fino no alcanzaba -- se busca
+       el mismo look que el resto de las cards (.erp-card, blancas sobre
+       el fondo gris #f7f6f2 de .erp-wrap, separadas por el propio fondo
+       asomando entre medio). La card exterior (.erp-pie-pair) se
+       "desarma" en mobile -- pierde su propio fondo/sombra/padding -- y
+       cada mitad pasa a ser SU PROPIA card blanca con sombra y esquinas
+       redondeadas, con un margen entre ambas que deja ver el gris de
+       fondo, igual que entre cualquier otro par de cards del pane. */
+    .erp-pie-pair{background:transparent;box-shadow:none;padding:0;margin-bottom:0}
+    .erp-pie-half-left,
+    .erp-pie-half-right{
+      background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);
+      padding:20px 22px;box-sizing:border-box;width:100%;
+    }
+    .erp-pie-half-left{margin-bottom:18px}
+    .erp-pie-half-right{border-left:none !important;padding-left:22px !important;margin-top:0;margin-bottom:18px}
   }
   table.erp-table{width:100%;border-collapse:collapse;font-size:12px}
   table.erp-table th{position:sticky;top:0;background:#f0f3f7;color:#1a3d70;text-align:left;padding:8px 10px;font-weight:700;border-bottom:1px solid #dde3ea;white-space:nowrap}
@@ -560,9 +576,9 @@
           <div id="dashMonthlyChart"><span class="pm-empty">Cargando…</span></div>
         </div>
 
-        <div class="erp-card">
+        <div class="erp-card erp-pie-pair">
           <div style="display:flex;flex-wrap:wrap">
-            <div style="flex:1;min-width:280px;padding-right:16px">
+            <div class="erp-pie-half-left" style="flex:1;min-width:280px;padding-right:16px">
               <h2>Peso por <span id="dashGroupLabelHoy"></span> — Hoy</h2>
               <div id="dashPieHoy"><span class="pm-empty">Cargando…</span></div>
             </div>
@@ -692,7 +708,7 @@
              desde la card "por mes"), ambas con el MISMO formato completo
              (torta grande + leyenda con ícono/label/$/%) vía el helper
              compartido erpBuildIcomPieChartHtml. -->
-        <div class="erp-card" id="erpIcomPieCard" style="display:none">
+        <div class="erp-card erp-pie-pair" id="erpIcomPieCard" style="display:none">
           <!-- Juan Manuel, 29/07/2026: "quizas ambos cuadros queden mejor
                separados por alguna division" -- se agrega un borde
                vertical (border-left + padding-left) en la mitad derecha,
@@ -700,7 +716,7 @@
                flex-wrap en pantallas angostas (donde las dos mitades pasan
                a apilarse una debajo de la otra). -->
           <div style="display:flex;flex-wrap:wrap">
-            <div style="flex:1;min-width:280px;padding-right:16px">
+            <div class="erp-pie-half-left" style="flex:1;min-width:280px;padding-right:16px">
               <!-- Juan Manuel, 27/07/2026 (4ta vuelta, mismo día): "En el
                    grafico de tortas de la izquierda en el titulo hay que
                    colocar '- y la fecha que se halla colocado, en este
