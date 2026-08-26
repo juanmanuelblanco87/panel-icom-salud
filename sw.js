@@ -19,7 +19,16 @@
 // Si algún día hace falta un purgado duro (cambiar qué se cachea), alcanza
 // con cambiar CACHE_NAME para que activate() tire la caché vieja entera.
 
-const CACHE_NAME = 'icom-shell-v1';
+// 26/08/2026 ("me sigue pidiendo el login viejo en mobile, hay forma de
+// forzar los caches para todos los que tienen 'descargada' la app?"):
+// bump manual del nombre de caché -- activate() de abajo borra cualquier
+// caché con un nombre distinto al actual, así que este cambio solo
+// alcanza para que TODAS las instalaciones existentes (PWA en el
+// celular) purguen el shell viejo apenas el navegador detecte este
+// archivo actualizado y lo active. Repetir este bump cada vez que haga
+// falta un refresco forzado (además del auto-refresco normal, que ya
+// pasa solo con 1 visita de atraso como mucho).
+const CACHE_NAME = 'icom-shell-v2';
 const SHELL_URLS = [
   '/',
   '/icom_panel_unificado.html',

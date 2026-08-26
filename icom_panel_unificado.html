@@ -2,7 +2,13 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<!-- 26/08/2026 ("se ve cortado al entrar desde el telefono, se corrige
+     pellizcando para achicar"): sin maximum-scale/user-scalable, la app
+     instalada (modo standalone) a veces retoma un zoom > 1 de una sesión
+     anterior en vez de arrancar en 1:1 -- pellizcar fuerza al navegador a
+     recalcular el zoom real, por eso "arregla" el problema a mano. Fijar
+     el zoom en 1:1 evita que quede atascada así al abrir. -->
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <title>ICOM Salud · Panel Unificado</title>
 
 <!-- PWA: permite "Agregar a pantalla de inicio" en Android y iPhone -->
@@ -103,9 +109,23 @@
   .sb-logout .sb-icon{font-size:13px}
   /* 26/08/2026 ("login unificado"): quién está logueado -- antes el
      shell no tenía ningún concepto de cuenta real, así que no había
-     nada que mostrar acá. */
-  .sb-sesion-info{padding:8px 17px 0;font-size:10.5px;color:rgba(255,255,255,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid rgba(255,255,255,.12)}
-  .sb-sesion-info b{color:#fff;font-weight:600}
+     nada que mostrar acá.
+     26/08/2026 (2do pedido, "falta aire" + "dejar la ruedita de
+     Configurar usuario... colocar el avatar"): se suma avatar +
+     engranaje de acceso a Mi Perfil (antes vivía sólo adentro de
+     Gestión de Talento, ver #cuOverlay más abajo) en la misma fila, y
+     se agrega padding-bottom (antes era 0 -- por eso el texto quedaba
+     pegado contra el borde de #sb-logout, sin aire entre medio). */
+  .sb-sesion-info{padding:10px 17px 14px;border-top:1px solid rgba(255,255,255,.12)}
+  .sb-sesion-row{display:flex;align-items:center;gap:8px}
+  .sb-sesion-avatar{flex-shrink:0}
+  .sb-sesion-texto{flex:1;min-width:0;font-size:10.5px;color:rgba(255,255,255,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sb-sesion-texto b{color:#fff;font-weight:600}
+  .sb-sesion-gear{flex-shrink:0;border:none;background:transparent;color:rgba(255,255,255,.5);font-size:14px;cursor:pointer;padding:5px;border-radius:5px;line-height:1;display:flex}
+  .sb-sesion-gear:hover{color:#fff;background:rgba(255,255,255,.08)}
+  #sidebar.collapsed .sb-sesion-row{justify-content:center}
+  #sidebar.collapsed .sb-sesion-texto,
+  #sidebar.collapsed .sb-sesion-gear{display:none}
 
   /* 19/08/2026 ("un link para quienes SOLO van a acceder al módulo de
      Gestión de Talento"): con ?modulo=talento en la URL, showShell() le
@@ -154,6 +174,13 @@
       position:fixed;top:calc(52px + env(safe-area-inset-top,0px));left:0;bottom:0;z-index:500;
       width:250px;transform:translateX(-100%);transition:transform .22s ease;
       box-shadow:3px 0 24px rgba(0,0,0,.35);
+      /* 26/08/2026 ("el menu del costado no permite scroll"): #sidebar
+         hereda overflow:hidden de la regla de desktop (ahí tiene sentido,
+         ese modo nunca desborda) -- en mobile, con Ortopedia desplegando
+         su lista larga de Apps, el menú fácilmente supera el alto
+         disponible y quedaba cortado sin forma de llegar a Importaciones
+         más abajo. */
+      overflow-y:auto;-webkit-overflow-scrolling:touch;
     }
     #sidebar.mobile-open{transform:translateX(0)}
     /* En mobile ignoramos el modo "colapsado a íconos" de desktop — si
@@ -167,8 +194,40 @@
     #sidebar.collapsed .sb-item,
     #sidebar.collapsed .sb-logout{justify-content:flex-start;padding:11px 17px}
     #sidebar.collapsed .sb-sesion-info{display:block}
+    /* mobile ignora el modo "sólo íconos" de desktop (ver comentario de
+       arriba) -- avatar/texto/engranaje se ven completos igual, aunque
+       haya quedado la clase .collapsed puesta desde una sesión de
+       escritorio previa. */
+    #sidebar.collapsed .sb-sesion-row{justify-content:flex-start}
+    #sidebar.collapsed .sb-sesion-texto,
+    #sidebar.collapsed .sb-sesion-gear{display:block}
+    #sidebar.collapsed .sb-sesion-gear{display:flex}
     .sb-item, .sb-logout{padding:14px 17px;font-size:14px} /* área táctil más grande */
   }
+
+  /* ── Configurar usuario (26/08/2026, "dejar la ruedita de Configurar
+     usuario para que pueda cambiar pass, avatar, etc"): mismo modal
+     "Mi Perfil" que ya existía adentro de Gestión de Talento, portado acá
+     al shell -- con el login unificado, cambiar la propia cuenta ya no
+     tiene sentido que dependa de entrar a un módulo puntual. Mismas
+     clases/estilos que allá, para que se sienta igual. ── */
+  .avatar{border-radius:50%;object-fit:cover;flex-shrink:0}
+  .avatar-fallback{display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+  .cu-overlay{position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:2000;display:none;align-items:center;justify-content:center;padding:20px}
+  .cu-card{background:#fff;border-radius:14px;padding:26px 24px;width:min(380px,90vw);text-align:left;position:relative;max-height:90vh;overflow:auto;box-sizing:border-box}
+  .cu-card h3{color:#1a3d70;font-size:15px;margin-bottom:2px}
+  .cu-card h4{color:#1a3d70;font-size:13px}
+  .cu-cerrar{position:absolute;top:8px;right:12px;border:none;background:none;font-size:20px;line-height:1;cursor:pointer;color:#999}
+  .cu-cerrar:hover{color:#555}
+  .cu-foto-fila{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+  .cu-card .form-field{margin-bottom:10px}
+  .cu-card .form-field label{display:block;font-size:11.5px;color:#666;margin-bottom:4px}
+  .cu-card .form-field input{width:100%;box-sizing:border-box;height:36px;border:1px solid #d6dbe3;border-radius:7px;padding:0 12px;font-size:12.5px}
+  .cu-card .btn-primary{border:1px solid #1a5fb4;background:#1a5fb4;color:#fff;border-radius:7px;padding:9px 18px;font-size:12.5px;font-weight:600;cursor:pointer}
+  .cu-card .btn-secondary{border:1px solid #ddd;background:#fff;color:#1a3d70;border-radius:7px;padding:7px 14px;font-size:12px;cursor:pointer}
+  .cu-card .msg{font-size:12px;margin-top:10px;padding:8px 10px;border-radius:6px;display:none}
+  .cu-card .msg.ok{display:block;background:#e9f8ef;color:#0f7a44}
+  .cu-card .msg.error{display:block;background:#fdecec;color:#c0422a}
 
   #panes{flex:1;position:relative;min-width:0}
   .pane{position:absolute;inset:0;display:none}
@@ -280,6 +339,13 @@
     .erp-kpis{grid-template-columns:repeat(2,1fr)}
     .erp-card h2{font-size:14px}
     #erpCanalPills > div{min-width:0;flex:1 1 calc(50% - 5px)} /* 2 por fila en vez de 5 apretadas */
+    /* 26/08/2026 ("el total del cuadro de arriba confunde al de abajo en
+       Mobile"): las 2 mitades de los gráficos de torta (período actual +
+       acumulado año) se apilan en mobile por el flex-wrap del contenedor
+       -- el borde/padding IZQUIERDO pensado para separarlas lado a lado
+       no sirve de nada apiladas (nada separa el total de arriba del
+       título de abajo). Se reemplaza por un borde/espacio ARRIBA. */
+    .erp-pie-half-right{border-left:none !important;padding-left:0 !important;border-top:1px solid #e6e8ee;padding-top:16px;margin-top:16px}
   }
   table.erp-table{width:100%;border-collapse:collapse;font-size:12px}
   table.erp-table th{position:sticky;top:0;background:#f0f3f7;color:#1a3d70;text-align:left;padding:8px 10px;font-weight:700;border-bottom:1px solid #dde3ea;white-space:nowrap}
@@ -428,6 +494,38 @@
     <div class="sb-sesion-info" id="sbSesionInfo"></div>
     <div class="sb-logout" onclick="doLogout()"><span class="sb-icon">⏻</span> <span class="sb-label">Cerrar sesión</span></div>
   </div>
+
+  <!-- 26/08/2026 ("Configurar usuario"): mismo modal "Mi Perfil" que ya
+       existía adentro de Gestión de Talento (avatar/teléfono/email +
+       cambio de contraseña), portado al shell -- ver abrirConfigUsuario()
+       más abajo. Para cuentas sin Persona propia (admin/gerente, ej. la
+       cuenta de transición icom/2026) sólo se ve el cambio de
+       contraseña, igual que allá. -->
+  <div class="cu-overlay" id="cuOverlay" onclick="if(event.target===this) cerrarConfigUsuario()">
+    <div class="cu-card">
+      <button type="button" class="cu-cerrar" onclick="cerrarConfigUsuario()" aria-label="Cerrar">×</button>
+      <h3 style="margin-bottom:16px">Configurar usuario</h3>
+      <div id="cuDatosPersona">
+        <div class="cu-foto-fila">
+          <div id="cuAvatarWrap"></div>
+          <div>
+            <label class="btn-secondary" style="cursor:pointer;margin:0">Cambiar foto<input type="file" id="cuFotoInput" accept="image/*" onchange="onCuFotoSeleccionada(event)" style="display:none"></label>
+            <button type="button" class="btn-secondary" id="btnQuitarCuFoto" onclick="quitarCuFoto()" style="display:none;margin-top:6px;margin-left:0">Quitar foto</button>
+          </div>
+        </div>
+        <div class="form-field"><label>Teléfono</label><input type="text" id="cuTelefono" placeholder="Ej. 11 2345-6789"></div>
+        <div class="form-field"><label>Email</label><input type="email" id="cuEmail" placeholder="Ej. nombre@icomsalud.com"></div>
+        <button type="button" class="btn-primary" style="width:100%;margin-top:8px" onclick="guardarCuPerfil()">Guardar cambios</button>
+        <div class="msg" id="cuMsg"></div>
+      </div>
+      <hr style="margin:18px 0;border:none;border-top:1px solid #e5e7eb">
+      <h4 style="margin:0 0 12px">Cambiar contraseña</h4>
+      <div class="form-field"><label>Contraseña actual</label><input type="password" id="cuPassActual" autocomplete="current-password"></div>
+      <div class="form-field"><label>Contraseña nueva</label><input type="password" id="cuPassNueva" autocomplete="new-password" placeholder="Mínimo 4 caracteres"></div>
+      <button type="button" class="btn-secondary" style="width:100%;margin-top:8px" onclick="cambiarCuPassword()">Cambiar contraseña</button>
+      <div class="msg" id="cuMsgPassword" style="display:none"></div>
+    </div>
+  </div>
   <div id="panes">
     <!-- "Ventas en Vivo"/"Dashboard" para las unidades de negocio que
          todavía no están conectadas a Oppen (ver switchChannel/CHANNELS y
@@ -468,7 +566,7 @@
               <h2>Peso por <span id="dashGroupLabelHoy"></span> — Hoy</h2>
               <div id="dashPieHoy"><span class="pm-empty">Cargando…</span></div>
             </div>
-            <div style="flex:1;min-width:280px;border-left:1px solid #e6e8ee;padding-left:16px">
+            <div class="erp-pie-half-right" style="flex:1;min-width:280px;border-left:1px solid #e6e8ee;padding-left:16px">
               <h2>Peso por <span id="dashGroupLabelAnio"></span> — Acumulado Año</h2>
               <div id="dashPieAnio"><span class="pm-empty">Cargando…</span></div>
             </div>
@@ -615,7 +713,7 @@
               <h2>Peso por Unidad de Negocio<span id="erpIcomPieChartPeriodo"></span></h2>
               <div id="erpIcomPieChart"></div>
             </div>
-            <div style="flex:1;min-width:280px;border-left:1px solid #e6e8ee;padding-left:16px">
+            <div class="erp-pie-half-right" style="flex:1;min-width:280px;border-left:1px solid #e6e8ee;padding-left:16px">
               <h2>Peso por Unidad de Negocio — Acumulado Año</h2>
               <div id="erpIcomYearPieChart"></div>
             </div>
@@ -1182,17 +1280,8 @@ async function showShell(){
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('appShell').classList.add('visible');
   // 26/08/2026 ("login unificado"): quién está logueado, ahora que el
-  // shell tiene una cuenta real -- textContent/DOM en vez de innerHTML
-  // con el nombre embebido, para no tener que sumar un escapeHtml()
-  // nuevo acá sólo para esto.
-  if(sesion){
-    const info = document.getElementById('sbSesionInfo');
-    info.innerHTML = '';
-    const b = document.createElement('b');
-    b.textContent = sesion.nombre || '';
-    info.appendChild(b);
-    info.appendChild(document.createTextNode(' · ' + (ROL_LABEL[sesion.rol] || sesion.rol)));
-  }
+  // shell tiene una cuenta real.
+  if(sesion) renderSbSesionInfo();
   try{
     if(localStorage.getItem('icom_sidebar_collapsed') === '1'){
       document.getElementById('sidebar').classList.add('collapsed');
@@ -1253,6 +1342,184 @@ async function showShell(){
   // erpAutoHealClosedMonths). Ahora espera activamente a que el iframe de
   // Seguimiento esté listo (no un timeout fijo que puede llegar tarde).
   erpAutoHealClosedMonths();
+}
+
+/* ── Configurar usuario (26/08/2026) -- avatar/teléfono/email + cambio de
+   contraseña de la propia cuenta logueada, mismo modal "Mi Perfil" que
+   ya existía adentro de Gestión de Talento, portado al shell (login
+   unificado: la identidad ya no depende de entrar a ese módulo puntual).
+   Cuentas sin Persona propia (admin/gerente, ej. la cuenta de
+   transición icom/2026) sólo ven el cambio de contraseña -- mismo
+   criterio que allá. ── */
+function cuEscapeHtml(s){
+  return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+function cuColorDeIniciales(nombre){
+  const PALETA = ['#2a78d6','#1baf7a','#eda100','#eb6834','#1a3d70','#0e7d5c','#a8760a','#b8491f'];
+  let hash = 0;
+  for(let i=0;i<(nombre||'').length;i++) hash = (hash*31 + nombre.charCodeAt(i)) % 997;
+  return PALETA[Math.abs(hash) % PALETA.length];
+}
+function cuInicialesDe(nombre){
+  const partes = (nombre||'').trim().split(/\s+/).filter(Boolean);
+  if(!partes.length) return '?';
+  return (partes[0][0] + (partes.length>1 ? partes[partes.length-1][0] : '')).toUpperCase();
+}
+function cuAvatarHtml(p, sizePx){
+  sizePx = sizePx || 32;
+  if(p.foto){
+    return '<img src="'+p.foto+'" class="avatar" style="width:'+sizePx+'px;height:'+sizePx+'px" alt="">';
+  }
+  const texto = cuInicialesDe(p.nombre);
+  return '<div class="avatar avatar-fallback" style="width:'+sizePx+'px;height:'+sizePx+'px;background:'+cuColorDeIniciales(p.nombre||'')+';font-size:'+Math.round(sizePx*0.4)+'px">'+cuEscapeHtml(texto)+'</div>';
+}
+// Redimensiona/comprime la foto elegida a 160x160 (crop centrado) en
+// JPEG calidad 0.75 antes de mandarla -- mismo criterio que Talento
+// (ver comprimirFoto en talento_app.html), así el data URL guardado en
+// Redis pesa unos pocos KB en vez de lo que pese la foto original.
+function cuComprimirFoto(file){
+  return new Promise((resolve, reject)=>{
+    const lector = new FileReader();
+    lector.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    lector.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('El archivo elegido no es una imagen válida.'));
+      img.onload = () => {
+        const lado = 160;
+        const canvas = document.createElement('canvas');
+        canvas.width = lado; canvas.height = lado;
+        const ctx = canvas.getContext('2d');
+        const escala = Math.max(lado/img.width, lado/img.height);
+        const w = img.width*escala, h = img.height*escala;
+        ctx.drawImage(img, (lado-w)/2, (lado-h)/2, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
+      };
+      img.src = lector.result;
+    };
+    lector.readAsDataURL(file);
+  });
+}
+
+function renderSbSesionInfo(){
+  if(!sesion) return;
+  const info = document.getElementById('sbSesionInfo');
+  info.innerHTML =
+    '<div class="sb-sesion-row">'
+    + '<div class="sb-sesion-avatar" id="sbSesionAvatar"></div>'
+    + '<div class="sb-sesion-texto"><b></b></div>'
+    + '<button type="button" class="sb-sesion-gear" onclick="abrirConfigUsuario()" title="Configurar usuario">⚙</button>'
+    + '</div>';
+  document.getElementById('sbSesionAvatar').innerHTML = cuAvatarHtml({nombre: sesion.nombre, foto: sesion.foto}, 28);
+  const b = info.querySelector('.sb-sesion-texto b');
+  b.textContent = sesion.nombre || '';
+  b.parentNode.appendChild(document.createTextNode(' · ' + (ROL_LABEL[sesion.rol] || sesion.rol)));
+}
+
+let cuFotoActual = undefined; // undefined = "no se tocó", '' = "se quitó"
+async function abrirConfigUsuario(){
+  document.getElementById('cuOverlay').style.display = 'flex';
+  document.getElementById('cuPassActual').value = '';
+  document.getElementById('cuPassNueva').value = '';
+  document.getElementById('cuMsgPassword').style.display = 'none';
+  cuFotoActual = undefined;
+  const tienePersona = !!(sesion && sesion.personaId);
+  document.getElementById('cuDatosPersona').style.display = tienePersona ? 'block' : 'none';
+  if(!tienePersona) return;
+  document.getElementById('cuAvatarWrap').innerHTML = cuAvatarHtml({nombre: sesion.nombre, foto: sesion.foto}, 64);
+  document.getElementById('btnQuitarCuFoto').style.display = sesion.foto ? 'inline-block' : 'none';
+  document.getElementById('cuTelefono').value = '';
+  document.getElementById('cuEmail').value = '';
+  document.getElementById('cuMsg').style.display = 'none';
+  // Trae teléfono/email/foto actuales -- el login no los manda (ver
+  // api/talento-login.js), sólo rol/personaId/nombre.
+  try{
+    const res = await fetch('/api/talento-data', { headers: { Authorization: 'Bearer ' + sesion.token } });
+    const j = await res.json().catch(()=>null);
+    if(res.ok && j && j.ok){
+      const persona = (j.personas || []).find(p => p.id === sesion.personaId);
+      if(persona){
+        document.getElementById('cuAvatarWrap').innerHTML = cuAvatarHtml(persona, 64);
+        document.getElementById('btnQuitarCuFoto').style.display = persona.foto ? 'inline-block' : 'none';
+        document.getElementById('cuTelefono').value = persona.telefono || '';
+        document.getElementById('cuEmail').value = persona.email || '';
+        if((persona.foto || '') !== (sesion.foto || '')){
+          sesion.foto = persona.foto || '';
+          sessionStorage.setItem(SESION_KEY, JSON.stringify(sesion));
+          renderSbSesionInfo();
+        }
+      }
+    }
+  }catch(e){}
+}
+function cerrarConfigUsuario(){
+  document.getElementById('cuOverlay').style.display = 'none';
+}
+async function onCuFotoSeleccionada(event){
+  const file = event.target.files && event.target.files[0];
+  if(!file) return;
+  const msg = document.getElementById('cuMsg');
+  msg.className = 'msg'; msg.style.display = 'none';
+  try{
+    cuFotoActual = await cuComprimirFoto(file);
+    document.getElementById('cuAvatarWrap').innerHTML = '<img src="'+cuFotoActual+'" class="avatar" style="width:64px;height:64px" alt="">';
+    document.getElementById('btnQuitarCuFoto').style.display = 'inline-block';
+  }catch(e){
+    msg.className = 'msg error'; msg.textContent = e.message; msg.style.display = 'block';
+  }
+  event.target.value = '';
+}
+function quitarCuFoto(){
+  cuFotoActual = '';
+  document.getElementById('cuFotoInput').value = '';
+  document.getElementById('cuAvatarWrap').innerHTML = cuAvatarHtml({nombre: sesion.nombre, foto: ''}, 64);
+  document.getElementById('btnQuitarCuFoto').style.display = 'none';
+}
+async function guardarCuPerfil(){
+  const telefono = document.getElementById('cuTelefono').value.trim();
+  const email = document.getElementById('cuEmail').value.trim();
+  const msg = document.getElementById('cuMsg');
+  msg.className = 'msg'; msg.style.display = 'none';
+  const payload = {telefono, email};
+  if(cuFotoActual !== undefined) payload.foto = cuFotoActual;
+  try{
+    const res = await fetch('/api/talento-guardar', {
+      method: 'POST', headers: {'Content-Type':'application/json', Authorization: 'Bearer ' + sesion.token},
+      body: JSON.stringify({action:'actualizarMiPerfil', payload}),
+    });
+    const j = await res.json().catch(()=>null);
+    if(!res.ok || !j || !j.ok) throw new Error((j && j.error) || 'No se pudo guardar.');
+    if(j.persona && (j.persona.foto || '') !== (sesion.foto || '')){
+      sesion.foto = j.persona.foto || '';
+      sessionStorage.setItem(SESION_KEY, JSON.stringify(sesion));
+      renderSbSesionInfo();
+    }
+    msg.className = 'msg ok'; msg.textContent = '✓ Perfil actualizado.'; msg.style.display = 'block';
+  }catch(e){
+    msg.className = 'msg error'; msg.textContent = e.message; msg.style.display = 'block';
+  }
+}
+async function cambiarCuPassword(){
+  const passwordActual = document.getElementById('cuPassActual').value;
+  const passwordNueva = document.getElementById('cuPassNueva').value;
+  const msg = document.getElementById('cuMsgPassword');
+  msg.className = 'msg'; msg.style.display = 'none';
+  if(!passwordActual || !passwordNueva){
+    msg.className = 'msg error'; msg.textContent = 'Completá tu contraseña actual y la nueva.'; msg.style.display = 'block';
+    return;
+  }
+  try{
+    const res = await fetch('/api/talento-usuarios', {
+      method: 'POST', headers: {'Content-Type':'application/json', Authorization: 'Bearer ' + sesion.token},
+      body: JSON.stringify({action:'cambiarMiPassword', payload:{passwordActual, passwordNueva}}),
+    });
+    const j = await res.json().catch(()=>null);
+    if(!res.ok || !j || !j.ok) throw new Error((j && j.error) || 'No se pudo cambiar la contraseña.');
+    document.getElementById('cuPassActual').value = '';
+    document.getElementById('cuPassNueva').value = '';
+    msg.className = 'msg ok'; msg.textContent = '✓ Contraseña actualizada.'; msg.style.display = 'block';
+  }catch(e){
+    msg.className = 'msg error'; msg.textContent = e.message; msg.style.display = 'block';
+  }
 }
 
 async function attemptLogin(){
