@@ -48,9 +48,13 @@
 // resultante, mismo criterio de "una persona en el medio" del resto
 // del módulo.
 
+// 26/08/2026 ("patron de redondeo 99"): el redondeo pasa de "al
+// múltiplo más cercano" (ej. $5.234 -> $5.000) a precios psicológicos
+// terminados en 99 (ej. $5.234 -> $4.999, con inc=1000) -- se redondea
+// al múltiplo más cercano de `inc` y se le resta 1.
 function round(v, inc) {
   if (v == null || !inc) return v;
-  return Math.round(v / inc) * inc;
+  return Math.round(v / inc) * inc - 1;
 }
 
 function mesActual() {
