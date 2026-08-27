@@ -67,7 +67,11 @@ async function consultarPrecioMeli(url) {
     });
     const data = await resp.json().catch(() => null);
     if (!data) return { ok: false, error: `El proxy de MercadoLibre respondió ${resp.status} sin JSON válido.` };
-    if (!data.ok) return { ok: false, error: data.error || 'No se pudo consultar el precio en MercadoLibre.' };
+    // 27/08/2026: el título viaja también en el caso de error (ej.
+    // "varios vendedores con precios distintos, no se puede elegir
+    // uno solo") -- sirve para confirmar que el producto identificado
+    // es el correcto aunque no haya un precio único que traer.
+    if (!data.ok) return { ok: false, error: data.error || 'No se pudo consultar el precio en MercadoLibre.', titulo: data.titulo || null };
     // 27/08/2026 ("porque trae 30mil", dudando si el precio encontrado
     // realmente corresponde al link cargado): el proxy YA devuelve el
     // título del ítem/producto que resolvió (ver route.ts de
@@ -325,7 +329,7 @@ module.exports = async function handler(req, res) {
   if (/mercadolibre\.com/i.test(url)) {
     const resultado = await consultarPrecioMeli(url);
     if (!resultado.ok) {
-      res.status(200).json({ ok: false, error: resultado.error });
+      res.status(200).json({ ok: false, error: resultado.error, titulo: resultado.titulo || null });
       return;
     }
     res.status(200).json({ ok: true, precio: resultado.precio, metodo: resultado.metodo, titulo: resultado.titulo || null });
