@@ -14,10 +14,16 @@ const redis = new Redis({
 
 const PREFIJO = 'alquileres';
 
+// 27/08/2026 ("no deja ingresar... límite de requests de Upstash
+// agotado"): mismo bug que _talento-store.js -- 1 GET suelto por cada
+// id de la colección en vez de 1 solo MGET por lote. `snapshot` es la
+// colección más grande acá (1 registro por producto Y por mes de
+// historial), así que era la que más pesaba de las 2 tiendas que
+// comparten esta misma base Redis.
 async function leerColeccion(coleccion) {
   const ids = await redis.smembers(`${PREFIJO}:${coleccion}:ids`);
   if (!ids || !ids.length) return [];
-  const valores = await Promise.all(ids.map(id => redis.get(`${PREFIJO}:${coleccion}:${id}`)));
+  const valores = await redis.mget(...ids.map(id => `${PREFIJO}:${coleccion}:${id}`));
   return valores.filter(Boolean);
 }
 

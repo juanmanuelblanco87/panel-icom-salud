@@ -38,10 +38,20 @@ const redis = new Redis({
 
 const PREFIJO = 'talento';
 
+// 27/08/2026 ("no deja ingresar... límite de requests de Upstash
+// agotado"): esta función hacía 1 SMEMBERS + 1 GET POR CADA id de la
+// colección (Promise.all de N gets sueltos) -- Upstash cuenta cada
+// comando como un request aparte, así que leer una colección de 500
+// items costaba 501 requests, no 1. Con el polling del chat cada 8s
+// (ver talento_app.html) leyendo usuario+persona+mensaje en cada
+// vuelta, esto escaló hasta agotar el límite mensual de la cuenta.
+// MGET es UN SOLO comando que trae N valores de una vez -- mismo
+// resultado, de 501 requests pasa a 2 (SMEMBERS + MGET) sin importar
+// cuántos items tenga la colección.
 async function leerColeccion(coleccion) {
   const ids = await redis.smembers(`${PREFIJO}:${coleccion}:ids`);
   if (!ids || !ids.length) return [];
-  const valores = await Promise.all(ids.map(id => redis.get(`${PREFIJO}:${coleccion}:${id}`)));
+  const valores = await redis.mget(...ids.map(id => `${PREFIJO}:${coleccion}:${id}`));
   return valores.filter(Boolean);
 }
 
