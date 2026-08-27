@@ -43,6 +43,12 @@ async function accionGuardarConfig(payload, solicitante) {
     // fórmula, ver _alquileres-formula.js).
     precioProductoNuevo: numOrNull(payload.precioProductoNuevo),
     linkProductoNuevo: payload.linkProductoNuevo ? String(payload.linkProductoNuevo).trim() : null,
+    // 27/08/2026 ("trae una imagen del producto miniatura extraida del
+    // MeLi producto nuevo"): URL de la foto, la trae el proxy de MeLi
+    // (ver alquileres-scrape.js) -- el cliente la guarda junto con el
+    // resto de la config cuando confirma "Guardar cambios", mismo
+    // patrón que precioProductoNuevo.
+    imagenProductoNuevo: payload.imagenProductoNuevo ? String(payload.imagenProductoNuevo).trim() : null,
     precioMercado: numOrNull(payload.precioMercado),
     linkMercado: payload.linkMercado ? String(payload.linkMercado).trim() : null,
     overrideManual: numOrNull(payload.overrideManual),

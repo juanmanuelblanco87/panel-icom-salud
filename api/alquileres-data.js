@@ -80,6 +80,7 @@ async function calcularProductos() {
       multiplicadorDeposito: config.multiplicadorDeposito ?? 1.5,
       precioProductoNuevo: config.precioProductoNuevo ?? null,
       linkProductoNuevo: config.linkProductoNuevo ?? null,
+      imagenProductoNuevo: config.imagenProductoNuevo ?? null,
       precioMercado: config.precioMercado ?? null,
       linkMercado: config.linkMercado ?? null,
       overrideManual: config.overrideManual ?? null,
