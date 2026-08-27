@@ -68,7 +68,14 @@ async function consultarPrecioMeli(url) {
     const data = await resp.json().catch(() => null);
     if (!data) return { ok: false, error: `El proxy de MercadoLibre respondió ${resp.status} sin JSON válido.` };
     if (!data.ok) return { ok: false, error: data.error || 'No se pudo consultar el precio en MercadoLibre.' };
-    return { ok: true, precio: data.precio, metodo: data.metodo || 'meli-api' };
+    // 27/08/2026 ("porque trae 30mil", dudando si el precio encontrado
+    // realmente corresponde al link cargado): el proxy YA devuelve el
+    // título del ítem/producto que resolvió (ver route.ts de
+    // ia40-dashboard), pero se descartaba acá -- no había forma de
+    // confirmar a simple vista que el precio traído era del producto
+    // correcto y no de otro ítem con el mismo id numérico por
+    // casualidad. Se lo pasa hasta el cliente para poder mostrarlo.
+    return { ok: true, precio: data.precio, metodo: data.metodo || 'meli-api', titulo: data.titulo || null };
   } catch (err) {
     const timeout = err && err.name === 'AbortError';
     return { ok: false, error: timeout ? 'El proxy de MercadoLibre tardó demasiado en responder.' : 'No se pudo conectar con el proxy de MercadoLibre.' };
@@ -321,7 +328,7 @@ module.exports = async function handler(req, res) {
       res.status(200).json({ ok: false, error: resultado.error });
       return;
     }
-    res.status(200).json({ ok: true, precio: resultado.precio, metodo: resultado.metodo });
+    res.status(200).json({ ok: true, precio: resultado.precio, metodo: resultado.metodo, titulo: resultado.titulo || null });
     return;
   }
 
