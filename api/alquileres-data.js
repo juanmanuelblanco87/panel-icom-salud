@@ -86,7 +86,14 @@ async function calcularProductos() {
     };
 
     const { sugerido, metodo, costoPorUso, margenPct, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho } = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, globals);
-    const deposito = sugerido != null ? Math.round(sugerido * (configEfectiva.multiplicadorDeposito || 0)) : null;
+    // 27/08/2026 ("los depositos el redondeo siempre termina en 000"):
+    // antes redondeaba al entero más cercano sin más -- como `sugerido`
+    // ya viene con el patrón psicológico "terminado en 99" (ver round()
+    // en _alquileres-formula.js), ese -1 se arrastraba al depósito
+    // (ej. sugerido=17.999 * 1.5 = 26.998,5 -> $26.999). El depósito no
+    // es un precio de venta, no tiene sentido que termine en 99 -- se
+    // redondea aparte, siempre al millar más cercano.
+    const deposito = sugerido != null ? Math.round((sugerido * (configEfectiva.multiplicadorDeposito || 0)) / 1000) * 1000 : null;
     const deltaPct = precioVigenteOppen && sugerido != null
       ? ((sugerido - precioVigenteOppen) / precioVigenteOppen) * 100
       : null;
