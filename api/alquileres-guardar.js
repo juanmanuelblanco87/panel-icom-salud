@@ -77,6 +77,12 @@ async function accionGuardarGlobals(payload, solicitante) {
     // producto), se suma al costo derivado del precio del nuevo antes
     // de aplicar el margen -- ver _alquileres-formula.js.
     costoAdministrativo: numOrNull(payload.costoAdministrativo) ?? 1000,
+    // 27/08/2026 ("no me gusta esta formula... el valor actual no
+    // debería pesar, mismo criterio para todos inicialmente, recién
+    // mes 2/3/4 corregir por inflación"): antes de este mínimo de
+    // meses, precioVigenteOppen NO compite como piso -- ver
+    // _alquileres-formula.js.
+    mesesMinInflacion: numOrNull(payload.mesesMinInflacion) ?? 3,
     actualizadoPor: { rol: solicitante.rol, usuario: solicitante.usuario },
     fecha: new Date().toISOString(),
   };

@@ -105,6 +105,19 @@ const COSTO_ADMINISTRATIVO_DEFAULT = 1000; // "dejalo con default 1000 pero edit
 const FRACCION_COSTO_DEL_NUEVO = 0.5; // "el costo es el 50% del precio de venta"
 const DESCUENTO_VS_COMPETENCIA = 0.10; // "quedemos siempre por debajo de la competencia, un 10%"
 const TOPE_PCT_DEL_NUEVO = 0.35; // "que el costo del alquiler no supere el 35% de lo que cuesta uno nuevo"
+// 27/08/2026 ("no me gusta esta formula... el valor actual no debería
+// pesar, deberíamos usar el mismo criterio para todos inicialmente, y
+// recién mes 2/3/4 corregir por inflación"): antes, CUALQUIER producto
+// con al menos 1 snapshot guardado (aunque sea de este mismo mes, 0
+// meses de antigüedad) ya competía con precioVigenteOppen -- el precio
+// que HOY tiene cargado en Oppen, sin ninguna lógica de costo/margen/
+// mercado detrás -- como un piso alternativo, muchas veces más alto
+// que costo+margen. 2 productos con el mismo costo y el mismo margen
+// objetivo podían terminar sugiriendo precios muy distintos (ej. caso
+// real: $8.999 vs $14.999) sólo porque uno tenía snapshot y el otro
+// no -- un escalón de golpe el día que al segundo le llega su primer
+// snapshot, sin que cambie nada del negocio.
+const MESES_MIN_DEFAULT = 3;
 
 // config: { usosMaximos, precioProductoNuevo, precioMercado, overrideManual }
 // precioVigenteOppen: number|null (derivado de Oppen, ver alquileres-data.js)
@@ -114,6 +127,7 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
   const redondeo = (g && g.redondeo) || 100;
   const gmObjetivoPct = (g && g.gmObjetivoPct != null) ? g.gmObjetivoPct : GM_DEFAULT_PCT;
   const costoAdministrativo = (g && g.costoAdministrativo != null) ? g.costoAdministrativo : COSTO_ADMINISTRATIVO_DEFAULT;
+  const mesesMinInflacion = (g && g.mesesMinInflacion != null) ? g.mesesMinInflacion : MESES_MIN_DEFAULT;
 
   // Juan Manuel, 25/08/2026 ("Agrega el costo y margen al lado de
   // periodo"): costoPorUso se calcula SIEMPRE (aunque el método
@@ -157,7 +171,15 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
     ? round(costoPorUso / (1 - gmObjetivoPct / 100), redondeo)
     : null;
 
-  const ajustadoInflacion = (precioVigenteOppen != null && mesesSinActualizar != null)
+  // 27/08/2026 ("mismo criterio para todos inicialmente, recién mes
+  // 2/3/4 corregir por inflación"): antes alcanzaba con
+  // mesesSinActualizar != null (0 meses ya calificaba) -- ahora hace
+  // falta al menos `mesesMinInflacion` meses de precio estable en
+  // Oppen para que ese precio vigente empiece a competir como piso.
+  // Con menos, TODOS los productos arrancan del mismo lugar (costo +
+  // margen objetivo), tengan o no snapshot todavía -- ver
+  // pisoCostoMargen arriba.
+  const ajustadoInflacion = (precioVigenteOppen != null && mesesSinActualizar != null && mesesSinActualizar >= mesesMinInflacion)
     ? round(precioVigenteOppen * (1 + inflacionCompuesta((g && g.monthlyPct) || 0, mesesSinActualizar)), redondeo)
     : null;
 
@@ -195,5 +217,5 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
 module.exports = {
   round, mesActual, mesesEntre, inflacionCompuesta,
   mesesDesdeUltimoCambioDePrecio, calcularSugerencia,
-  GM_DEFAULT_PCT,
+  GM_DEFAULT_PCT, MESES_MIN_DEFAULT,
 };

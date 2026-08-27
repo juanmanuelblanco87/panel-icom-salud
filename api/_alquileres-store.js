@@ -71,7 +71,10 @@ async function leerAlquileresGlobals() {
   // undefined.
   if (g && g.gmObjetivoPct == null) g.gmObjetivoPct = 50;
   if (g && g.costoAdministrativo == null) g.costoAdministrativo = 1000;
-  return g || { monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50, costoAdministrativo: 1000 };
+  // 27/08/2026 ("mismo criterio para todos inicialmente, recién mes
+  // 2/3/4 corregir por inflación"): mismo criterio de migración.
+  if (g && g.mesesMinInflacion == null) g.mesesMinInflacion = 3;
+  return g || { monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50, costoAdministrativo: 1000, mesesMinInflacion: 3 };
 }
 async function guardarAlquileresGlobals(g) {
   await redis.set(GLOBALS_KEY, g);
