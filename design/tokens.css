@@ -1,0 +1,45 @@
+/* ICOM Salud — tokens de diseño compartidos.
+   Fuente de verdad ÚNICA: este archivo. No se edita a mano en ningún
+   otro lugar -- se copia (verbatim, entre marcadores ICOM_TOKENS)
+   dentro del <style> del shell y de cada sub-app vía
+   scripts/sync_design_tokens.py. Correr ese script con --check antes
+   de cualquier commit que toque este archivo, para confirmar que los
+   9 archivos quedaron sincronizados.
+
+   Valores elegidos por uso real medido en el código existente (ver
+   auditoría de diseño, 26/08/2026), no inventados -- cada uno es el
+   valor que YA es mayoritario en la mayoría de las 9 pantallas. */
+:root{
+  /* Marca / acento */
+  --accent:#1a3d70;
+  --accent-hover:#14305a;
+
+  /* Semánticos */
+  --ok:#0F7A5A;
+  --ok-bg:#E8F5E9;
+  --warn:#a35b00;
+  --warn-bg:#FFF3E0;
+  --danger:#c0422a;
+  --danger-bg:#FBEAE8;
+
+  /* Texto y bordes (grises) */
+  --ink:#222222;
+  --muted:#999999;
+  --faint:#cccccc;
+  --line:#e0dfd8;
+  --line-input:#dddddd;
+
+  /* Radios */
+  --radius-sm:6px;
+  --radius-md:10px;
+  --radius-lg:16px;
+
+  /* Escala tipográfica */
+  --fs-xs:11px;
+  --fs-sm:12px;
+  --fs-base:13px;
+  --fs-md:14px;
+  --fs-lg:16px;
+  --fs-xl:20px;
+  --fs-2xl:28px;
+}

@@ -27,20 +27,68 @@
      la página, así que no hay ninguna carrera real con su carga async. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <style>
+/* ICOM_TOKENS:BEGIN -- generado desde design/tokens.css, no editar a mano, correr scripts/sync_design_tokens.py */
+/* ICOM Salud — tokens de diseño compartidos.
+   Fuente de verdad ÚNICA: este archivo. No se edita a mano en ningún
+   otro lugar -- se copia (verbatim, entre marcadores ICOM_TOKENS)
+   dentro del <style> del shell y de cada sub-app vía
+   scripts/sync_design_tokens.py. Correr ese script con --check antes
+   de cualquier commit que toque este archivo, para confirmar que los
+   9 archivos quedaron sincronizados.
+
+   Valores elegidos por uso real medido en el código existente (ver
+   auditoría de diseño, 26/08/2026), no inventados -- cada uno es el
+   valor que YA es mayoritario en la mayoría de las 9 pantallas. */
+:root{
+  /* Marca / acento */
+  --accent:#1a3d70;
+  --accent-hover:#14305a;
+
+  /* Semánticos */
+  --ok:#0F7A5A;
+  --ok-bg:#E8F5E9;
+  --warn:#a35b00;
+  --warn-bg:#FFF3E0;
+  --danger:#c0422a;
+  --danger-bg:#FBEAE8;
+
+  /* Texto y bordes (grises) */
+  --ink:#222222;
+  --muted:#999999;
+  --faint:#cccccc;
+  --line:#e0dfd8;
+  --line-input:#dddddd;
+
+  /* Radios */
+  --radius-sm:6px;
+  --radius-md:10px;
+  --radius-lg:16px;
+
+  /* Escala tipográfica */
+  --fs-xs:11px;
+  --fs-sm:12px;
+  --fs-base:13px;
+  --fs-md:14px;
+  --fs-lg:16px;
+  --fs-xl:20px;
+  --fs-2xl:28px;
+}
+/* ICOM_TOKENS:END */
+
   *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
   html,body{height:100%;background:#f7f6f2}
 
   /* ── LOGIN ── */
-  #loginScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#1a3d70;z-index:1000;padding:20px}
+  #loginScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--accent);z-index:1000;padding:20px}
   #loginScreen.hidden{display:none}
-  .login-box{background:#fff;border-radius:12px;padding:36px 32px;width:100%;max-width:320px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
+  .login-box{background:#fff;border-radius:var(--radius-lg);padding:36px 32px;width:100%;max-width:320px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
   .login-box img{height:60px;width:auto;margin-bottom:26px}
   .login-box p{font-size:12px;color:#999;margin-bottom:20px}
   .login-box input{width:100%;height:40px;border:1px solid #ddd;border-radius:7px;padding:0 12px;font-size:14px;margin-bottom:10px;outline:none;text-align:left}
-  .login-box input:focus{border-color:#1a3d70}
-  .login-box button{width:100%;height:42px;border:none;border-radius:7px;background:#1a3d70;color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:6px}
+  .login-box input:focus{border-color:var(--accent)}
+  .login-box button{width:100%;height:42px;border:none;border-radius:7px;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:6px}
   .login-box button:hover{background:#14305a}
-  .login-error{color:#c0422a;font-size:12px;margin-top:8px;display:none}
+  .login-error{color:var(--danger);font-size:12px;margin-top:8px;display:none}
 
   /* ── APP SHELL ── */
   #appShell{display:none;height:100vh}
@@ -216,20 +264,20 @@
   .avatar{border-radius:50%;object-fit:cover;flex-shrink:0}
   .avatar-fallback{display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
   .cu-overlay{position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:2000;display:none;align-items:center;justify-content:center;padding:20px}
-  .cu-card{background:#fff;border-radius:14px;padding:26px 24px;width:min(380px,90vw);text-align:left;position:relative;max-height:90vh;overflow:auto;box-sizing:border-box}
-  .cu-card h3{color:#1a3d70;font-size:15px;margin-bottom:2px}
-  .cu-card h4{color:#1a3d70;font-size:13px}
+  .cu-card{background:#fff;border-radius:var(--radius-lg);padding:26px 24px;width:min(380px,90vw);text-align:left;position:relative;max-height:90vh;overflow:auto;box-sizing:border-box}
+  .cu-card h3{color:var(--accent);font-size:15px;margin-bottom:2px}
+  .cu-card h4{color:var(--accent);font-size:13px}
   .cu-cerrar{position:absolute;top:8px;right:12px;border:none;background:none;font-size:20px;line-height:1;cursor:pointer;color:#999}
   .cu-cerrar:hover{color:#555}
   .cu-foto-fila{display:flex;align-items:center;gap:14px;margin-bottom:18px}
   .cu-card .form-field{margin-bottom:10px}
   .cu-card .form-field label{display:block;font-size:11.5px;color:#666;margin-bottom:4px}
   .cu-card .form-field input{width:100%;box-sizing:border-box;height:36px;border:1px solid #d6dbe3;border-radius:7px;padding:0 12px;font-size:12.5px}
-  .cu-card .btn-primary{border:1px solid #1a5fb4;background:#1a5fb4;color:#fff;border-radius:7px;padding:9px 18px;font-size:12.5px;font-weight:600;cursor:pointer}
-  .cu-card .btn-secondary{border:1px solid #ddd;background:#fff;color:#1a3d70;border-radius:7px;padding:7px 14px;font-size:12px;cursor:pointer}
+  .cu-card .btn-primary{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:7px;padding:9px 18px;font-size:12.5px;font-weight:600;cursor:pointer}
+  .cu-card .btn-secondary{border:1px solid #ddd;background:#fff;color:var(--accent);border-radius:7px;padding:7px 14px;font-size:12px;cursor:pointer}
   .cu-card .msg{font-size:12px;margin-top:10px;padding:8px 10px;border-radius:6px;display:none}
-  .cu-card .msg.ok{display:block;background:#e9f8ef;color:#0f7a44}
-  .cu-card .msg.error{display:block;background:#fdecec;color:#c0422a}
+  .cu-card .msg.ok{display:block;background:var(--ok-bg);color:var(--ok)}
+  .cu-card .msg.error{display:block;background:var(--danger-bg);color:var(--danger)}
 
   #panes{flex:1;position:relative;min-width:0}
   .pane{position:absolute;inset:0;display:none}
@@ -241,34 +289,34 @@
   #pane-productos{overflow:auto;background:#f7f6f2}
   .pm-wrap{max-width:1100px;margin:0 auto;padding:28px 32px 60px}
   .pm-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px}
-  .pm-header h1{font-size:19px;color:#1a3d70;font-weight:700}
+  .pm-header h1{font-size:19px;color:var(--accent);font-weight:700}
   .pm-header p{font-size:12.5px;color:#777;margin-top:3px}
-  .pm-status{font-size:12px;color:#0F7A5A;font-weight:600;background:#E8F5E9;border:1px solid #bfe3c3;border-radius:20px;padding:5px 12px;white-space:nowrap}
-  .pm-status.empty{color:#a35b00;background:#FFF3E0;border-color:#f3d5a6}
-  .pm-card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:20px 22px;margin-bottom:18px}
-  .pm-drop{border:2px dashed #b9c6da;border-radius:10px;padding:26px;text-align:center;cursor:pointer;transition:.15s;background:#fbfcfe}
+  .pm-status{font-size:12px;color:var(--ok);font-weight:600;background:var(--ok-bg);border:1px solid #bfe3c3;border-radius:20px;padding:5px 12px;white-space:nowrap}
+  .pm-status.empty{color:var(--warn);background:#FFF3E0;border-color:#f3d5a6}
+  .pm-card{background:#fff;border-radius:var(--radius-md);box-shadow:0 1px 4px rgba(0,0,0,.06);padding:20px 22px;margin-bottom:18px}
+  .pm-drop{border:2px dashed #b9c6da;border-radius:var(--radius-md);padding:26px;text-align:center;cursor:pointer;transition:.15s;background:#fbfcfe}
   .pm-drop:hover,.pm-drop.drag{border-color:#4a90d9;background:#eef5fc}
-  .pm-drop b{color:#1a3d70}
+  .pm-drop b{color:var(--accent)}
   .pm-drop input{display:none}
   .pm-hint{font-size:11.5px;color:#999;margin-top:10px;line-height:1.5}
   .pm-hint code{background:#eef1f5;padding:1px 5px;border-radius:4px;font-size:11px}
   .pm-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
   .pm-btn{border:1px solid #d6dbe3;background:#fff;color:#333;font-size:12.5px;font-weight:600;padding:9px 16px;border-radius:7px;cursor:pointer}
   .pm-btn:hover{background:#f2f4f7}
-  .pm-btn.primary{background:#1a3d70;border-color:#1a3d70;color:#fff}
+  .pm-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
   .pm-btn.primary:hover{background:#14305a}
-  .pm-btn.danger{color:#c0422a;border-color:#f0c4b8}
+  .pm-btn.danger{color:var(--danger);border-color:#f0c4b8}
   .pm-btn.danger:hover{background:#fdf0ed}
   .pm-msg{font-size:12.5px;margin-top:10px;padding:8px 12px;border-radius:6px;display:none}
-  .pm-msg.ok{display:block;background:#E8F5E9;color:#0F7A5A}
-  .pm-msg.err{display:block;background:#FBE9E7;color:#c0422a}
+  .pm-msg.ok{display:block;background:var(--ok-bg);color:var(--ok)}
+  .pm-msg.err{display:block;background:#FBE9E7;color:var(--danger)}
   .pm-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
   .pm-toolbar input[type=text]{flex:1;min-width:180px;height:36px;border:1px solid #d6dbe3;border-radius:7px;padding:0 12px;font-size:12.5px}
   .pm-toolbar select{height:36px;border:1px solid #d6dbe3;border-radius:7px;padding:0 8px;font-size:12.5px;background:#fff}
   .pm-count{font-size:11.5px;color:#999;white-space:nowrap}
   .pm-table-wrap{max-height:440px;overflow:auto;border:1px solid #eee;border-radius:8px}
   table.pm-table{width:100%;border-collapse:collapse;font-size:12px}
-  table.pm-table th{position:sticky;top:0;background:#f0f3f7;color:#1a3d70;text-align:left;padding:8px 10px;font-weight:700;border-bottom:1px solid #dde3ea;white-space:nowrap}
+  table.pm-table th{position:sticky;top:0;background:#f0f3f7;color:var(--accent);text-align:left;padding:8px 10px;font-weight:700;border-bottom:1px solid #dde3ea;white-space:nowrap}
   table.pm-table td{padding:7px 10px;border-bottom:1px solid #f1f1f1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
   table.pm-table tr:hover td{background:#fafbfd}
 
@@ -278,12 +326,12 @@
     .pm-drop{padding:18px}
   }
   .pm-badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700}
-  .pm-badge.activo{background:#E8F5E9;color:#0F7A5A}
-  .pm-badge.discontinuo{background:#FBE9E7;color:#c0422a}
-  .pm-badge.a-discontinuar{background:#FFF3E0;color:#a35b00}
+  .pm-badge.activo{background:var(--ok-bg);color:var(--ok)}
+  .pm-badge.discontinuo{background:#FBE9E7;color:var(--danger)}
+  .pm-badge.a-discontinuar{background:#FFF3E0;color:var(--warn)}
   .pm-badge.otro{background:#eee;color:#666}
   .pm-empty{padding:40px;text-align:center;color:#aaa;font-size:12.5px}
-  .pm-manual-badge{display:inline-block;color:#0F7A5A;font-size:11px;font-weight:700}
+  .pm-manual-badge{display:inline-block;color:var(--ok);font-size:11px;font-weight:700}
   table.pm-table td.pm-cell-acciones{overflow:visible;white-space:nowrap}
   table.pm-table td select, table.pm-table td input[type="text"]{font-size:12px;padding:3px 5px;border:1px solid #d6dbe3;border-radius:5px;max-width:100%}
 
@@ -291,35 +339,35 @@
   #pane-erp{overflow:auto;background:#f7f6f2}
   .erp-wrap{max-width:1100px;margin:0 auto;padding:28px 32px 60px}
   .erp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px}
-  .erp-header h1{font-size:19px;color:#1a3d70;font-weight:700}
+  .erp-header h1{font-size:19px;color:var(--accent);font-weight:700}
   .erp-header p{font-size:12.5px;color:#777;margin-top:3px}
   .erp-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:20px;padding:5px 12px;white-space:nowrap}
-  .erp-status.ok{color:#0F7A5A;background:#E8F5E9;border:1px solid #bfe3c3}
+  .erp-status.ok{color:var(--ok);background:var(--ok-bg);border:1px solid #bfe3c3}
   .erp-status.loading{color:#4a90d9;background:#EEF3FB;border:1px solid #c7dbf3}
-  .erp-status.err{color:#c0422a;background:#FBE9E7;border:1px solid #f0c4b8}
+  .erp-status.err{color:var(--danger);background:#FBE9E7;border:1px solid #f0c4b8}
   .erp-status.ok .erp-status-spin, .erp-status.err .erp-status-spin{display:none}
   /* 26/08/2026 (auditoría de diseño, "2 spinners de carga distintos
      en la misma pantalla"): este spinner chico (al lado de 💲/📦)
      usaba #4a90d9, un azul de acento que no aparece en ningún otro
      lado del shell -- el spinner grande de #erpFirstLoadOverlay, a
-     centímetros de distancia, ya usaba el navy de marca (#1a3d70).
+     centímetros de distancia, ya usaba el navy de marca (var(--accent)).
      Mismo significado ("cargando ERP"), mismo azul ahora -- el
      tamaño se deja como está porque son 2 contextos distintos (pill
      chico vs. banner), sólo el color desentonaba. */
-  .erp-status-spin{display:inline-block;width:10px;height:10px;border:2px solid rgba(26,61,112,.3);border-top-color:#1a3d70;border-radius:50%;animation:erpSpin .8s linear infinite;flex-shrink:0}
+  .erp-status-spin{display:inline-block;width:10px;height:10px;border:2px solid rgba(26,61,112,.3);border-top-color:var(--accent);border-radius:50%;animation:erpSpin .8s linear infinite;flex-shrink:0}
   /* Botones de rango rápido (Hoy/Ayer/Semana Act./Semana Ant.) y de
      ON-LINE/OFF-LINE: mismo look que .pm-btn.primary cuando están
      "activos" (el rango o el grupo de canales que se está viendo ahora). */
-  .erp-quickbtn-active{background:#1a3d70 !important;border-color:#1a3d70 !important;color:#fff !important}
+  .erp-quickbtn-active{background:var(--accent) !important;border-color:var(--accent) !important;color:#fff !important}
   /* Selector de rango de fechas: un único calendario emergente (en vez de 2
      inputs nativos de tipo date) — primer clic marca el inicio, segundo clic
      marca el fin (y aplica solo, sin botón "Aplicar" aparte). */
   .erp-daterange{position:relative;display:inline-block}
   .erp-daterange-popup{position:absolute;top:calc(100% + 6px);left:0;z-index:50;background:#fff;border:1px solid #d6dbe3;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.14);padding:12px;width:264px}
   .erp-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-  .erp-cal-head button{background:none;border:none;cursor:pointer;font-size:15px;color:#1a3d70;padding:2px 10px;border-radius:6px;font-weight:700}
+  .erp-cal-head button{background:none;border:none;cursor:pointer;font-size:15px;color:var(--accent);padding:2px 10px;border-radius:6px;font-weight:700}
   .erp-cal-head button:hover{background:#f2f4f7}
-  .erp-cal-title{font-size:13px;font-weight:700;color:#1a3d70;text-transform:capitalize}
+  .erp-cal-title{font-size:13px;font-weight:700;color:var(--accent);text-transform:capitalize}
   .erp-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
   .erp-cal-dow{font-size:10.5px;color:#999;font-weight:700;padding:4px 0}
   .erp-cal-day{font-size:12px;padding:6px 0;border-radius:6px;cursor:pointer;color:#333}
@@ -327,15 +375,15 @@
   .erp-cal-day.erp-cal-muted{color:#ccc;cursor:default}
   .erp-cal-day.erp-cal-muted:hover{background:none}
   .erp-cal-day.erp-cal-today{font-weight:700;text-decoration:underline}
-  .erp-cal-day.erp-cal-selected{background:#1a3d70;color:#fff;font-weight:700}
-  .erp-cal-day.erp-cal-inrange{background:#dce7f7;color:#1a3d70}
+  .erp-cal-day.erp-cal-selected{background:var(--accent);color:#fff;font-weight:700}
+  .erp-cal-day.erp-cal-inrange{background:#dce7f7;color:var(--accent)}
   .erp-cal-hint{font-size:10.5px;color:#999;margin-top:8px;text-align:center}
   .erp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:18px}
   .erp-kpi{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:16px 18px}
   .erp-kpi .lbl{font-size:11px;color:#999;text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px}
-  .erp-kpi .val{font-size:21px;font-weight:700;color:#1a3d70}
-  .erp-card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:20px 22px;margin-bottom:18px}
-  .erp-card h2{font-size:14px;color:#1a3d70;margin-bottom:12px}
+  .erp-kpi .val{font-size:21px;font-weight:700;color:var(--accent)}
+  .erp-card{background:#fff;border-radius:var(--radius-md);box-shadow:0 1px 4px rgba(0,0,0,.06);padding:20px 22px;margin-bottom:18px}
+  .erp-card h2{font-size:14px;color:var(--accent);margin-bottom:12px}
   .erp-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
   .erp-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
   .erp-toolbar input[type=text]{flex:1;min-width:180px;height:36px;border:1px solid #d6dbe3;border-radius:7px;padding:0 12px;font-size:12.5px}
@@ -385,7 +433,7 @@
     .erp-pie-half-right{border-left:none !important;padding-left:22px !important;margin-top:0;margin-bottom:18px}
   }
   table.erp-table{width:100%;border-collapse:collapse;font-size:12px}
-  table.erp-table th{position:sticky;top:0;background:#f0f3f7;color:#1a3d70;text-align:left;padding:8px 10px;font-weight:700;border-bottom:1px solid #dde3ea;white-space:nowrap}
+  table.erp-table th{position:sticky;top:0;background:#f0f3f7;color:var(--accent);text-align:left;padding:8px 10px;font-weight:700;border-bottom:1px solid #dde3ea;white-space:nowrap}
   table.erp-table td{padding:7px 10px;border-bottom:1px solid #f1f1f1;white-space:nowrap}
   table.erp-table td.num{text-align:right;font-variant-numeric:tabular-nums}
   table.erp-table th.num{text-align:right}
