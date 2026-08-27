@@ -986,14 +986,23 @@
         </div>
 
         <div class="erp-card" style="border:1px dashed #d6dbe3">
-          <h2 style="color:#888">🔧 Recuperar un mes cerrado desde el ERP</h2>
-          <p style="font-size:12px;color:#999;margin-bottom:10px">
-            Esto es una herramienta de <b>corrección puntual</b>, no algo para usar seguido — la sincronización del mes en curso ya es automática. Usala solo si un mes ya cerrado aparece vacío en Seguimiento (por ejemplo, la primera vez que se despliega un proyecto nuevo de Vercel, ya que cada uno arranca con su propio almacenamiento del navegador). Una vez recuperado, queda guardado — no hace falta repetirlo.
-          </p>
-          <div class="erp-actions">
-            <select id="erpBackfillMonthSelect"></select>
-            <button class="pm-btn" onclick="erpBackfillMonth()">⭳ Recuperar este mes</button>
-            <span class="erp-count" id="erpBackfillMsg"></span>
+          <!-- 27/08/2026 ("dejalo colapsado al final con un botoncito para
+               desplegar"): herramienta de corrección puntual, no algo que
+               se use seguido -- arranca cerrada para no competir con el
+               contenido real de la pantalla, el título entero es el
+               botón para desplegarla. -->
+          <h2 style="color:#888;cursor:pointer;display:flex;align-items:center;gap:6px;margin-bottom:0" onclick="toggleErpBackfillCard()">
+            <span id="erpBackfillToggleIcon" style="font-size:11px;transition:transform .15s">▸</span> 🔧 Recuperar un mes cerrado desde el ERP
+          </h2>
+          <div id="erpBackfillBody" style="display:none;margin-top:10px">
+            <p style="font-size:12px;color:#999;margin-bottom:10px">
+              Esto es una herramienta de <b>corrección puntual</b>, no algo para usar seguido — la sincronización del mes en curso ya es automática. Usala solo si un mes ya cerrado aparece vacío en Seguimiento (por ejemplo, la primera vez que se despliega un proyecto nuevo de Vercel, ya que cada uno arranca con su propio almacenamiento del navegador). Una vez recuperado, queda guardado — no hace falta repetirlo.
+            </p>
+            <div class="erp-actions">
+              <select id="erpBackfillMonthSelect"></select>
+              <button class="pm-btn" onclick="erpBackfillMonth()">⭳ Recuperar este mes</button>
+              <span class="erp-count" id="erpBackfillMsg"></span>
+            </div>
           </div>
         </div>
       </div>
@@ -3110,6 +3119,15 @@ let dashMonthlyPromise = null;
 let dashMonthlyProgress = { active:false, loaded:0, total:0 };
 let dashChartsRafId = null;
 
+// 27/08/2026 ("total en AR$ mensual pero en Millones, bien reducido...
+// ej. 33.167.222,56 = 33.2M"): 1 decimal, sin separador de miles, sin
+// el símbolo $ (el título del cuadro ya dice que es plata) -- pensado
+// para caber arriba de una columna angosta de 44px, no para reemplazar
+// erpFmtMoney en ningún otro lado.
+function dashFmtMillones(v){
+  return (v/1e6).toFixed(1)+'M';
+}
+
 function dashMonthlyCacheKey(channel, year, monthNum){
   return 'dash_mensual_v1_'+channel+'_'+year+'_'+String(monthNum).padStart(2,'0');
 }
@@ -3232,6 +3250,18 @@ function dashRenderMonthlyBarChart(){
   if(!container || !cfg) return;
   const monthlyData = dashMonthlyData[channel] || {};
   const topLabels = dashTopLabelsGlobal(monthlyData, 8);
+  // 27/08/2026 ("que vaya invirtiendo mes a mes los colores/vendedores no
+  // esta bueno... ordenar de mas pesado a menos pesado por el acumulado,
+  // manteniendo al vendedor arriba aunque en un mes puntual no haya sido
+  // el mas pesado"): topLabels YA viene ordenado por peso ACUMULADO del
+  // año (ver dashTopLabelsGlobal) -- antes se usaba sólo para elegir el
+  // top-8, y cada mes se re-ordenaba por SU PROPIO valor (rows.sort
+  // b[1]-a[1]), haciendo que la misma institución/vendedor saltara de
+  // posición mes a mes. Ahora el orden del stack es ese mismo orden
+  // global, fijo, para los 12 meses -- "Otros" siempre al final.
+  const ordenAcumulado = {};
+  topLabels.forEach((l,i)=>{ ordenAcumulado[l]=i; });
+  const ordenDe = lbl => ordenAcumulado[lbl] ?? (lbl==='Otros' ? 999 : 998);
   const now = new Date();
   const currentMonthNum = now.getMonth()+1;
   const barHeight = 160;
@@ -3242,14 +3272,14 @@ function dashRenderMonthlyBarChart(){
     const isFuture = monthNum > currentMonthNum;
     const isCurrent = monthNum === currentMonthNum;
     const byLabelRaw = monthlyData[mm];
-    if(isFuture || !byLabelRaw) return {label, isCurrent, isFuture, segments:null};
+    if(isFuture || !byLabelRaw) return {label, isCurrent, isFuture, segments:null, total:0};
     const byLabel = topLabels.length ? dashRebucketToTop(byLabelRaw, topLabels) : byLabelRaw;
     const rows = Object.entries(byLabel).filter(([,v])=>v>0);
     const total = rows.reduce((s,[,v])=>s+v,0);
-    const segments = total>0 ? rows.sort((a,b)=>b[1]-a[1]).map(([lbl,v])=>({
+    const segments = total>0 ? rows.sort((a,b)=>ordenDe(a[0])-ordenDe(b[0])).map(([lbl,v])=>({
       lbl, color: dashColorFor(lbl), frac: v/total, totalNeto: v,
     })) : [];
-    return {label, isCurrent, isFuture, segments};
+    return {label, isCurrent, isFuture, segments, total};
   });
 
   const columnsHtml = bars.map(b=>{
@@ -3270,7 +3300,15 @@ function dashRenderMonthlyBarChart(){
           + '</div>';
       }).join('');
     }
+    // 27/08/2026 ("coloca el total en AR$ mensual pero en Millones... ej.
+    // 33.167.222,56 = 33.2M"): total del mes, arriba de la barra -- sólo
+    // en meses con datos reales (no futuros, no vacíos), bien chico para
+    // no competir visualmente con los % de cada segmento.
+    const totalLabel = b.total>0
+      ? '<span style="font-size:10px;color:#888;font-weight:600">'+dashFmtMillones(b.total)+'</span>'
+      : '<span style="font-size:10px;color:transparent">—</span>';
     return '<div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:0">'
+      + totalLabel
       + '<div style="width:100%;max-width:44px;height:'+barHeight+'px;display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#f2f2ef">'
       + barInner
       + '</div>'
@@ -5251,6 +5289,14 @@ async function erpPushRowsClassifyOnly(rows){
   // persistir en IndexedDB, para que los SKU de años anteriores también
   // aparezcan solos, sin recargar la página.
   setTimeout(()=>{ erpRefreshCatalogViews(); }, 1500);
+}
+
+function toggleErpBackfillCard(){
+  const body = document.getElementById('erpBackfillBody');
+  const icon = document.getElementById('erpBackfillToggleIcon');
+  const abierto = body.style.display !== 'none';
+  body.style.display = abierto ? 'none' : 'block';
+  icon.style.transform = abierto ? '' : 'rotate(90deg)';
 }
 
 async function erpBackfillMonth(){
