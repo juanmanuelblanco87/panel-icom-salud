@@ -3516,8 +3516,15 @@ function dashRenderMonthlyBarChart(){
       + '</div>';
   }).join('');
 
+  // 28/08/2026 ("chequea porque quedo 2 veces Otros"): antes "Otros" era
+  // SIEMPRE un balde sintético aparte (dashRebucketToTop juntando la cola
+  // larga de instituciones/vendedores que no entraban en el top-8) --
+  // nunca coincidía con un label real de topLabels. Con Unidad de Negocio
+  // (Cirugía General) hay sólo 5 labels en total, así que "Otros" YA es
+  // uno de los labels reales dentro del top-8 -- se agregaba una 2da vez
+  // sin chequear si ya estaba.
   const usaOtros = bars.some(b=>b.segments && b.segments.some(s=>s.lbl==='Otros'));
-  const legendLabels = topLabels.length ? topLabels.concat(usaOtros ? ['Otros'] : []) : [];
+  const legendLabels = topLabels.length ? topLabels.concat((usaOtros && !topLabels.includes('Otros')) ? ['Otros'] : []) : [];
   const legend = legendLabels.map(lbl=>
     '<div style="display:flex;align-items:center;gap:6px">'
     + '<span style="width:11px;height:11px;border-radius:3px;background:'+dashColorFor(lbl)+';flex-shrink:0"></span>'
