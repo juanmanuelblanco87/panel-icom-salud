@@ -288,12 +288,22 @@ function validarCertificado(certificado) {
   if (f.length > CERTIFICADO_MAX_CHARS) throw httpError(400, { ok: false, error: 'El certificado es demasiado pesado -- probá con otro archivo.' });
   return f;
 }
-// Enfermedad y licencia por examen/estudio son las 2 figuras que
-// reconoce la LCT argentina (Art. 208-211 y Art. 158) -- "otro" queda
-// para cualquier otra novedad que no encaje ahí (con motivo en texto
-// libre). Sólo enfermedad/estudio piden certificado obligatorio.
-const MOTIVOS_LICENCIA = ['enfermedad', 'estudio', 'otro'];
-const MOTIVOS_LICENCIA_CON_CERTIFICADO = ['enfermedad', 'estudio'];
+// 28/08/2026 ("dejar un seleccionable de estos y quitar 'otros'"): la
+// lista fija reemplaza el motivo de texto libre "otro". Certificado
+// obligatorio para las 4 figuras con respaldo médico/legal real
+// (enfermedad y examen/estudio ya lo tenían por LCT Art. 208-211 y
+// Art. 158; se suman maternidad -- LCT Art. 177 -- y accidente
+// laboral -- constancia ART) -- el resto queda opcional, son
+// administrativas/discrecionales.
+//
+// "otro" YA NO es seleccionable (no está en esta lista, así que
+// validarMotivoLicencia lo rechaza en altas/ediciones nuevas), pero
+// las licencias viejas que ya tengan motivo:'otro' guardado siguen
+// existiendo y se siguen mostrando bien en la tabla/Excel -- sólo no
+// se pueden volver a editar sin elegir antes un motivo de la lista
+// nueva (efecto esperado, no un bug).
+const MOTIVOS_LICENCIA = ['enfermedad', 'maternidad', 'mudanza', 'estudio', 'cumpleanos', 'sin_goce', 'llegada_tarde', 'matrimonio', 'accidente_laboral'];
+const MOTIVOS_LICENCIA_CON_CERTIFICADO = ['enfermedad', 'estudio', 'maternidad', 'accidente_laboral'];
 
 async function accionCrearPersona(payload, solicitante) {
   if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
@@ -703,19 +713,16 @@ function validarFechasLicencia(fechaInicio, fechaFin) {
 // Separado de la validación del certificado: en una EDICIÓN, "requiere
 // certificado" tiene que poder cumplirse con el que YA estaba guardado
 // (si no se adjuntó uno nuevo), no sólo con lo que vino en este
-// payload puntual -- por eso esto sólo valida motivo/motivoOtroTexto,
-// y el chequeo de certificado obligatorio vive en cada acción, que sí
+// payload puntual -- por eso esto sólo valida motivo, y el chequeo de
+// certificado obligatorio vive en cada acción, que sí
 // sabe si hay un certificado previo que conservar.
 function validarMotivoLicencia(payload) {
-  const { motivo, motivoOtroTexto } = payload || {};
-  const errores = [];
-  if (!MOTIVOS_LICENCIA.includes(motivo)) errores.push('Elegí un motivo de licencia válido.');
-  if (motivo === 'otro' && (!motivoOtroTexto || !String(motivoOtroTexto).trim())) errores.push('Especificá el motivo.');
-  if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
+  const { motivo } = payload || {};
+  if (!MOTIVOS_LICENCIA.includes(motivo)) throw httpError(400, { ok: false, error: 'Elegí un motivo de licencia válido.' });
 }
 
 async function accionCrearLicencia(payload, solicitante) {
-  const { personaId, motivo, motivoOtroTexto, fechaInicio, fechaFin, certificado, comentario } = payload || {};
+  const { personaId, motivo, fechaInicio, fechaFin, certificado, comentario } = payload || {};
   const persona = await leerPersona(personaId);
   if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar licencias de esta persona.' });
@@ -730,7 +737,7 @@ async function accionCrearLicencia(payload, solicitante) {
 
   const licencia = {
     id: nuevoId('lic'), personaId, motivo,
-    motivoOtroTexto: motivo === 'otro' ? String(motivoOtroTexto).trim() : '',
+    motivoOtroTexto: '', // 28/08/2026: "otro" ya no es seleccionable -- se deja el campo vacío por compatibilidad con licencias viejas que sí lo usan.
     fechaInicio, fechaFin, dias, certificado: certificadoValidado || null,
     comentario: comentario ? String(comentario).trim() : '',
     cargadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
@@ -741,7 +748,7 @@ async function accionCrearLicencia(payload, solicitante) {
 }
 
 async function accionEditarLicencia(payload, solicitante) {
-  const { id, motivo, motivoOtroTexto, fechaInicio, fechaFin, certificado, comentario } = payload || {};
+  const { id, motivo, fechaInicio, fechaFin, certificado, comentario } = payload || {};
   const licencia = await leerLicencia(id);
   if (!licencia) throw httpError(404, { ok: false, error: 'La licencia no existe (puede que ya se haya eliminado).' });
   const persona = await leerPersona(licencia.personaId);
@@ -762,7 +769,7 @@ async function accionEditarLicencia(payload, solicitante) {
 
   const actualizada = {
     ...licencia, motivo,
-    motivoOtroTexto: motivo === 'otro' ? String(motivoOtroTexto).trim() : '',
+    motivoOtroTexto: '', // 28/08/2026: "otro" ya no es seleccionable -- ver accionCrearLicencia.
     fechaInicio, fechaFin, dias, certificado: certificadoFinal,
     comentario: comentario ? String(comentario).trim() : '',
   };
