@@ -2,8 +2,18 @@
 //
 // Tarea de mantenimiento (protegida por secret, mismo patrón que
 // api/actualizar-exhibiciones-venta-12m.js), pensada para correr UNA vez
-// por día vía una tarea programada externa (cron '0 9 * * *' = 9:00 UTC =
-// 6:00 Argentina -- Argentina no tiene horario de verano, siempre UTC-3).
+// por día vía un cron NATIVO de Vercel (ver "crons" en vercel.json, '0 9
+// * * *' = 9:00 UTC = 6:00 Argentina -- Argentina no tiene horario de
+// verano, siempre UTC-3).
+//
+// 28/08/2026 ("mueve esto a vercel que no depende de una maquina
+// abierta"): antes lo disparaba una tarea EXTERNA (o, más recientemente, un
+// scheduled task de Claude) que tenía que llamar esta URL en loop hasta
+// completo:true -- dependía de que esa máquina/sesión estuviera prendida y
+// llamando bien. Ahora Vercel Cron dispara la PRIMERA llamada solamente, y
+// cada invocación se auto-encadena a la siguiente (ver waitUntil/
+// dispararContinuacion más abajo) -- toda la cadena corre en la
+// infraestructura de Vercel, sin depender de nada externo.
 //
 // Juan Manuel, 03/08/2026: "El Stock se actualiza demasiado, quisiera que
 // solo se actualice 1 vez a la mañana (6:00 am) y que esta info este
@@ -74,9 +84,44 @@ const {
 const {
   leerFxOverride, escribirSnapshot, leerProgreso, escribirProgreso, borrarProgreso,
 } = require('./_stock-store');
+// 28/08/2026 ("mueve esto a vercel que no depende de una maquina abierta"):
+// waitUntil deja que una tarea de fondo (acá, el auto-llamado a la SIGUIENTE
+// página del escaneo) siga corriendo DESPUÉS de que la respuesta ya se envió
+// -- así cada invocación devuelve rápido (adentro de maxDuration) pero la
+// cadena entera sigue sola, sin que nada externo (ni una máquina abierta, ni
+// una tarea programada haciendo el loop) tenga que llamarla de nuevo.
+const { waitUntil } = require('@vercel/functions');
 
 const PROGRESO_STALE_MS = 3 * 60 * 60 * 1000; // 3 horas -- un progreso más viejo que esto se considera una corrida abandonada, se arranca de cero
 const LOCK_BUFFER_MS = 10_000; // margen sobre chunkMs para el lease del lock
+// Techo de seguridad para el auto-encadenado -- una corrida real completa
+// necesita ~40-90 eslabones (confirmado en vivo, 28/08/2026: 37 con
+// chunkMs=30000). 500 da margen de sobra para un catálogo mucho más grande
+// sin permitir que un bug real (oppen.io fallando siempre, por ejemplo)
+// encadene invocaciones para siempre.
+const CHAIN_MAX = 500;
+
+// Dispara la SIGUIENTE llamada a este mismo endpoint (mismo host, mismo
+// chunkMs) sin esperar su respuesta completa -- se usa adentro de
+// waitUntil() para que la invocación ACTUAL pueda responderle rápido a quien
+// la llamó (Vercel Cron, u otra invocación de la cadena) mientras la
+// cadena sigue sola de fondo.
+function dispararContinuacion(req, chunkMs) {
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const secret = process.env.STOCK_SYNC_MANUAL_SECRET || process.env.MAINTENANCE_SECRET;
+  const selfUrl = `https://${host}/api/actualizar-stock-diario?secret=${encodeURIComponent(secret || '')}&chunkMs=${chunkMs}`;
+  return fetch(selfUrl).then(() => {}).catch((e) => {
+    console.error('actualizar-stock-diario: fallo al auto-encadenar la siguiente llamada:', e);
+  });
+}
+
+function talVezEncadenar(state, req, chunkMs) {
+  if (state.chainCount <= CHAIN_MAX) {
+    waitUntil(dispararContinuacion(req, chunkMs));
+  } else {
+    console.error(`actualizar-stock-diario: se alcanzó el techo de auto-encadenado (${CHAIN_MAX}) sin terminar -- se corta acá, revisar manualmente (oppen.io puede estar fallando de forma persistente).`);
+  }
+}
 
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -89,7 +134,16 @@ module.exports = async function handler(req, res) {
     // se acepta TAMBIÉN un 2do secret exclusivo de este endpoint
     // (STOCK_SYNC_MANUAL_SECRET), para disparos manuales sin tocar nada
     // compartido. El original sigue funcionando igual que siempre.
-    const secretValido = secret && (secret === process.env.MAINTENANCE_SECRET || secret === process.env.STOCK_SYNC_MANUAL_SECRET);
+    //
+    // 28/08/2026 ("mueve esto a vercel"): además se acepta la convención
+    // NATIVA de Vercel Cron -- cuando existe la env var CRON_SECRET, Vercel
+    // agrega solo un header "Authorization: Bearer <CRON_SECRET>" en cada
+    // invocación real de un cron definido en vercel.json (nadie más puede
+    // producir ese header sin conocer el valor) -- así el cron de
+    // producción no necesita llevar ningún secret en la URL committeada.
+    const authHeader = req.headers['authorization'] || '';
+    const esVercelCron = !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
+    const secretValido = esVercelCron || (secret && (secret === process.env.MAINTENANCE_SECRET || secret === process.env.STOCK_SYNC_MANUAL_SECRET));
     if (!secretValido) {
       res.status(403).json({ ok: false, error: 'secret inválido o no configurado' });
       return;
@@ -124,9 +178,11 @@ module.exports = async function handler(req, res) {
         proveedorBySku: {},
         tieneDefaultProveedorBySku: {},
         fx: null,
+        chainCount: 0,
         startedAt: new Date().toISOString(),
       };
     }
+    state.chainCount = (state.chainCount || 0) + 1;
 
     // Lock por lease: si otra invocación ya está trabajando (lockedUntil en
     // el futuro), no tocamos nada -- ni oppen.io ni el progreso guardado --
@@ -156,6 +212,7 @@ module.exports = async function handler(req, res) {
       // volver a llamar) nunca choca contra su propio lock.
       state.lockedUntil = null;
       await escribirProgreso(state);
+      talVezEncadenar(state, req, chunkMs);
       res.status(200).json({
         ok: true,
         completo: false,
@@ -186,6 +243,7 @@ module.exports = async function handler(req, res) {
       if (r.completo) state.phase = 'item'; // ItemCost terminado -- la próxima llamada arranca Item (Sub-grupo)
       state.lockedUntil = null; // ver nota junto a la fase "stock" -- soltamos apenas termina este pedacito
       await escribirProgreso(state);
+      talVezEncadenar(state, req, chunkMs);
       res.status(200).json({
         ok: true,
         completo: false,
@@ -207,6 +265,7 @@ module.exports = async function handler(req, res) {
       if (r.completo) state.phase = 'supplieritem'; // Item terminado -- la próxima llamada arranca SupplierItem (Proveedor)
       state.lockedUntil = null;
       await escribirProgreso(state);
+      talVezEncadenar(state, req, chunkMs);
       res.status(200).json({
         ok: true,
         completo: false,
@@ -234,6 +293,7 @@ module.exports = async function handler(req, res) {
     if (!r.completo) {
       state.lockedUntil = null;
       await escribirProgreso(state);
+      talVezEncadenar(state, req, chunkMs);
       res.status(200).json({
         ok: true,
         completo: false,

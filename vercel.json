@@ -45,7 +45,8 @@
   },
   "crons": [
     { "path": "/api/talento-recordatorios", "schedule": "0 12 * * *" },
-    { "path": "/api/alquileres-snapshot", "schedule": "0 13 1 * *" }
+    { "path": "/api/alquileres-snapshot", "schedule": "0 13 1 * *" },
+    { "path": "/api/actualizar-stock-diario", "schedule": "0 9 * * *" }
   ],
   "rewrites": [
     { "source": "/", "destination": "/icom_panel_unificado.html" }

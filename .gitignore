@@ -1,0 +1,10 @@
+.vercel
+.env*
+# 28/08/2026: falta este .gitignore para node_modules -- agregado antes
+# de correr npm install local (para probar @vercel/functions/waitUntil
+# antes de pushear), mismo gap que ya se encontró y arregló en el
+# proyecto ia40-dashboard esta misma sesión. package-lock.json queda
+# AFUERA a propósito (no existía antes, Vercel hace npm install limpio
+# en cada build -- committearlo ahora cambiaría el modo de instalación
+# a npm ci, fuera de alcance de este cambio).
+node_modules/
