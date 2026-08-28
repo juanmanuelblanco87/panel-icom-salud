@@ -135,6 +135,19 @@ module.exports = async function handler(req, res) {
     });
     const itemCostData = itemCostRes.ok ? await itemCostRes.json() : { data: [], error: await itemCostRes.text().catch(() => '') };
 
+    // Ultima entidad que expone esta API (ver Swagger): Stock. ItemCost ya
+    // salio sin Proveedor/Sub-grupo -- se chequea esta tambien antes de
+    // concluir que ninguna de las 3 entidades de ICOMGENERAL lo tiene.
+    const stockParams = new URLSearchParams({
+      __limit__: '5',
+      __offset__: '0',
+      __total_records__: '1',
+    });
+    const stockRes = await fetch(`${BASE_URL}/Stock?${stockParams.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const stockData = stockRes.ok ? await stockRes.json() : { data: [], error: await stockRes.text().catch(() => '') };
+
     res.status(200).json({
       ok: true,
       nota: 'ENDPOINT TEMPORAL -- borrar api/oppen-diagnostico-subgrupo.js una vez encontrado el campo de Sub-grupo/Proveedor.',
@@ -144,6 +157,7 @@ module.exports = async function handler(req, res) {
       facturasMostradas: resultado.length,
       facturas: resultado,
       itemCostMuestra: itemCostData.data || itemCostData,
+      stockMuestra: stockData.data || stockData,
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: String((e && e.message) || e) });
