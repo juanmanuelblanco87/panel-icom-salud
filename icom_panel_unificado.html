@@ -280,6 +280,12 @@
   .cu-card .msg.ok{display:block;background:var(--ok-bg);color:var(--ok)}
   .cu-card .msg.error{display:block;background:var(--danger-bg);color:var(--danger)}
 
+  /* 28/08/2026 (pop-up de "hoy cumple años", ver chequearCumpleanosHoy()) */
+  .cumple-shell-titulo{font-weight:700;color:#7a3b12;font-size:var(--fs-lg);margin:14px 0 2px}
+  .cumple-shell-sub{font-size:var(--fs-sm);color:#8a5a3a;margin-bottom:18px}
+  .cumple-shell-acciones{display:flex;flex-direction:column;gap:8px}
+  .cumple-shell-acciones a,.cumple-shell-acciones button{display:block;width:100%;box-sizing:border-box;text-decoration:none;text-align:center}
+
   #panes{flex:1;position:relative;min-width:0}
   .pane{position:absolute;inset:0;display:none}
   .pane.active{display:block}
@@ -611,6 +617,14 @@
       <button type="button" class="btn-secondary" style="width:100%;margin-top:8px" onclick="cambiarCuPassword()">Cambiar contraseña</button>
       <div class="msg" id="cuMsgPassword" style="display:none"></div>
     </div>
+  </div>
+  <!-- 28/08/2026 ("cuando hay un cumpleaños en la app principal debería
+       aparecer un pop-up apenas ingresas"): mismo patrón visual que
+       #cuOverlay de arriba -- contenido armado por JS en
+       chequearCumpleanosHoy() (ver más abajo), llamada desde
+       showShell() sin bloquear el resto del arranque. -->
+  <div class="cu-overlay" id="cumpleShellOverlay" onclick="if(event.target===this) cerrarCumpleShellPopup()">
+    <div class="cu-card" style="text-align:center" id="cumpleShellCard"></div>
   </div>
   <div id="panes">
     <!-- "Ventas en Vivo"/"Dashboard" para las unidades de negocio que
@@ -1394,6 +1408,9 @@ async function showShell(){
   // 26/08/2026 ("login unificado"): quién está logueado, ahora que el
   // shell tiene una cuenta real.
   if(sesion) renderSbSesionInfo();
+  // 28/08/2026 ("pop-up apenas ingresas"): sin awaitear -- nunca debe
+  // demorar el resto del arranque del shell (ver chequearCumpleanosHoy).
+  chequearCumpleanosHoy();
   try{
     if(localStorage.getItem('icom_sidebar_collapsed') === '1'){
       document.getElementById('sidebar').classList.add('collapsed');
@@ -1484,6 +1501,69 @@ function cuAvatarHtml(p, sizePx){
   }
   const texto = cuInicialesDe(p.nombre);
   return '<div class="avatar avatar-fallback" style="width:'+sizePx+'px;height:'+sizePx+'px;background:'+cuColorDeIniciales(p.nombre||'')+';font-size:'+Math.round(sizePx*0.4)+'px">'+cuEscapeHtml(texto)+'</div>';
+}
+
+/* ── Pop-up de cumpleaños del día (28/08/2026, "cuando hay un
+   cumpleaños en la app principal debería aparecer un pop-up apenas
+   ingresas") -- misma fuente de datos que ya usa Gestión de Talento
+   para su tarjeta "hoy" (/api/talento-data), pero consultada acá para
+   que se vea apenas se entra al shell, no sólo si el usuario abre ese
+   módulo. `cumpleanos` no trae teléfono (deliberado, ver
+   api/talento-data.js) -- se cruza por id con `organigrama`, que sí lo
+   trae para los 4 roles (confirmado con el usuario: los datos básicos
+   de personal no son privados adentro de la empresa, ya se ven en el
+   organigrama/muro igual). Se llama desde showShell() sin awaitear --
+   nunca debe demorar ni romper el resto del arranque del shell. */
+async function chequearCumpleanosHoy(){
+  try{
+    if(!sesion || !sesion.token) return;
+    // 1 sola vez por pestaña por día -- "apenas ingresás" no es "en
+    // cada reload durante el mismo día".
+    const hoyStr = new Date().toISOString().slice(0,10);
+    if(sessionStorage.getItem('icom_cumple_popup_mostrado') === hoyStr) return;
+
+    const res = await fetch('/api/talento-data', { headers: { Authorization: 'Bearer ' + sesion.token } });
+    const j = await res.json().catch(()=>null);
+    if(!res.ok || !j || !j.ok) return;
+
+    const hoy = new Date();
+    const esHoy = (fecha) => {
+      if(!fecha) return false;
+      const d = new Date(fecha+'T00:00:00');
+      return d.getMonth() === hoy.getMonth() && d.getDate() === hoy.getDate();
+    };
+    const cumpleHoy = (j.cumpleanos || []).filter(p => esHoy(p.fechaNacimiento));
+    if(!cumpleHoy.length) return;
+
+    const telefonoPorId = {};
+    (j.organigrama || []).forEach(p => { telefonoPorId[p.id] = p.telefono || ''; });
+
+    sessionStorage.setItem('icom_cumple_popup_mostrado', hoyStr);
+    mostrarCumpleShellPopup(cumpleHoy.map(p => Object.assign({}, p, { telefono: telefonoPorId[p.id] || '' })));
+  }catch(e){ /* nunca rompe el arranque del shell por esto */ }
+}
+function mostrarCumpleShellPopup(personas){
+  const filas = personas.map(p => {
+    const telLimpio = (p.telefono || '').replace(/[^\d+]/g, '');
+    const acciones = telLimpio
+      ? '<a class="btn-secondary" href="tel:'+telLimpio+'">📞 Llamar</a>'
+        + '<a class="btn-secondary" href="https://wa.me/'+telLimpio.replace(/^\+/,'')+'" target="_blank" rel="noopener">💬 WhatsApp</a>'
+      : '';
+    return '<div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #eee">'
+      + '<div style="display:flex;justify-content:center">'+cuAvatarHtml(p, 64)+'</div>'
+      + '<div class="cumple-shell-titulo" style="font-size:var(--fs-md);margin:10px 0 2px">🎉 '+cuEscapeHtml(p.nombre)+'</div>'
+      + (acciones ? '<div class="cumple-shell-acciones" style="margin-top:8px">'+acciones+'</div>' : '')
+      + '</div>';
+  }).join('');
+  document.getElementById('cumpleShellCard').innerHTML = ''
+    + '<button type="button" class="cu-cerrar" onclick="cerrarCumpleShellPopup()" aria-label="Cerrar">×</button>'
+    + '<div class="cumple-shell-titulo">🎉 ¡Hoy '+(personas.length>1?'cumplen años':'cumple años')+'!</div>'
+    + filas
+    + '<button type="button" class="btn-secondary" style="width:100%" onclick="cerrarCumpleShellPopup()">Cerrar</button>';
+  document.getElementById('cumpleShellOverlay').style.display = 'flex';
+}
+function cerrarCumpleShellPopup(){
+  document.getElementById('cumpleShellOverlay').style.display = 'none';
 }
 // Redimensiona/comprime la foto elegida a 160x160 (crop centrado) en
 // JPEG calidad 0.75 antes de mandarla -- mismo criterio que Talento
