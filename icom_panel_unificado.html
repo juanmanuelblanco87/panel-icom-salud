@@ -280,11 +280,28 @@
   .cu-card .msg.ok{display:block;background:var(--ok-bg);color:var(--ok)}
   .cu-card .msg.error{display:block;background:var(--danger-bg);color:var(--danger)}
 
-  /* 28/08/2026 (pop-up de "hoy cumple años", ver chequearCumpleanosHoy()) */
-  .cumple-shell-titulo{font-weight:700;color:#7a3b12;font-size:var(--fs-lg);margin:14px 0 2px}
+  /* 28/08/2026 (pop-up de "hoy cumple años", ver chequearCumpleanosHoy())
+     -- 2da vuelta: "adaptar este formato al pop-up", el afiche verde
+     con globos/banderines que ya sube RR.HH. a mano para saludar.
+     Reusa var(--ok), el verde que YA es el token de la marca en este
+     sistema de diseño (no un verde inventado para esto). Los globos
+     son emoji posicionados con CSS -- recrear el ilustración vectorial
+     completa del afiche no vale la pena acá, la idea (marca + verde +
+     fiesta) se traslada igual sin esa complejidad. */
+  .cumple-shell-card{background:linear-gradient(180deg,#eafaf1 0%,#fff 60%);position:relative;overflow:hidden}
+  .cumple-shell-globo{position:absolute;font-size:34px;opacity:.9;pointer-events:none}
+  .cumple-shell-globo.g1{top:-6px;left:-8px;transform:rotate(-18deg)}
+  .cumple-shell-globo.g2{top:-10px;right:-6px;transform:rotate(16deg) scaleX(-1)}
+  .cumple-shell-avatar-wrap{display:flex;justify-content:center;margin-top:6px}
+  .cumple-shell-avatar-wrap .avatar,.cumple-shell-avatar-wrap .avatar-fallback{border:4px solid #fff;box-shadow:0 0 0 3px var(--ok)}
+  .cumple-shell-titulo{font-weight:800;color:var(--ok);font-size:21px;letter-spacing:.01em;margin:14px 0 0;position:relative;z-index:1}
+  .cumple-shell-nombre{font-weight:800;color:#155e42;font-size:19px;margin:0 0 14px}
+  .cumple-shell-fecha{display:inline-block;background:var(--ok);color:#fff;font-weight:700;font-size:var(--fs-sm);padding:6px 20px;border-radius:4px;margin-bottom:18px;letter-spacing:.02em}
   .cumple-shell-sub{font-size:var(--fs-sm);color:#8a5a3a;margin-bottom:18px}
   .cumple-shell-acciones{display:flex;flex-direction:column;gap:8px}
   .cumple-shell-acciones a,.cumple-shell-acciones button{display:block;width:100%;box-sizing:border-box;text-decoration:none;text-align:center}
+  .cumple-shell-marca{margin-top:18px;display:flex;justify-content:center;align-items:center;opacity:.85}
+  .cumple-shell-marca img{height:28px;width:auto}
 
   #panes{flex:1;position:relative;min-width:0}
   .pane{position:absolute;inset:0;display:none}
@@ -624,7 +641,7 @@
        chequearCumpleanosHoy() (ver más abajo), llamada desde
        showShell() sin bloquear el resto del arranque. -->
   <div class="cu-overlay" id="cumpleShellOverlay" onclick="if(event.target===this) cerrarCumpleShellPopup()">
-    <div class="cu-card" style="text-align:center" id="cumpleShellCard"></div>
+    <div class="cu-card cumple-shell-card" style="text-align:center" id="cumpleShellCard"></div>
   </div>
   <div id="panes">
     <!-- "Ventas en Vivo"/"Dashboard" para las unidades de negocio que
@@ -1542,24 +1559,40 @@ async function chequearCumpleanosHoy(){
     mostrarCumpleShellPopup(cumpleHoy.map(p => Object.assign({}, p, { telefono: telefonoPorId[p.id] || '' })));
   }catch(e){ /* nunca rompe el arranque del shell por esto */ }
 }
+// 28/08/2026 ("puedes adaptar este formato al pop-up?" -- el afiche
+// verde con globos/banderines que ya sube RR.HH. a mano para saludar
+// por cumpleaños): mismos elementos (título arriba, nombre grande,
+// foto circular con marco, fecha en cinta verde, logo abajo), sin
+// intentar clonar la ilustración vectorial completa -- ver comentario
+// del CSS (.cumple-shell-card) sobre por qué.
 function mostrarCumpleShellPopup(personas){
-  const filas = personas.map(p => {
+  const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const hoy = new Date();
+  const fechaTexto = hoy.getDate()+' de '+MESES[hoy.getMonth()];
+  const bloques = personas.map(p => {
     const telLimpio = (p.telefono || '').replace(/[^\d+]/g, '');
     const acciones = telLimpio
       ? '<a class="btn-secondary" href="tel:'+telLimpio+'">📞 Llamar</a>'
         + '<a class="btn-secondary" href="https://wa.me/'+telLimpio.replace(/^\+/,'')+'" target="_blank" rel="noopener">💬 WhatsApp</a>'
       : '';
-    return '<div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #eee">'
-      + '<div style="display:flex;justify-content:center">'+cuAvatarHtml(p, 64)+'</div>'
-      + '<div class="cumple-shell-titulo" style="font-size:var(--fs-md);margin:10px 0 2px">🎉 '+cuEscapeHtml(p.nombre)+'</div>'
-      + (acciones ? '<div class="cumple-shell-acciones" style="margin-top:8px">'+acciones+'</div>' : '')
+    return '<div style="margin-bottom:18px">'
+      + '<div class="cumple-shell-nombre">'+cuEscapeHtml(p.nombre)+'</div>'
+      + '<div class="cumple-shell-avatar-wrap">'+cuAvatarHtml(p, 96)+'</div>'
+      + '<div style="margin-top:14px"><span class="cumple-shell-fecha">'+fechaTexto+'</span></div>'
+      + (acciones ? '<div class="cumple-shell-acciones">'+acciones+'</div>' : '')
       + '</div>';
-  }).join('');
+  }).join('<hr style="margin:2px 0 20px;border:none;border-top:1px dashed #cde8d8">');
+  // Reusa el logo REAL ya cargado en el sidebar (mismo <img>, sin
+  // duplicar el data URI) en vez de un texto/logo aparte.
+  const logoImg = document.querySelector('.sb-logo-wrap img');
+  const marcaHtml = logoImg ? '<div class="cumple-shell-marca"><img src="'+logoImg.src+'" alt="IcomSalud"></div>' : '';
   document.getElementById('cumpleShellCard').innerHTML = ''
     + '<button type="button" class="cu-cerrar" onclick="cerrarCumpleShellPopup()" aria-label="Cerrar">×</button>'
-    + '<div class="cumple-shell-titulo">🎉 ¡Hoy '+(personas.length>1?'cumplen años':'cumple años')+'!</div>'
-    + filas
-    + '<button type="button" class="btn-secondary" style="width:100%" onclick="cerrarCumpleShellPopup()">Cerrar</button>';
+    + '<span class="cumple-shell-globo g1">🎈</span><span class="cumple-shell-globo g2">🎈</span>'
+    + '<div class="cumple-shell-titulo">🎉 ¡Feliz Cumpleaños!</div>'
+    + bloques
+    + '<button type="button" class="btn-secondary" style="width:100%" onclick="cerrarCumpleShellPopup()">Cerrar</button>'
+    + marcaHtml;
   document.getElementById('cumpleShellOverlay').style.display = 'flex';
 }
 function cerrarCumpleShellPopup(){
