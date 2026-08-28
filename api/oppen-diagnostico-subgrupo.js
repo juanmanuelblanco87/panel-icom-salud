@@ -158,26 +158,49 @@ module.exports = async function handler(req, res) {
     // poder usarlas en producción (ver comentario grande en
     // api/oppen-invoices.js sobre por qué se migró de ICOM a ICOMGENERAL).
     const ICOM_BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOM';
-    let icomTenant = { error: null, supplierMuestra: null, supplierItemMuestra: null };
+    let icomTenant = { error: null, icomAuthRaw: null, supplierMuestra: null, supplierItemMuestra: null };
+    let icomTenantConMismoToken = { supplierMuestra: null, supplierItemMuestra: null };
     try {
+      // 28/08/2026 ("por 1 me dice que no es necesario, sirve el mismo
+      // token"): 2 intentos en paralelo -- (a) pedir un token NUEVO
+      // autenticando contra /ICOM/authenticate (lo que se intentó antes), y
+      // (b) reusar el token YA obtenido de /ICOMGENERAL/authenticate (el
+      // `token` de arriba) para pegarle a las rutas de /ICOM/. El 401
+      // anterior puede haber sido por (a) fallando en silencio (token
+      // undefined en el header) en vez de un tema de permisos real -- esto
+      // lo distingue.
       const icomAuthRes = await fetch(`${ICOM_BASE_URL}/authenticate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: process.env.OPPEN_USER_API, password: process.env.OPPEN_PASS_API }),
       });
-      if (!icomAuthRes.ok) {
-        icomTenant.error = `authenticate (${icomAuthRes.status}): ` + (await icomAuthRes.text().catch(() => ''));
-      } else {
-        const icomAuthData = await icomAuthRes.json();
-        const icomToken = icomAuthData.token;
-        const commonParams = new URLSearchParams({ __limit__: '5', __offset__: '0', __total_records__: '1' });
+      const icomAuthRaw = await icomAuthRes.text();
+      icomTenant.icomAuthRaw = { status: icomAuthRes.status, body: icomAuthRaw.slice(0, 500) };
+      let icomToken = null;
+      if (icomAuthRes.ok) {
+        try { icomToken = JSON.parse(icomAuthRaw).token || null; } catch (e) { /* body no era JSON valido, queda null */ }
+      }
+      const commonParams = new URLSearchParams({ __limit__: '5', __offset__: '0', __total_records__: '1' });
+
+      if (icomToken) {
         const [supRes, supItemRes] = await Promise.all([
           fetch(`${ICOM_BASE_URL}/Supplier?${commonParams.toString()}`, { headers: { Authorization: `Bearer ${icomToken}` } }),
           fetch(`${ICOM_BASE_URL}/SupplierItem?${commonParams.toString()}`, { headers: { Authorization: `Bearer ${icomToken}` } }),
         ]);
         icomTenant.supplierMuestra = supRes.ok ? (await supRes.json()).data : `error ${supRes.status}: ` + (await supRes.text().catch(() => ''));
         icomTenant.supplierItemMuestra = supItemRes.ok ? (await supItemRes.json()).data : `error ${supItemRes.status}: ` + (await supItemRes.text().catch(() => ''));
+      } else {
+        icomTenant.error = 'No se obtuvo token nuevo del tenant ICOM -- ver icomAuthRaw.';
       }
+
+      // Intento (b): el token de ICOMGENERAL (`token`, ya obtenido arriba)
+      // pegandole a las rutas de /ICOM/.
+      const [supRes2, supItemRes2] = await Promise.all([
+        fetch(`${ICOM_BASE_URL}/Supplier?${commonParams.toString()}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${ICOM_BASE_URL}/SupplierItem?${commonParams.toString()}`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      icomTenantConMismoToken.supplierMuestra = supRes2.ok ? (await supRes2.json()).data : `error ${supRes2.status}: ` + (await supRes2.text().catch(() => ''));
+      icomTenantConMismoToken.supplierItemMuestra = supItemRes2.ok ? (await supItemRes2.json()).data : `error ${supItemRes2.status}: ` + (await supItemRes2.text().catch(() => ''));
     } catch (e) {
       icomTenant.error = String((e && e.message) || e);
     }
@@ -193,6 +216,7 @@ module.exports = async function handler(req, res) {
       itemCostMuestra: itemCostData.data || itemCostData,
       stockMuestra: stockData.data || stockData,
       tenantICOM: icomTenant,
+      tenantICOMConMismoTokenDeICOMGENERAL: icomTenantConMismoToken,
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: String((e && e.message) || e) });
