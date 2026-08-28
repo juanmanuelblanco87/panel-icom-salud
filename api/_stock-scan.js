@@ -290,14 +290,26 @@ async function fetchItemPage(token, offset, limit) {
 }
 
 // 28/08/2026 ("Proveedor es un dato que viene en la factura de OPPEN,
-// chequea" -- confirmado que en realidad NO viene en la factura, sino en 2
+// chequea" -- confirmado que en realidad NO viene en la factura, sino en
 // entidades nuevas del catálogo que Juan Manuel agregó al Swagger de
 // ICOMGENERAL): Item es el maestro de artículos (1 fila por SKU, Code =
 // ArtCode) -- trae ItemSubGroup, confirmado con datos reales como el campo
-// real de "Sub-grupo" (ver endpoint de diagnóstico, ya borrado). Mismo
-// patrón retomable que escanearItemCostCompleto.
+// real de "Sub-grupo" (ver endpoint de diagnóstico, ya borrado).
+//
+// 28/08/2026 (2da vuelta -- "SERVASP tiene Proveedor asignado... sin
+// embargo lo cataloga como sin categorizar"): confirmado con la ficha real
+// del artículo en oppen.io que Proveedor TAMBIÉN vive acá directo (campo
+// SupCode, código de proveedor -- ej. "P1025"), NO solo en SupplierItem.
+// Un ítem tipo "Servicio" como SERVASP nunca generó fila en SupplierItem
+// (esa tabla es más de compras/histórico de precios que "el proveedor de
+// este ítem"), pero sí tiene SupCode cargado acá. Se captura como
+// RESPALDO -- ver el merge final en actualizar-stock-diario.js, que
+// prioriza SupplierItem cuando existe y cae acá si no. SupCode es un
+// CÓDIGO, no un nombre -- se resuelve contra Supplier (ver
+// escanearSupplierCompleto más abajo) recién en el merge final.
+// Mismo patrón retomable que escanearItemCostCompleto.
 async function escanearItemCompleto({
-  startTime, maxMs, startOffset = 0, subgrupoBySku = {},
+  startTime, maxMs, startOffset = 0, subgrupoBySku = {}, supCodeBySku = {},
 }) {
   const token = await getToken();
   let offset = startOffset;
@@ -321,13 +333,64 @@ async function escanearItemCompleto({
       const sku = cleanSku(row.Code);
       const subgrupo = String(row.ItemSubGroup || '').trim();
       if (subgrupo) subgrupoBySku[sku] = subgrupo;
+      const supCode = String(row.SupCode || '').trim();
+      if (supCode) supCodeBySku[sku] = supCode;
     }
     hasMore = !!page.has_more;
     offset += 500;
     pages++;
   }
   return {
-    subgrupoBySku, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
+    subgrupoBySku, supCodeBySku, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
+  };
+}
+
+async function fetchSupplierPage(token, offset, limit) {
+  const params = new URLSearchParams({ __limit__: String(limit), __offset__: String(offset) });
+  const res = await fetch(`${BASE_URL}/Supplier?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) { cachedToken = null; throw new Error('Token rechazado por oppen.io (401) consultando Supplier.'); }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Error consultando Supplier (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+// Maestro de proveedores (Code -> Name), necesario para resolver
+// Item.SupCode (ver escanearItemCompleto arriba) a un nombre legible. El
+// catálogo de proveedores es chico (cientos, no miles) -- termina rápido.
+async function escanearSupplierCompleto({
+  startTime, maxMs, startOffset = 0, nombreBySupCode = {},
+}) {
+  const token = await getToken();
+  let offset = startOffset;
+  let hasMore = true;
+  let pages = 0;
+  let recordsProcessed = 0;
+  const MAX_PAGES = 50;
+
+  while (hasMore && pages < MAX_PAGES) {
+    if (Date.now() - startTime > maxMs) break;
+    let page;
+    try {
+      page = await fetchSupplierPage(token, offset, 500);
+    } catch (e) {
+      console.error('escanearSupplierCompleto: error de página en offset ' + offset + ', se corta acá (se reintenta desde el mismo offset en la próxima llamada):', e);
+      break;
+    }
+    const rawRows = page.data || [];
+    for (const row of rawRows) {
+      recordsProcessed++;
+      const code = String(row.Code || '').trim();
+      const nombre = String(row.Name || '').trim();
+      if (code && nombre) nombreBySupCode[code] = nombre;
+    }
+    hasMore = !!page.has_more;
+    offset += 500;
+    pages++;
+  }
+  return {
+    nombreBySupCode, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
   };
 }
 
@@ -394,5 +457,10 @@ async function escanearSupplierItemCompleto({
 }
 
 module.exports = {
-  getToken, escanearStockCompleto, escanearItemCostCompleto, escanearItemCompleto, escanearSupplierItemCompleto,
+  getToken,
+  escanearStockCompleto,
+  escanearItemCostCompleto,
+  escanearItemCompleto,
+  escanearSupplierCompleto,
+  escanearSupplierItemCompleto,
 };

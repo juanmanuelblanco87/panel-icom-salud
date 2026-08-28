@@ -44,14 +44,25 @@
 // intermedio.
 //
 // 28/08/2026 ("Proveedor es un dato que viene en la factura de OPPEN,
-// chequea" -- confirmado que en realidad vive en Item.ItemSubGroup y
-// SupplierItem.SupName, 2 entidades del catálogo que Juan Manuel agregó al
-// Swagger de ICOMGENERAL): 2 fases más al final de la máquina de estados,
-// mismo patrón retomable -- stock -> itemcost -> item -> supplieritem ->
-// (mezcla final + snapshot). Reemplaza la fuente anterior de "Por
-// Subgrupos"/"Por Proveedor" en Ventas en Vivo (que dependía de subir la
-// Base de Productos a mano con esas 2 columnas) -- ahora sale sola, mismo
-// mecanismo que ya usa el costo real de ItemCost.
+// chequea" -- confirmado que en realidad vive en Item.ItemSubGroup,
+// SupplierItem.SupName y Supplier.Name, entidades del catálogo que Juan
+// Manuel agregó al Swagger de ICOMGENERAL): fases más al final de la
+// máquina de estados, mismo patrón retomable -- stock -> itemcost ->
+// supplier -> item -> supplieritem -> (mezcla final + snapshot). Reemplaza
+// la fuente anterior de "Por Subgrupos"/"Por Proveedor" en Ventas en Vivo
+// (que dependía de subir la Base de Productos a mano con esas 2 columnas)
+// -- ahora sale sola, mismo mecanismo que ya usa el costo real de
+// ItemCost.
+//
+// 28/08/2026 (2da vuelta -- "SERVASP tiene Proveedor asignado... sin
+// embargo lo cataloga como sin categorizar"): SupplierItem sola no
+// alcanza -- un ítem tipo "Servicio" (SERVASP, confirmado en vivo contra
+// la ficha real del artículo en oppen.io) nunca genera fila ahí (esa
+// tabla es más de compras/histórico de precios), pero SÍ tiene Proveedor
+// asignado directo en el Artículo (campo SupCode, un CÓDIGO -- ej.
+// "P1025" -- no un nombre). Se suma la fase "supplier" (Code -> Name) +
+// captura de Item.SupCode, usados como RESPALDO en el merge final cuando
+// SupplierItem no tiene nada para ese SKU puntual.
 //
 // CONCURRENCIA (agregado tras probar en producción -- ver historial de
 // commits del mismo día): llamar a este endpoint 2 veces casi al mismo
@@ -79,7 +90,7 @@
 //   chunkMs=N    -- tamaño del pedacito de tiempo por llamada, en ms
 //                   (default 15000 = 15s, acotado entre 3000 y 45000).
 const {
-  escanearStockCompleto, escanearItemCostCompleto, escanearItemCompleto, escanearSupplierItemCompleto,
+  escanearStockCompleto, escanearItemCostCompleto, escanearItemCompleto, escanearSupplierCompleto, escanearSupplierItemCompleto,
 } = require('./_stock-scan');
 const {
   leerFxOverride, escribirSnapshot, leerProgreso, escribirProgreso, borrarProgreso,
@@ -162,6 +173,7 @@ module.exports = async function handler(req, res) {
         phase: 'stock',
         stockOffset: 0,
         itemCostOffset: 0,
+        supplierOffset: 0,
         itemOffset: 0,
         supplierItemOffset: 0,
         bySku: {},
@@ -170,11 +182,19 @@ module.exports = async function handler(req, res) {
         nombreBySku: {},
         // 28/08/2026 ("Proveedor es un dato que viene en la factura de
         // OPPEN, chequea" -- confirmado en realidad en Item.ItemSubGroup y
-        // SupplierItem.SupName, 2 entidades nuevas del catálogo, ver
-        // _stock-scan.js): 2 fases más al final de este mismo escaneo diario
+        // SupplierItem.SupName, entidades nuevas del catálogo, ver
+        // _stock-scan.js): fases más al final de este mismo escaneo diario
         // -- reemplaza la fuente anterior (Base de Productos subida a mano)
         // de "Por Subgrupos"/"Por Proveedor" en Ventas en Vivo.
         subgrupoBySku: {},
+        // 28/08/2026 (2da vuelta -- "SERVASP tiene Proveedor asignado...
+        // sin embargo lo cataloga como sin categorizar"): SupplierItem no
+        // alcanza sola (ítems tipo "Servicio" nunca generan fila ahí) --
+        // nombreBySupCode (de Supplier) + supCodeBySku (de Item.SupCode,
+        // ver escanearItemCompleto) resuelven proveedor como RESPALDO
+        // cuando SupplierItem no tiene nada para ese SKU (ver merge final).
+        nombreBySupCode: {},
+        supCodeBySku: {},
         proveedorBySku: {},
         tieneDefaultProveedorBySku: {},
         fx: null,
@@ -240,7 +260,7 @@ module.exports = async function handler(req, res) {
       state.nombreBySku = r.nombreBySku;
       state.fx = r.fx;
       state.itemCostOffset = r.nextOffset;
-      if (r.completo) state.phase = 'item'; // ItemCost terminado -- la próxima llamada arranca Item (Sub-grupo)
+      if (r.completo) state.phase = 'supplier'; // ItemCost terminado -- la próxima llamada arranca Supplier (Code -> Name)
       state.lockedUntil = null; // ver nota junto a la fase "stock" -- soltamos apenas termina este pedacito
       await escribirProgreso(state);
       talVezEncadenar(state, req, chunkMs);
@@ -256,11 +276,34 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    if (state.phase === 'supplier') {
+      const r = await escanearSupplierCompleto({
+        startTime, maxMs: chunkMs, startOffset: state.supplierOffset, nombreBySupCode: state.nombreBySupCode,
+      });
+      state.nombreBySupCode = r.nombreBySupCode;
+      state.supplierOffset = r.nextOffset;
+      if (r.completo) state.phase = 'item'; // Supplier terminado -- la próxima llamada arranca Item (Sub-grupo + SupCode)
+      state.lockedUntil = null;
+      await escribirProgreso(state);
+      talVezEncadenar(state, req, chunkMs);
+      res.status(200).json({
+        ok: true,
+        completo: false,
+        phase: state.phase,
+        supplierOffset: state.supplierOffset,
+        paginasEstaLlamada: r.pages,
+        registrosEstaLlamada: r.recordsProcessed,
+        tookMs: Date.now() - startTime,
+      });
+      return;
+    }
+
     if (state.phase === 'item') {
       const r = await escanearItemCompleto({
-        startTime, maxMs: chunkMs, startOffset: state.itemOffset, subgrupoBySku: state.subgrupoBySku,
+        startTime, maxMs: chunkMs, startOffset: state.itemOffset, subgrupoBySku: state.subgrupoBySku, supCodeBySku: state.supCodeBySku,
       });
       state.subgrupoBySku = r.subgrupoBySku;
+      state.supCodeBySku = r.supCodeBySku;
       state.itemOffset = r.nextOffset;
       if (r.completo) state.phase = 'supplieritem'; // Item terminado -- la próxima llamada arranca SupplierItem (Proveedor)
       state.lockedUntil = null;
@@ -327,6 +370,19 @@ module.exports = async function handler(req, res) {
       if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
       bySku[sku].proveedor = proveedor;
     });
+    // 28/08/2026 (2da vuelta -- "SERVASP tiene Proveedor asignado... sin
+    // embargo lo cataloga como sin categorizar"): RESPALDO para los SKUs
+    // que SupplierItem no cubrió (ítems tipo "Servicio", confirmado con
+    // SERVASP) -- Item.SupCode resuelto vía Supplier (Code -> Name). Sólo
+    // pisa cuando NO había proveedor ya puesto por SupplierItem arriba
+    // (esa sigue siendo la fuente preferida cuando existe para ese SKU).
+    Object.entries(state.supCodeBySku).forEach(([sku, supCode]) => {
+      if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
+      if (!bySku[sku].proveedor) {
+        const nombre = state.nombreBySupCode[supCode];
+        if (nombre) bySku[sku].proveedor = nombre;
+      }
+    });
 
     await escribirSnapshot({
       bySku,
@@ -336,6 +392,7 @@ module.exports = async function handler(req, res) {
       stats: {
         stockOffset: state.stockOffset,
         itemCostOffset: state.itemCostOffset,
+        supplierOffset: state.supplierOffset,
         itemOffset: state.itemOffset,
         supplierItemOffset: state.supplierItemOffset,
       },
