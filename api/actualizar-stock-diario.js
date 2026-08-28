@@ -83,7 +83,14 @@ module.exports = async function handler(req, res) {
   try {
     const url = new URL(req.url, 'http://x');
     const secret = url.searchParams.get('secret');
-    if (!process.env.MAINTENANCE_SECRET || secret !== process.env.MAINTENANCE_SECRET) {
+    // 28/08/2026 ("no lo recuerdo... rotamos el compartido?"): en vez de
+    // rotar MAINTENANCE_SECRET (lo comparten otros 8 archivos -- si hay
+    // alguna tarea externa con el valor viejo, se rompería en silencio),
+    // se acepta TAMBIÉN un 2do secret exclusivo de este endpoint
+    // (STOCK_SYNC_MANUAL_SECRET), para disparos manuales sin tocar nada
+    // compartido. El original sigue funcionando igual que siempre.
+    const secretValido = secret && (secret === process.env.MAINTENANCE_SECRET || secret === process.env.STOCK_SYNC_MANUAL_SECRET);
+    if (!secretValido) {
       res.status(403).json({ ok: false, error: 'secret inválido o no configurado' });
       return;
     }
