@@ -58,8 +58,16 @@ async function consultarPrecioMeli(url) {
   if (!secret) {
     return { ok: false, error: 'Falta MELI_PROXY_SECRET en las variables de entorno de Vercel de este proyecto.' };
   }
+  // 28/08/2026 ("El proxy de MercadoLibre tardó demasiado en
+  // responder"): esta función ya tiene maxDuration:30 en vercel.json,
+  // pero el AbortController abortaba a los 20s -- menos que el propio
+  // presupuesto de la función de ia40-dashboard-hztm (maxDuration:30,
+  // ver route.ts), que a veces necesita ese margen completo para
+  // ScraperAPI (último recurso para la foto del producto). Se sube a
+  // 27s, dejando ~3s de margen dentro del límite de 30s de ESTA
+  // función para el resto del handler (JSON, respuesta).
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20_000);
+  const timeoutId = setTimeout(() => controller.abort(), 27_000);
   try {
     const resp = await fetch(`${IA40_MELI_PROXY_URL}?url=${encodeURIComponent(url)}`, {
       headers: { authorization: `Bearer ${secret}` },
