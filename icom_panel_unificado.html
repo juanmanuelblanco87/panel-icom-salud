@@ -986,33 +986,33 @@
 
         <div class="erp-card">
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-            <span>Por Macro Categoría</span>
-            <span class="erp-count" id="erpMacroFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearMacroFilter()" title="Tocar para quitar el filtro"></span>
+            <span>Por Proveedor</span>
+            <span class="erp-count" id="erpProveedorFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearProveedorFilter()" title="Tocar para quitar el filtro"></span>
           </h2>
-          <div id="erpMacroNote" style="display:none;font-size:12px;color:#a35b00;background:#FFF3E0;border:1px solid #f3d5a6;border-radius:7px;padding:10px 12px;margin-bottom:12px">
-            Para ver este desglose, primero subí la <b>Base de Productos</b> (menú lateral) — de ahí sale la macro categoría de cada SKU.
+          <div id="erpProveedorNote" style="display:none;font-size:12px;color:#a35b00;background:#FFF3E0;border:1px solid #f3d5a6;border-radius:7px;padding:10px 12px;margin-bottom:12px">
+            Para ver este desglose, primero subí la <b>Base de Productos</b> (menú lateral) — de ahí sale el proveedor de cada SKU (columna "Articulo - Proveedor").
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Macro Categoría</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
-              <tbody id="erpMacroBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+              <thead><tr><th>Proveedor</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="erpProveedorBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
         </div>
 
         <div class="erp-card">
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-            <span>Por Marca</span>
-            <span class="erp-count" id="erpMarcaFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearMarcaSelection()" title="Tocar para quitar el filtro"></span>
+            <span>Por Subgrupos</span>
+            <span class="erp-count" id="erpSubgrupoFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearSubgrupoSelection()" title="Tocar para quitar el filtro"></span>
           </h2>
           <div class="erp-toolbar">
-            <input type="text" id="erpMarcaSearch" placeholder="Buscar por marca..." oninput="erpOnMarcaSearchInput()">
-            <span class="erp-count" id="erpMarcaCount"></span>
+            <input type="text" id="erpSubgrupoSearch" placeholder="Buscar por subgrupo..." oninput="erpOnSubgrupoSearchInput()">
+            <span class="erp-count" id="erpSubgrupoCount"></span>
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Marca</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
-              <tbody id="erpMarcaBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+              <thead><tr><th>Subgrupo</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="erpSubgrupoBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1889,6 +1889,10 @@ const PM_HEADER_MAP = {
   macrocategoria:'macro', macro:'macro', nombredegrupo:'macro',
   categoria:'categoria', cat:'categoria', segmento:'categoria', nombresubgrupo:'categoria',
   marca:'marca',
+  // 28/08/2026 ("Por Proveedor", dato de Articulo - Proveedor): mismo
+  // criterio de alias flexibles que el resto -- "Articulo - Proveedor"
+  // normaliza a 'articuloproveedor' (pmNormHeader saca espacios/guiones/acentos).
+  proveedor:'proveedor', articuloproveedor:'proveedor', proveedorarticulo:'proveedor',
   estado:'estado', status:'estado', situacion:'estado'
 };
 
@@ -1906,6 +1910,7 @@ function pmParseRows(headers, dataRows){
       macro: idx.macro!==undefined ? String(r[idx.macro]||'').trim() : '',
       categoria: idx.categoria!==undefined ? String(r[idx.categoria]||'').trim() : '',
       marca: idx.marca!==undefined ? String(r[idx.marca]||'').trim() : '',
+      proveedor: idx.proveedor!==undefined ? String(r[idx.proveedor]||'').trim() : '',
       estado: idx.estado!==undefined ? String(r[idx.estado]||'').trim() : ''
     });
   });
@@ -2690,29 +2695,37 @@ let erpViewFrom = erpTodayStr();
 let erpViewTo = erpTodayStr();
 let ERP_VIEW_DATA = null;
 
-// Cache del mapa SKU -> marca (ver erpEnsureSkuToMarcaCache más abajo), usado
-// por erpGetFilteredData para que el buscador de "Por Marca" filtre TODO el
-// tablero (Macro, KPIs y SKU), no solo su propia tabla. Se puebla la primera
-// vez que hace falta (al tipear en el buscador) y después se reutiliza.
-let ERP_SKU_TO_MARCA_CACHE = null;
+// Cache del mapa SKU -> subgrupo (ver erpEnsureSkuToSubgrupoCache más abajo),
+// usado por erpGetFilteredData para que el buscador de "Por Subgrupos"
+// filtre TODO el tablero (Proveedor, KPIs y SKU), no solo su propia tabla.
+// Se puebla la primera vez que hace falta (al tipear en el buscador) y
+// después se reutiliza. 28/08/2026 ("Cambiar Por Marca x Por Subgrupos"):
+// reemplaza el desglose que antes era por marca -- mismo mecanismo
+// (buscador + selección + agrupación normalizada), otra columna de origen
+// (categoria en vez de marca -- ver PM_HEADER_MAP, ahí "NombreSubgrupo" ya
+// mapeaba a ese campo).
+let ERP_SKU_TO_SUBGRUPO_CACHE = null;
 
-// Cache del mapa SKU -> macro categoría (ver erpEnsureSkuToMacroCache más
-// abajo) + selección activa: al tocar una fila de "Por Macro Categoría" se
+// Cache del mapa SKU -> proveedor (ver erpEnsureSkuToProveedorCache más
+// abajo) + selección activa: al tocar una fila de "Por Proveedor" se
 // guarda acá su nombre exacto, y erpGetFilteredData filtra TODO el tablero
-// (Por Marca, Por SKU y KPIs) para que abajo solo queden los SKUs/marcas que
-// componen esa categoría — igual que el filtro de canales y el de marca.
-let ERP_SKU_TO_MACRO_CACHE = null;
-let erpMacroSelected = null;
-const ERP_MACRO_SIN_CATEGORIZAR = 'Sin categorizar (no está en la Base de Productos)';
+// (Por Subgrupos, Por SKU y KPIs) para que abajo solo queden los SKUs que
+// componen ese proveedor — igual que el filtro de canales y el de subgrupo.
+// 28/08/2026 ("Quitar Por Macro Categoria... agregar Por Proveedor"):
+// reemplaza el desglose que antes era por macro categoría -- mismo
+// mecanismo, otra columna de origen (proveedor, campo nuevo en la Base de
+// Productos, ver PM_HEADER_MAP).
+let ERP_SKU_TO_PROVEEDOR_CACHE = null;
+let erpProveedorSelected = null;
+const ERP_PROVEEDOR_SIN_CATEGORIZAR = 'Sin categorizar (no está en la Base de Productos)';
 
-// Selección exacta al hacer click sobre una fila de "Por Marca" (además del
-// buscador de texto libre que ya existía). Se guarda la KEY normalizada
-// (erpNormalizeMarcaKey) para que la comparación sea exacta y no dependa de
-// mayúsculas/acentos/variante mostrada — así "MUGI" y "Mugi" siguen siendo
-// la misma selección. erpMarcaSelectedLabel es solo para mostrar en el
-// aviso "Filtrando por: ...".
-let erpMarcaSelectedKey = null;
-let erpMarcaSelectedLabel = '';
+// Selección exacta al hacer click sobre una fila de "Por Subgrupos" (además
+// del buscador de texto libre que ya existía). Se guarda la KEY normalizada
+// (erpNormalizeMarcaKey, reusada -- es un normalizador de texto genérico, no
+// específico de marca) para que la comparación sea exacta y no dependa de
+// mayúsculas/acentos/variante mostrada.
+let erpSubgrupoSelectedKey = null;
+let erpSubgrupoSelectedLabel = '';
 
 // Cache del mapa SKU -> stock disponible (columna "Stock Total" de Por SKU),
 // pedido por RPC a Seguimiento (getSkuStockMap, que a su vez lee del stock
@@ -4111,9 +4124,9 @@ function erpUpdateChannelSpecificUI(channel){
 
 function erpSwitchToChannelView(channel){
   erpCanalExcluded = new Set();
-  erpMacroSelected = null;
-  erpMarcaSelectedKey = null;
-  erpMarcaSelectedLabel = '';
+  erpProveedorSelected = null;
+  erpSubgrupoSelectedKey = null;
+  erpSubgrupoSelectedLabel = '';
   // Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... Vendedor
   // (Cliente) y Vendedor (Institución)" -- mismo criterio de reseteo que
   // los demás filtros al cambiar de unidad, para no arrastrar un filtro de
@@ -4131,8 +4144,8 @@ function erpSwitchToChannelView(channel){
   const toInput = document.getElementById('erpViewDateTo');
   if(fromInput) fromInput.value = today;
   if(toInput) toInput.value = today;
-  const marcaSearch = document.getElementById('erpMarcaSearch');
-  if(marcaSearch) marcaSearch.value = '';
+  const subgrupoSearch = document.getElementById('erpSubgrupoSearch');
+  if(subgrupoSearch) subgrupoSearch.value = '';
   const skuSearch = document.getElementById('erpSkuSearch');
   if(skuSearch) skuSearch.value = '';
   const clienteSearch = document.getElementById('erpClienteSearch');
@@ -4533,30 +4546,30 @@ function erpRenderClienteTable(){
 // antes los pills de Canales SOLO miraban ERP_VIEW_DATA.byCanal crudo y no
 // cascadeaban con estos filtros. Devuelve true si el SKU pasa TODOS los
 // filtros de marca/macro activos (true si no hay ninguno activo).
-function erpSkuMatchesMarcaMacroFilters(sku){
-  const marcaQuery = erpGetActiveMarcaQuery();
-  if(marcaQuery && ERP_SKU_TO_MARCA_CACHE){
-    const rawMarca = ERP_SKU_TO_MARCA_CACHE[sku] || 'Sin marca';
-    if(!erpNormalizeMarcaKey(rawMarca).includes(marcaQuery)) return false;
+function erpSkuMatchesSubgrupoProveedorFilters(sku){
+  const subgrupoQuery = erpGetActiveSubgrupoQuery();
+  if(subgrupoQuery && ERP_SKU_TO_SUBGRUPO_CACHE){
+    const rawSubgrupo = ERP_SKU_TO_SUBGRUPO_CACHE[sku] || 'Sin subgrupo';
+    if(!erpNormalizeMarcaKey(rawSubgrupo).includes(subgrupoQuery)) return false;
   }
-  if(erpMarcaSelectedKey && ERP_SKU_TO_MARCA_CACHE){
-    const rawMarca = ERP_SKU_TO_MARCA_CACHE[sku] || 'Sin marca';
-    if(erpNormalizeMarcaKey(rawMarca) !== erpMarcaSelectedKey) return false;
+  if(erpSubgrupoSelectedKey && ERP_SKU_TO_SUBGRUPO_CACHE){
+    const rawSubgrupo = ERP_SKU_TO_SUBGRUPO_CACHE[sku] || 'Sin subgrupo';
+    if(erpNormalizeMarcaKey(rawSubgrupo) !== erpSubgrupoSelectedKey) return false;
   }
-  if(erpMacroSelected && ERP_SKU_TO_MACRO_CACHE){
-    const macro = ERP_SKU_TO_MACRO_CACHE[sku] || ERP_MACRO_SIN_CATEGORIZAR;
-    if(macro !== erpMacroSelected) return false;
+  if(erpProveedorSelected && ERP_SKU_TO_PROVEEDOR_CACHE){
+    const proveedor = ERP_SKU_TO_PROVEEDOR_CACHE[sku] || ERP_PROVEEDOR_SIN_CATEGORIZAR;
+    if(proveedor !== erpProveedorSelected) return false;
   }
   return true;
 }
 
-// true si hay algún filtro de marca (texto o click) o de macro categoría
+// true si hay algún filtro de subgrupo (texto o click) o de proveedor
 // activo Y con su caché ya poblada (si la caché no está lista todavía,
 // tratamos como "sin filtro" para no ocultar todo de golpe).
-function erpHasActiveMarcaMacroFilter(){
-  if(erpGetActiveMarcaQuery() && ERP_SKU_TO_MARCA_CACHE) return true;
-  if(erpMarcaSelectedKey && ERP_SKU_TO_MARCA_CACHE) return true;
-  if(erpMacroSelected && ERP_SKU_TO_MACRO_CACHE) return true;
+function erpHasActiveSubgrupoProveedorFilter(){
+  if(erpGetActiveSubgrupoQuery() && ERP_SKU_TO_SUBGRUPO_CACHE) return true;
+  if(erpSubgrupoSelectedKey && ERP_SKU_TO_SUBGRUPO_CACHE) return true;
+  if(erpProveedorSelected && ERP_SKU_TO_PROVEEDOR_CACHE) return true;
   return false;
 }
 
@@ -4589,7 +4602,7 @@ function erpRowPassesFilters(row, skip){
   if(!skip.vendCliente && erpVendClienteExcluded.has(row.vendedorCliente)) return false;
   if(!skip.cliente && erpClienteSelectedKey && erpNormalizeMarcaKey(row.cliente) !== erpClienteSelectedKey) return false;
   if(!skip.tipoOperacion && erpTipoOperacionSelected && row.tipoOperacion !== erpTipoOperacionSelected) return false;
-  if(!skip.marcaMacro && erpHasActiveMarcaMacroFilter() && !erpSkuMatchesMarcaMacroFilters(row.sku)) return false;
+  if(!skip.subgrupoProveedor && erpHasActiveSubgrupoProveedorFilter() && !erpSkuMatchesSubgrupoProveedorFilters(row.sku)) return false;
   return true;
 }
 
@@ -4601,7 +4614,7 @@ function erpRowPassesFilters(row, skip){
 function erpGetFilteredData(){
   if(!ERP_VIEW_DATA) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
   const anyFilter = erpCanalExcluded.size > 0 || erpVendInstExcluded.size > 0
-    || erpVendClienteExcluded.size > 0 || !!erpClienteSelectedKey || !!erpTipoOperacionSelected || erpHasActiveMarcaMacroFilter();
+    || erpVendClienteExcluded.size > 0 || !!erpClienteSelectedKey || !!erpTipoOperacionSelected || erpHasActiveSubgrupoProveedorFilter();
   if(!anyFilter){
     return {bySku: ERP_VIEW_DATA.bySku, totals: ERP_VIEW_DATA.totals};
   }
@@ -4647,7 +4660,7 @@ function erpComputeRowGroupTotals(getKey, skip){
 function erpComputeCanalTotals(){
   if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.byCanal) return {};
   const anyOtherFilter = erpVendInstExcluded.size > 0 || erpVendClienteExcluded.size > 0
-    || !!erpClienteSelectedKey || !!erpTipoOperacionSelected || erpHasActiveMarcaMacroFilter();
+    || !!erpClienteSelectedKey || !!erpTipoOperacionSelected || erpHasActiveSubgrupoProveedorFilter();
   if(!anyOtherFilter) return ERP_VIEW_DATA.byCanal;
   return erpComputeRowGroupTotals(row=>row.canal, {canal:true});
 }
@@ -4683,17 +4696,18 @@ function erpComputeFilteredInvoiceCount(){
   if(!anyFilter) return ERP_VIEW_DATA.invoicesProcessed || 0;
   const seen = new Set();
   (ERP_VIEW_DATA.rows||[]).forEach(row=>{
-    if(!erpRowPassesFilters(row, {marcaMacro:true})) return;
+    if(!erpRowPassesFilters(row, {subgrupoProveedor:true})) return;
     if(row.sernr != null) seen.add(row.sernr);
   });
   return seen.size;
 }
 
-// Lee y normaliza el texto del buscador de "Por Marca" (mismo criterio que
-// erpNormalizeMarcaKey, así "femmt" matchea "Femmto" ignorando mayúsculas y
-// acentos). Devuelve '' si no hay buscador en el DOM o está vacío.
-function erpGetActiveMarcaQuery(){
-  const el = document.getElementById('erpMarcaSearch');
+// Lee y normaliza el texto del buscador de "Por Subgrupos" (mismo criterio
+// que erpNormalizeMarcaKey, así "femmt" matchea "Femmto" ignorando
+// mayúsculas y acentos). Devuelve '' si no hay buscador en el DOM o está
+// vacío.
+function erpGetActiveSubgrupoQuery(){
+  const el = document.getElementById('erpSubgrupoSearch');
   if(!el) return '';
   return erpNormalizeMarcaKey(el.value||'');
 }
@@ -4735,32 +4749,27 @@ async function erpRenderSkuTable(){
   ).join('') + (rows.length>MAX ? '<tr><td colspan="6" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
 }
 
-// Puebla (o repuebla, con force=true) ERP_SKU_TO_MACRO_CACHE: combina
-// BASE_SKUS (pedido por RPC a Seguimiento, ver getSkuCategoryMap) +
-// product_master local como respaldo. Antes SOLO se miraba product_master, y
-// como BASE_SKUS (el catálogo estático) vive únicamente dentro de
-// Seguimiento, cualquier SKU categorizado por ese catálogo (no por la Base de
-// Productos) aparecía siempre "sin categorizar" acá, aunque Seguimiento lo
-// mostrara bien. Esta es la ÚNICA función que arma el mapa sku->macro — tanto
-// erpRenderMacroTable (para agrupar y mostrar) como erpGetFilteredData (para
-// filtrar TODO el tablero al hacer click en una fila) leen del mismo mapa.
-async function erpEnsureSkuToMacroCache(force){
-  if(ERP_SKU_TO_MACRO_CACHE && !force) return ERP_SKU_TO_MACRO_CACHE;
-  let skuToMacro = {};
-  try{
-    skuToMacro = await erpRpcCall('getSkuCategoryMap', []) || {};
-  }catch(e){
-    console.log('erpEnsureSkuToMacroCache: no se pudo pedir el mapa de categorías por RPC, sigo solo con product_master local:', e);
-  }
+// Puebla (o repuebla, con force=true) ERP_SKU_TO_PROVEEDOR_CACHE a partir de
+// la Base de Productos local (product_master). 28/08/2026 ("Por Proveedor",
+// dato nuevo): a diferencia de macro/marca, todavía no hay una RPC de
+// Seguimiento para esto -- sale ÚNICAMENTE de PM_DATA.rows (columna
+// "Proveedor"/"Articulo - Proveedor" del archivo subido, ver PM_HEADER_MAP).
+// Esta es la ÚNICA función que arma el mapa sku->proveedor -- tanto
+// erpRenderProveedorTable (para agrupar y mostrar) como erpGetFilteredData
+// (para filtrar TODO el tablero al hacer click en una fila) leen del mismo
+// mapa.
+async function erpEnsureSkuToProveedorCache(force){
+  if(ERP_SKU_TO_PROVEEDOR_CACHE && !force) return ERP_SKU_TO_PROVEEDOR_CACHE;
+  let skuToProveedor = {};
   try{
     const fresh = await pmIdbGet(PM_KEY);
     if(fresh && fresh.rows) PM_DATA = fresh;
-  }catch(e){ console.log('erpEnsureSkuToMacroCache: no se pudo refrescar PM_DATA:', e); }
+  }catch(e){ console.log('erpEnsureSkuToProveedorCache: no se pudo refrescar PM_DATA:', e); }
   if(PM_DATA && PM_DATA.rows){
-    PM_DATA.rows.forEach(r=>{ if(r.sku && r.macro && !skuToMacro[r.sku]) skuToMacro[r.sku] = r.macro; });
+    PM_DATA.rows.forEach(r=>{ if(r.sku && r.proveedor && !skuToProveedor[r.sku]) skuToProveedor[r.sku] = r.proveedor; });
   }
-  ERP_SKU_TO_MACRO_CACHE = skuToMacro;
-  return skuToMacro;
+  ERP_SKU_TO_PROVEEDOR_CACHE = skuToProveedor;
+  return skuToProveedor;
 }
 
 // Escapa un string para poder embeberlo con seguridad dentro de un atributo
@@ -4770,70 +4779,70 @@ function erpJsStrEscape(s){
   return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 }
 
-// Click en una fila de "Por Macro Categoría": selecciona (o deselecciona si
-// ya estaba tildada) esa categoría y repinta todo el tablero — Por Marca,
-// Por SKU y KPIs quedan recortados a los SKUs de esa categoría, igual que ya
-// pasa con el filtro de canales y el buscador de marca.
-function erpToggleMacro(macro){
-  erpMacroSelected = (erpMacroSelected === macro) ? null : macro;
+// Click en una fila de "Por Proveedor": selecciona (o deselecciona si ya
+// estaba tildado) ese proveedor y repinta todo el tablero — Por Subgrupos,
+// Por SKU y KPIs quedan recortados a los SKUs de ese proveedor, igual que ya
+// pasa con el filtro de canales y el buscador de subgrupo.
+function erpToggleProveedor(proveedor){
+  erpProveedorSelected = (erpProveedorSelected === proveedor) ? null : proveedor;
   erpRenderAll();
 }
 
-function erpClearMacroFilter(){
-  erpMacroSelected = null;
+function erpClearProveedorFilter(){
+  erpProveedorSelected = null;
   erpRenderAll();
 }
 
-async function erpRenderMacroTable(){
-  const body = document.getElementById('erpMacroBody');
-  const note = document.getElementById('erpMacroNote');
-  const filterNote = document.getElementById('erpMacroFilterNote');
+async function erpRenderProveedorTable(){
+  const body = document.getElementById('erpProveedorBody');
+  const note = document.getElementById('erpProveedorNote');
+  const filterNote = document.getElementById('erpProveedorFilterNote');
   const {bySku} = erpGetFilteredData();
   if(!ERP_VIEW_DATA || !bySku){
     body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
     return;
   }
-  const skuToMacro = await erpEnsureSkuToMacroCache();
-  if(!Object.keys(skuToMacro).length){
+  const skuToProveedor = await erpEnsureSkuToProveedorCache();
+  if(!Object.keys(skuToProveedor).length){
     note.style.display = 'block';
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos de categorías todavía — probá recargar la página en unos minutos.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos de proveedor todavía — probá recargar la página en unos minutos.</td></tr>';
     return;
   }
   note.style.display = 'none';
 
   if(filterNote){
-    if(erpMacroSelected){
+    if(erpProveedorSelected){
       filterNote.style.display = 'inline';
-      filterNote.textContent = 'Filtrando por: ' + erpMacroSelected + ' ✕';
+      filterNote.textContent = 'Filtrando por: ' + erpProveedorSelected + ' ✕';
     }else{
       filterNote.style.display = 'none';
       filterNote.textContent = '';
     }
   }
 
-  const byMacro = {};
+  const byProveedor = {};
   Object.entries(bySku).forEach(([sku, v])=>{
-    const macro = skuToMacro[sku] || ERP_MACRO_SIN_CATEGORIZAR;
-    if(!byMacro[macro]) byMacro[macro] = {unidades:0, totalNeto:0};
-    byMacro[macro].unidades += v.unidades;
-    byMacro[macro].totalNeto += v.totalNeto;
+    const proveedor = skuToProveedor[sku] || ERP_PROVEEDOR_SIN_CATEGORIZAR;
+    if(!byProveedor[proveedor]) byProveedor[proveedor] = {unidades:0, totalNeto:0};
+    byProveedor[proveedor].unidades += v.unidades;
+    byProveedor[proveedor].totalNeto += v.totalNeto;
   });
 
-  const rows = Object.entries(byMacro).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  const rows = Object.entries(byProveedor).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
   if(!rows.length){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(erpMacroSelected ? 'Sin datos para esta categoría.' : 'Sin facturas este mes todavía.')+'</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(erpProveedorSelected ? 'Sin datos para este proveedor.' : 'Sin facturas este mes todavía.')+'</td></tr>';
     return;
   }
   // Total sobre el que se calcula "Peso": la suma de TODO lo que se está
-  // mostrando en esta tabla ya filtrado (canal/marca/macro/SKU) — no un total
-  // fijo del mes — para que el % siempre sea relativo a lo que el usuario
-  // está viendo en pantalla en ese momento.
+  // mostrando en esta tabla ya filtrado (canal/subgrupo/proveedor/SKU) -- no
+  // un total fijo del mes -- para que el % siempre sea relativo a lo que el
+  // usuario está viendo en pantalla en ese momento.
   const grandTotal = rows.reduce((a,[,v])=>a+v.totalNeto, 0);
-  body.innerHTML = rows.map(([macro, v])=>{
-    const selected = erpMacroSelected === macro;
-    return '<tr onclick="erpToggleMacro(\''+erpJsStrEscape(macro)+'\')" title="Tocar para filtrar por esta categoría (tocar de nuevo para quitar el filtro)" '
+  body.innerHTML = rows.map(([proveedor, v])=>{
+    const selected = erpProveedorSelected === proveedor;
+    return '<tr onclick="erpToggleProveedor(\''+erpJsStrEscape(proveedor)+'\')" title="Tocar para filtrar por este proveedor (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+macro+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td><td class="num">'+erpFmtPct(v.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+proveedor+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td><td class="num">'+erpFmtPct(v.totalNeto, grandTotal)+'</td></tr>';
   }).join('');
 }
 
@@ -4855,147 +4864,130 @@ function erpNormalizeMarcaKey(raw){
     .toLowerCase();
 }
 
-// Mismos "sentinels" que Seguimiento (ver MARCA_SENTINELS en getSkuMarcaMap):
-// valores que en la práctica significan "todavía no sé la marca", no una
-// marca real llamada literalmente "S/M". Se usa acá como red de seguridad
-// extra para el respaldo local de product_master (por si la RPC falló y
-// caemos de lleno en PM_DATA.rows sin haber pasado por el filtro de
-// Seguimiento).
-const ERP_MARCA_SENTINELS = new Set(['s/m','sm','s m','sin marca','n/a','na','n a','','sa','s a']);
 
-// Puebla (o repuebla, con force=true) ERP_SKU_TO_MARCA_CACHE: combina
-// getSkuMarcaMap() (BASE_SKUS.m + overrides de proveedor, pedido por RPC a
-// Seguimiento) + el campo "marca" de la Base de Productos local como
-// respaldo si la RPC falla o no tiene el SKU. Esta es la ÚNICA función que
-// arma el mapa sku->marca — tanto erpRenderMarcaTable (para agrupar y
-// mostrar) como erpGetFilteredData (para filtrar TODO el tablero) leen del
-// mismo mapa en caché, así el buscador de "Por Marca" queda consistente en
-// toda la pantalla.
-async function erpEnsureSkuToMarcaCache(force){
-  if(ERP_SKU_TO_MARCA_CACHE && !force) return ERP_SKU_TO_MARCA_CACHE;
-  let skuToMarca = {};
-  try{
-    skuToMarca = await erpRpcCall('getSkuMarcaMap', []) || {};
-  }catch(e){
-    console.log('erpEnsureSkuToMarcaCache: no se pudo pedir el mapa de marcas por RPC, sigo solo con product_master local:', e);
-  }
+
+// Puebla (o repuebla, con force=true) ERP_SKU_TO_SUBGRUPO_CACHE: el campo
+// "categoria" de la Base de Productos local (que en el fondo es el
+// subgrupo -- ver PM_HEADER_MAP, ahí "NombreSubgrupo" mapea a ese campo).
+// Todavía no hay una RPC de Seguimiento para esto, sale sólo de PM_DATA.
+// Misma función que usan erpRenderSubgrupoTable (agrupar y mostrar) y
+// erpGetFilteredData (filtrar TODO el tablero) -- así el buscador de "Por
+// Subgrupos" queda consistente en toda la pantalla.
+async function erpEnsureSkuToSubgrupoCache(force){
+  if(ERP_SKU_TO_SUBGRUPO_CACHE && !force) return ERP_SKU_TO_SUBGRUPO_CACHE;
+  let skuToSubgrupo = {};
   try{
     const fresh = await pmIdbGet(PM_KEY);
     if(fresh && fresh.rows) PM_DATA = fresh;
-  }catch(e){ console.log('erpEnsureSkuToMarcaCache: no se pudo refrescar PM_DATA:', e); }
+  }catch(e){ console.log('erpEnsureSkuToSubgrupoCache: no se pudo refrescar PM_DATA:', e); }
   if(PM_DATA && PM_DATA.rows){
-    PM_DATA.rows.forEach(r=>{
-      if(r.sku && r.marca && !skuToMarca[r.sku] && !ERP_MARCA_SENTINELS.has(erpNormalizeMarcaKey(r.marca))){
-        skuToMarca[r.sku] = r.marca;
-      }
-    });
+    PM_DATA.rows.forEach(r=>{ if(r.sku && r.categoria && !skuToSubgrupo[r.sku]) skuToSubgrupo[r.sku] = r.categoria; });
   }
-  ERP_SKU_TO_MARCA_CACHE = skuToMarca;
-  return skuToMarca;
+  ERP_SKU_TO_SUBGRUPO_CACHE = skuToSubgrupo;
+  return skuToSubgrupo;
 }
 
-// Se llama desde el oninput del buscador de "Por Marca" (en vez de repintar
-// solo su propia tabla): primero se asegura de tener el mapa sku->marca en
-// caché y recién ahí repinta TODO ("Por Marca" ya se dispara en cascada
-// porque erpGetFilteredData de todas las demás tablas también usa ese
-// mismo mapa) — así el filtro aplica a Macro, KPIs y Por SKU a la vez.
-async function erpOnMarcaSearchInput(){
-  if(!ERP_SKU_TO_MARCA_CACHE) await erpEnsureSkuToMarcaCache();
+// Se llama desde el oninput del buscador de "Por Subgrupos" (en vez de
+// repintar solo su propia tabla): primero se asegura de tener el mapa
+// sku->subgrupo en caché y recién ahí repinta TODO ("Por Subgrupos" ya se
+// dispara en cascada porque erpGetFilteredData de todas las demás tablas
+// también usa ese mismo mapa) -- así el filtro aplica a Proveedor, KPIs y
+// Por SKU a la vez.
+async function erpOnSubgrupoSearchInput(){
+  if(!ERP_SKU_TO_SUBGRUPO_CACHE) await erpEnsureSkuToSubgrupoCache();
   erpRenderAll();
 }
 
-// Misma lógica que erpRenderMacroTable, pero agrupando por marca en vez de
-// macro categoría. bySku ya viene filtrado por erpGetFilteredData — incluido
-// el filtro de marca del buscador — así que acá solo agrupamos y mostramos,
-// sin volver a filtrar por texto (evita filtrar dos veces y mantiene una
-// sola fuente de verdad para el filtro).
-// Click en una fila de "Por Marca": selecciona (o deselecciona si ya estaba
-// tildada) esa marca puntual y repinta todo el tablero — Por Macro Categoría,
-// Por SKU y KPIs quedan recortados a esa marca, igual que ya pasa con el
-// filtro de canales y el de macro categoría. Se guarda por KEY normalizada
-// (no por el texto mostrado) para que la selección sea exacta y estable
-// aunque "MUGI"/"Mugi" convivan en el mismo grupo.
-function erpToggleMarcaRow(key, label){
-  if(erpMarcaSelectedKey === key){
-    erpMarcaSelectedKey = null;
-    erpMarcaSelectedLabel = '';
+// Misma lógica que erpRenderProveedorTable, pero agrupando por subgrupo en
+// vez de proveedor. bySku ya viene filtrado por erpGetFilteredData --
+// incluido el filtro de subgrupo del buscador -- así que acá solo
+// agrupamos y mostramos, sin volver a filtrar por texto (evita filtrar dos
+// veces y mantiene una sola fuente de verdad para el filtro).
+// Click en una fila de "Por Subgrupos": selecciona (o deselecciona si ya
+// estaba tildada) ese subgrupo puntual y repinta todo el tablero -- Por
+// Proveedor, Por SKU y KPIs quedan recortados a ese subgrupo, igual que ya
+// pasa con el filtro de canales y el de proveedor. Se guarda por KEY
+// normalizada (no por el texto mostrado) para que la selección sea exacta
+// y estable aunque variantes convivan en el mismo grupo.
+function erpToggleSubgrupoRow(key, label){
+  if(erpSubgrupoSelectedKey === key){
+    erpSubgrupoSelectedKey = null;
+    erpSubgrupoSelectedLabel = '';
   }else{
-    erpMarcaSelectedKey = key;
-    erpMarcaSelectedLabel = label;
+    erpSubgrupoSelectedKey = key;
+    erpSubgrupoSelectedLabel = label;
   }
   erpRenderAll();
 }
 
-function erpClearMarcaSelection(){
-  erpMarcaSelectedKey = null;
-  erpMarcaSelectedLabel = '';
+function erpClearSubgrupoSelection(){
+  erpSubgrupoSelectedKey = null;
+  erpSubgrupoSelectedLabel = '';
   erpRenderAll();
 }
 
-async function erpRenderMarcaTable(){
-  const body = document.getElementById('erpMarcaBody');
-  const countSpan = document.getElementById('erpMarcaCount');
-  const filterNote = document.getElementById('erpMarcaFilterNote');
+async function erpRenderSubgrupoTable(){
+  const body = document.getElementById('erpSubgrupoBody');
+  const countSpan = document.getElementById('erpSubgrupoCount');
+  const filterNote = document.getElementById('erpSubgrupoFilterNote');
   const {bySku} = erpGetFilteredData();
   if(!ERP_VIEW_DATA || !bySku){
     body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
     return;
   }
-  const skuToMarca = await erpEnsureSkuToMarcaCache();
+  const skuToSubgrupo = await erpEnsureSkuToSubgrupoCache();
 
   if(filterNote){
-    if(erpMarcaSelectedKey){
+    if(erpSubgrupoSelectedKey){
       filterNote.style.display = 'inline';
-      filterNote.textContent = 'Filtrando por: ' + erpMarcaSelectedLabel + ' ✕';
+      filterNote.textContent = 'Filtrando por: ' + erpSubgrupoSelectedLabel + ' ✕';
     }else{
       filterNote.style.display = 'none';
       filterNote.textContent = '';
     }
   }
 
-  // Agrupamos por una key normalizada (trim + espacios colapsados + minúscula)
-  // para que "MUGI" y "Mugi" caigan en el MISMO grupo automáticamente, en vez
-  // de aparecer como dos marcas distintas. Elegimos como texto a MOSTRAR la
-  // variante MÁS FRECUENTE dentro del grupo (a igualdad, la más larga/prolija).
-  const byMarca = {}; // key normalizada -> {unidades, totalNeto, labelCounts:{label:count}}
+  // Agrupamos por una key normalizada (trim + espacios colapsados + minuscula)
+  // para que variantes de escritura caigan en el MISMO grupo automaticamente,
+  // en vez de aparecer como subgrupos distintos. Elegimos como texto a
+  // MOSTRAR la variante MAS FRECUENTE dentro del grupo (a igualdad, la mas
+  // larga/prolija) -- mismo criterio que ya usaba Por Marca.
+  const bySubgrupo = {};
   Object.entries(bySku).forEach(([sku, v])=>{
-    const rawMarca = skuToMarca[sku] || 'Sin marca';
-    const key = erpNormalizeMarcaKey(rawMarca);
-    if(!byMarca[key]) byMarca[key] = {unidades:0, totalNeto:0, labelCounts:{}};
-    byMarca[key].unidades += v.unidades;
-    byMarca[key].totalNeto += v.totalNeto;
-    byMarca[key].labelCounts[rawMarca] = (byMarca[key].labelCounts[rawMarca]||0) + 1;
+    const rawSubgrupo = skuToSubgrupo[sku] || 'Sin subgrupo';
+    const key = erpNormalizeMarcaKey(rawSubgrupo);
+    if(!bySubgrupo[key]) bySubgrupo[key] = {unidades:0, totalNeto:0, labelCounts:{}};
+    bySubgrupo[key].unidades += v.unidades;
+    bySubgrupo[key].totalNeto += v.totalNeto;
+    bySubgrupo[key].labelCounts[rawSubgrupo] = (bySubgrupo[key].labelCounts[rawSubgrupo]||0) + 1;
   });
 
-  let rows = Object.entries(byMarca).map(([key, v])=>{
+  let rows = Object.entries(bySubgrupo).map(([key, v])=>{
     const labels = Object.entries(v.labelCounts).sort((a,b)=> b[1]-a[1] || b[0].length-a[0].length);
-    // .toUpperCase() acá (no en la key de agrupación) para mostrar todas las
-    // marcas — incluido el fallback "Sin marca" -> "SIN MARCA" — en
-    // mayúsculas, sin afectar cómo se agrupan variantes tipo MUGI/Mugi.
-    return {key, marca: labels[0][0].toUpperCase(), unidades: v.unidades, totalNeto: v.totalNeto};
+    return {key, subgrupo: labels[0][0].toUpperCase(), unidades: v.unidades, totalNeto: v.totalNeto};
   });
 
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
-  const q = erpGetActiveMarcaQuery();
-  if(countSpan) countSpan.textContent = rows.length + ' marcas';
+  const q = erpGetActiveSubgrupoQuery();
+  if(countSpan) countSpan.textContent = rows.length + ' subgrupos';
   if(!rows.length){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(q ? 'Sin marcas que coincidan con la búsqueda.' : 'Sin facturas este día.')+'</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(q ? 'Sin subgrupos que coincidan con la búsqueda.' : 'Sin facturas este día.')+'</td></tr>';
     return;
   }
-  // Igual que en Por Macro Categoría: "Peso" es relativo al total FILTRADO
-  // que se está mostrando en esta tabla, no a un total fijo del mes.
+  // Igual que en Por Proveedor: "Peso" es relativo al total FILTRADO que se
+  // esta mostrando en esta tabla, no a un total fijo del mes.
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
   body.innerHTML = rows.map(r=>{
-    const selected = erpMarcaSelectedKey === r.key;
-    return '<tr onclick="erpToggleMarcaRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.marca)+'\')" title="Tocar para filtrar por esta marca (tocar de nuevo para quitar el filtro)" '
+    const selected = erpSubgrupoSelectedKey === r.key;
+    return '<tr onclick="erpToggleSubgrupoRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.subgrupo)+'\')" title="Tocar para filtrar por este subgrupo (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.marca+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+r.subgrupo+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
   }).join('');
 }
 
 // Click en una fila de "Por Tipo de Operación": selecciona (o deselecciona
 // si ya estaba tildada) ese código puntual y repinta todo el tablero --
-// mismo criterio que erpToggleMarcaRow, pero sin key/label separados porque
+// mismo criterio que erpToggleSubgrupoRow, pero sin key/label separados porque
 // acá no hay variantes de mayúscula/minúscula que agrupar (el label ya sale
 // normalizado del servidor).
 function erpToggleTipoOperacion(label){
@@ -5059,8 +5051,8 @@ const ERP_TIPO_OPERACION_CHANNELS = ['cirugia_general'];
 function erpRenderAll(){
   erpRenderCanalPills();
   erpRenderKpis();
-  erpRenderMacroTable();
-  erpRenderMarcaTable();
+  erpRenderProveedorTable();
+  erpRenderSubgrupoTable();
   erpRenderSkuTable();
   // Juan Manuel, 27/07/2026: gráfico de torta solo en la vista ICOM (ver
   // erpUpdateChannelSpecificUI, que muestra/oculta #erpIcomPieCard).
@@ -5513,7 +5505,7 @@ function erpRpcCall(fn, args){
     // (ver erpFetchStockNowImpl más abajo), que ahora puede competir por el
     // hilo principal con cualquier erpRpcCall disparado en esos mismos
     // primeros segundos (ej. getSkuStockMap/getSkuCategoryMap/getSkuMarcaMap,
-    // ver erpEnsureSkuToMacroCache y similares). 8s -> 20s da el mismo
+    // ver erpEnsureSkuToProveedorCache y similares). 8s -> 20s da el mismo
     // margen extra sin debilitar la detección de una falla real.
     setTimeout(()=>{ if(erpRpcPending[id]){ delete erpRpcPending[id]; reject(new Error('RPC timeout: '+fn)); } }, 20000);
   });
@@ -5547,23 +5539,25 @@ function stocksRpcCall(fn, args){
 //
 // Causa raíz real: carrera de inicialización. showShell() crea el iframe de
 // Seguimiento (loadPane('seguimiento')) y ACTO SEGUIDO llama
-// erpStartGlobalPolling() → erpFetchNow() → erpRenderMacroTable() →
-// erpEnsureSkuToMacroCache() → erpRpcCall('getSkuCategoryMap') — todo esto
+// erpStartGlobalPolling() → erpFetchNow() → erpRenderProveedorTable() →
+// erpEnsureSkuToProveedorCache() → erpRpcCall('getSkuCategoryMap') — todo esto
 // corre sincrónicamente, en los primeros milisegundos, MUCHO antes de que
 // Seguimiento (que hace varios `await` — leer IndexedDB, entrenar el
 // clasificador, corregir BASE_SKUS por override) termine su propio
 // loadProductMaster(). El listener de mensajes de Seguimiento sí está armado
 // para entonces y SÍ responde al pedido RPC — pero con el catálogo BASE_SKUS
 // todavía sin corregir. Ese mapa sku→macro (con el error) quedaba guardado en
-// ERP_SKU_TO_MACRO_CACHE, que solo se vuelve a armar si se le pide
+// ERP_SKU_TO_PROVEEDOR_CACHE, que solo se vuelve a armar si se le pide
 // explícitamente con force=true — cosa que nunca pasaba sola. Resultado: la
 // pantalla quedaba pegada para siempre al primer (mal) resultado de esa
 // carrera, sin importar cuántas veces se recargara la página (la carrera se
 // repetía igual, cada vez, con el mismo desenlace).
 //
 // BUG CONFIRMADO (Juan Manuel, 23/07/2026 — "la hora de actualización no se
-// mueve"): el mapa sku→macro/marca de Ventas en Vivo (ERP_SKU_TO_MACRO_CACHE/
-// ERP_SKU_TO_MARCA_CACHE) y la tabla de "Base de Productos" (PM_DATA) se
+// mueve"): el mapa sku→proveedor/subgrupo de Ventas en Vivo
+// (ERP_SKU_TO_PROVEEDOR_CACHE/ERP_SKU_TO_SUBGRUPO_CACHE, renombrados
+// 28/08/2026 -- eran ERP_SKU_TO_MACRO_CACHE/ERP_SKU_TO_MARCA_CACHE cuando
+// pasó este bug) y la tabla de "Base de Productos" (PM_DATA) se
 // armaban UNA sola vez por sesión — el mapa solo se refrescaba de verdad
 // (force=true) en el aviso 'icom_seguimiento_ready' (una sola vez, apenas
 // arranca Seguimiento), y "Base de Productos" solo se renderizaba la primera
@@ -5584,7 +5578,7 @@ function stocksRpcCall(fn, args){
 // tablero y la Base de Productos se mantienen al día solos, sin recargar.
 async function erpRefreshCatalogViews(){
   try{
-    await Promise.all([erpEnsureSkuToMacroCache(true), erpEnsureSkuToMarcaCache(true)]);
+    await Promise.all([erpEnsureSkuToProveedorCache(true), erpEnsureSkuToSubgrupoCache(true)]);
     erpRenderAll();
   }catch(e){ console.log('erpRefreshCatalogViews: no se pudo refrescar Ventas en Vivo:', e); }
   try{
