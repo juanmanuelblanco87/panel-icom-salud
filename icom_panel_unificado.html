@@ -281,27 +281,42 @@
   .cu-card .msg.error{display:block;background:var(--danger-bg);color:var(--danger)}
 
   /* 28/08/2026 (pop-up de "hoy cumple años", ver chequearCumpleanosHoy())
-     -- 2da vuelta: "adaptar este formato al pop-up", el afiche verde
-     con globos/banderines que ya sube RR.HH. a mano para saludar.
-     Reusa var(--ok), el verde que YA es el token de la marca en este
-     sistema de diseño (no un verde inventado para esto). Los globos
-     son emoji posicionados con CSS -- recrear el ilustración vectorial
-     completa del afiche no vale la pena acá, la idea (marca + verde +
-     fiesta) se traslada igual sin esa complejidad. */
-  .cumple-shell-card{background:linear-gradient(180deg,#eafaf1 0%,#fff 60%);position:relative;overflow:hidden}
-  .cumple-shell-globo{position:absolute;font-size:34px;opacity:.9;pointer-events:none}
-  .cumple-shell-globo.g1{top:-6px;left:-8px;transform:rotate(-18deg)}
-  .cumple-shell-globo.g2{top:-10px;right:-6px;transform:rotate(16deg) scaleX(-1)}
-  .cumple-shell-avatar-wrap{display:flex;justify-content:center;margin-top:6px}
-  .cumple-shell-avatar-wrap .avatar,.cumple-shell-avatar-wrap .avatar-fallback{border:4px solid #fff;box-shadow:0 0 0 3px var(--ok)}
-  .cumple-shell-titulo{font-weight:800;color:var(--ok);font-size:21px;letter-spacing:.01em;margin:14px 0 0;position:relative;z-index:1}
-  .cumple-shell-nombre{font-weight:800;color:#155e42;font-size:19px;margin:0 0 14px}
-  .cumple-shell-fecha{display:inline-block;background:var(--ok);color:#fff;font-weight:700;font-size:var(--fs-sm);padding:6px 20px;border-radius:4px;margin-bottom:18px;letter-spacing:.02em}
-  .cumple-shell-sub{font-size:var(--fs-sm);color:#8a5a3a;margin-bottom:18px}
-  .cumple-shell-acciones{display:flex;flex-direction:column;gap:8px}
-  .cumple-shell-acciones a,.cumple-shell-acciones button{display:block;width:100%;box-sizing:border-box;text-decoration:none;text-align:center}
-  .cumple-shell-marca{margin-top:18px;display:flex;justify-content:center;align-items:center;opacity:.85}
-  .cumple-shell-marca img{height:28px;width:auto}
+     -- 3ra vuelta ("en que formato deberia pasarte este diseño" ->
+     captura de pantalla de un mockup nuevo, más minimalista que el
+     afiche de RR.HH. de la 2da vuelta): tarjeta blanca, avatar con
+     degradé violeta->verde (en vez de foto/color plano), confetti de
+     puntitos/estrellas en vez de globos, fecha en pastilla redondeada,
+     2 botones lado a lado (Llamar sólido, WhatsApp con borde), "Cerrar"
+     como link de texto (no botón) con línea divisoria arriba. Sigue
+     usando var(--ok) para el verde -- es el token de marca, no uno
+     inventado para esto acá tampoco. */
+  .cumple-shell-card{background:#fff;position:relative;overflow:hidden;padding-top:6px}
+  .cumple-shell-confetti{position:absolute;pointer-events:none;font-size:15px;line-height:1}
+  .cumple-shell-confetti.c1{top:10px;left:22px;color:var(--ok);transform:rotate(-12deg)}
+  .cumple-shell-confetti.c2{top:6px;right:26px;color:#8b7ff0;transform:rotate(14deg)}
+  .cumple-shell-confetti.c3{top:38px;left:8px;color:#8b7ff0;font-size:11px}
+  .cumple-shell-confetti.c4{top:34px;right:10px;color:var(--ok);font-size:11px}
+  .cumple-shell-confetti.c5{top:62px;left:34px;color:var(--ok);font-size:10px}
+  .cumple-shell-confetti.c6{top:58px;right:38px;color:#8b7ff0;font-size:13px}
+  .cumple-shell-globo{font-size:36px;display:block;text-align:center;position:relative;z-index:1;margin-bottom:2px}
+  .cumple-shell-titulo{font-weight:800;color:#1a2b4a;font-size:21px;margin:6px 0 2px;position:relative;z-index:1}
+  .cumple-shell-nombre{font-weight:800;color:var(--ok);font-size:18px;margin:0 0 18px}
+  .cumple-shell-avatar-wrap{display:flex;justify-content:center;margin-top:2px;position:relative}
+  .cumple-shell-avatar-wrap .avatar,.cumple-shell-avatar-wrap .avatar-fallback{box-shadow:none}
+  .cumple-shell-avatar-wrap .avatar-fallback{background:linear-gradient(135deg,#8b7ff0 0%,var(--ok) 100%) !important}
+  .cumple-shell-avatar-sparkle{position:absolute;color:var(--ok);font-size:15px;pointer-events:none}
+  .cumple-shell-avatar-sparkle.s1{top:-4px;left:calc(50% - 58px)}
+  .cumple-shell-avatar-sparkle.s2{top:6px;right:calc(50% - 62px);color:#8b7ff0;font-size:12px}
+  .cumple-shell-avatar-sparkle.s3{bottom:2px;left:calc(50% - 68px);font-size:11px}
+  .cumple-shell-fecha-wrap{margin-top:16px;margin-bottom:18px}
+  .cumple-shell-fecha{display:inline-flex;align-items:center;gap:6px;background:var(--ok-bg);color:var(--ok);font-weight:700;font-size:var(--fs-sm);padding:6px 16px;border-radius:999px}
+  .cumple-shell-acciones{display:flex;gap:10px}
+  .cumple-shell-acciones a{flex:1;box-sizing:border-box;text-decoration:none;text-align:center;padding:11px 10px;border-radius:8px;font-weight:600;font-size:var(--fs-sm);display:flex;align-items:center;justify-content:center;gap:6px}
+  .cumple-shell-accion-llamar{background:var(--ok);color:#fff}
+  .cumple-shell-accion-wa{background:#fff;color:var(--ok);border:1.5px solid var(--ok)}
+  .cumple-shell-cerrar-link{display:block;width:100%;background:none;border:none;border-top:1px solid #eee;margin-top:16px;padding-top:14px;color:#888;font-size:var(--fs-sm);cursor:pointer;text-align:center}
+  .cumple-shell-marca{margin-top:14px;display:flex;justify-content:center;align-items:center;opacity:.85}
+  .cumple-shell-marca img{height:24px;width:auto}
 
   #panes{flex:1;position:relative;min-width:0}
   .pane{position:absolute;inset:0;display:none}
@@ -1559,12 +1574,11 @@ async function chequearCumpleanosHoy(){
     mostrarCumpleShellPopup(cumpleHoy.map(p => Object.assign({}, p, { telefono: telefonoPorId[p.id] || '' })));
   }catch(e){ /* nunca rompe el arranque del shell por esto */ }
 }
-// 28/08/2026 ("puedes adaptar este formato al pop-up?" -- el afiche
-// verde con globos/banderines que ya sube RR.HH. a mano para saludar
-// por cumpleaños): mismos elementos (título arriba, nombre grande,
-// foto circular con marco, fecha en cinta verde, logo abajo), sin
-// intentar clonar la ilustración vectorial completa -- ver comentario
-// del CSS (.cumple-shell-card) sobre por qué.
+// 28/08/2026 ("en que formato deberia pasarte este diseño" -> captura
+// de un mockup nuevo): título+nombre arriba, avatar con degradé y
+// estrellitas alrededor, fecha en pastilla, 2 botones lado a lado,
+// "Cerrar" como link de texto -- ver comentario del CSS
+// (.cumple-shell-card) para el detalle completo del cambio de diseño.
 function mostrarCumpleShellPopup(personas){
   const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const hoy = new Date();
@@ -1572,26 +1586,34 @@ function mostrarCumpleShellPopup(personas){
   const bloques = personas.map(p => {
     const telLimpio = (p.telefono || '').replace(/[^\d+]/g, '');
     const acciones = telLimpio
-      ? '<a class="btn-secondary" href="tel:'+telLimpio+'">📞 Llamar</a>'
-        + '<a class="btn-secondary" href="https://wa.me/'+telLimpio.replace(/^\+/,'')+'" target="_blank" rel="noopener">💬 WhatsApp</a>'
+      ? '<a class="cumple-shell-accion-llamar" href="tel:'+telLimpio+'">📞 Llamar</a>'
+        + '<a class="cumple-shell-accion-wa" href="https://wa.me/'+telLimpio.replace(/^\+/,'')+'" target="_blank" rel="noopener">💬 WhatsApp</a>'
       : '';
     return '<div style="margin-bottom:18px">'
       + '<div class="cumple-shell-nombre">'+cuEscapeHtml(p.nombre)+'</div>'
-      + '<div class="cumple-shell-avatar-wrap">'+cuAvatarHtml(p, 96)+'</div>'
-      + '<div style="margin-top:14px"><span class="cumple-shell-fecha">'+fechaTexto+'</span></div>'
+      + '<div class="cumple-shell-avatar-wrap">'
+        + '<span class="cumple-shell-avatar-sparkle s1">✦</span>'
+        + '<span class="cumple-shell-avatar-sparkle s2">✧</span>'
+        + '<span class="cumple-shell-avatar-sparkle s3">✦</span>'
+        + cuAvatarHtml(p, 96)
+      + '</div>'
+      + '<div class="cumple-shell-fecha-wrap"><span class="cumple-shell-fecha">📅 '+fechaTexto+'</span></div>'
       + (acciones ? '<div class="cumple-shell-acciones">'+acciones+'</div>' : '')
       + '</div>';
-  }).join('<hr style="margin:2px 0 20px;border:none;border-top:1px dashed #cde8d8">');
+  }).join('<hr style="margin:2px 0 20px;border:none;border-top:1px dashed #eee">');
   // Reusa el logo REAL ya cargado en el sidebar (mismo <img>, sin
   // duplicar el data URI) en vez de un texto/logo aparte.
   const logoImg = document.querySelector('.sb-logo-wrap img');
   const marcaHtml = logoImg ? '<div class="cumple-shell-marca"><img src="'+logoImg.src+'" alt="IcomSalud"></div>' : '';
   document.getElementById('cumpleShellCard').innerHTML = ''
     + '<button type="button" class="cu-cerrar" onclick="cerrarCumpleShellPopup()" aria-label="Cerrar">×</button>'
-    + '<span class="cumple-shell-globo g1">🎈</span><span class="cumple-shell-globo g2">🎈</span>'
-    + '<div class="cumple-shell-titulo">🎉 ¡Feliz Cumpleaños!</div>'
+    + '<span class="cumple-shell-confetti c1">✦</span><span class="cumple-shell-confetti c2">✦</span>'
+    + '<span class="cumple-shell-confetti c3">◆</span><span class="cumple-shell-confetti c4">◆</span>'
+    + '<span class="cumple-shell-confetti c5">✧</span><span class="cumple-shell-confetti c6">✧</span>'
+    + '<span class="cumple-shell-globo">🎉</span>'
+    + '<div class="cumple-shell-titulo">¡Feliz cumpleaños!</div>'
     + bloques
-    + '<button type="button" class="btn-secondary" style="width:100%" onclick="cerrarCumpleShellPopup()">Cerrar</button>'
+    + '<button type="button" class="cumple-shell-cerrar-link" onclick="cerrarCumpleShellPopup()">Cerrar</button>'
     + marcaHtml;
   document.getElementById('cumpleShellOverlay').style.display = 'flex';
 }
