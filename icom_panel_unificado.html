@@ -3318,8 +3318,18 @@ function dashFmtMillones(v){
   return (v/1e6).toFixed(1)+'M';
 }
 
+// 28/08/2026 ("los nombres quedaron los vendedores... son los meses para
+// atras"): los meses YA CERRADOS quedan cacheados en IndexedDB con el
+// resultado de dashAgruparTotales ya calculado (totalsByLabel) -- al
+// cambiar Cirugía General de "por Institución" a "por Unidad de Negocio"
+// (ver DASH_GROUP_CONFIG/dashUnidadNegocioCirugiaGeneral), esos meses
+// viejos quedaron con el agrupado ANTERIOR ya resuelto, cacheado, nunca se
+// vuelven a calcular solos. v1 -> v2 invalida TODO el caché (las 4
+// unidades, no sólo Cirugía General) -- barato de recalcular (unos pocos
+// fetches más, una sola vez) y mucho más simple/robusto que tratar de
+// invalidar sólo las entradas de una unidad puntual.
 function dashMonthlyCacheKey(channel, year, monthNum){
-  return 'dash_mensual_v1_'+channel+'_'+year+'_'+String(monthNum).padStart(2,'0');
+  return 'dash_mensual_v2_'+channel+'_'+year+'_'+String(monthNum).padStart(2,'0');
 }
 
 // Mismo motivo que erpScheduleIcomMonthlyCharts (ver comentario grande ahí,
