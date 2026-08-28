@@ -3174,10 +3174,53 @@ function erpBuildIcomPieChartHtml(totalsByLabel, opts){
    stocksRpcCall junto a erpRpcCall más abajo; ese cálculo de reparto de
    stock compartido entre unidades sólo existe en Stocks, no se duplica
    acá). */
+// 28/08/2026 ("Dashboard de Cirugia... no vamos a medir los datos por
+// 'Institución' sino que necesitamos agrupar por 'Unidad de negocios' de
+// acuerdo a la lógica del cuadro"): mapeo Proveedor+Subgrupo -> Unidad de
+// Negocio propia de Cirugía General, tabla concreta pedida por Juan Manuel
+// -- J&J se separa en 2 unidades según el subgrupo del producto (BW es
+// "BIOSENSE - J&J", cualquier otro subgrupo de J&J es "SURGERY - J&J");
+// ASP y Coloplast son 1 proveedor = 1 unidad cada uno; todo lo demás
+// (proveedor sin match, o sin dato) cae en "Otros" ("Otras" en el cuadro
+// original -- pedido explícito usar "Otros"). Usa el mismo snapshot ya
+// sincronizado por api/actualizar-stock-diario.js (ERP_STOCK_SNAPSHOT_BYSKU,
+// el que alimenta "Por Proveedor"/"Por Subgrupos" de Ventas en Vivo) --
+// ningún fetch nuevo, ninguna dependencia de que el usuario haya abierto
+// esa pantalla antes (el snapshot se carga apenas arranca el shell, ver
+// erpStartGlobalPolling).
+//
+// Supuesto marcado para confirmar: el cuadro sólo lista 5 subgrupos bajo
+// "SURGERY - J&J" (BIOSURGERY/EES/ENERGY/ETHICON/GYNECARE) -- acá
+// CUALQUIER subgrupo de J&J que no sea "BW" cae en Surgery por default,
+// en vez de listar los 5 explícitamente, para no dejar un producto J&J
+// nuevo (subgrupo no previsto en el cuadro) cayendo en "Otros" por
+// accidente. Avisar si esto no es lo esperado.
+function dashNormalizarTexto(s){
+  return String(s||'').trim().toUpperCase().replace(/\s+/g,' ');
+}
+const DASH_JJ_PROVEEDOR = 'JOHNSON JOHNSON MEDICAL S.A.';
+const DASH_ASP_PROVEEDOR = 'ADVANCED STERILIZATION PRODUCTS SAS';
+const DASH_COLOPLAST_PROVEEDOR = 'COLOPLAST DE ARGENTINA S.A.';
+function dashUnidadNegocioCirugiaGeneral(row){
+  const info = ERP_STOCK_SNAPSHOT_BYSKU[row.sku];
+  const proveedor = dashNormalizarTexto(info && info.proveedor);
+  if(!proveedor) return 'Otros';
+  if(proveedor === DASH_JJ_PROVEEDOR){
+    const subgrupo = dashNormalizarTexto(info && info.subgrupo);
+    return subgrupo === 'BW' ? 'BIOSENSE - J&J' : 'SURGERY - J&J';
+  }
+  if(proveedor === DASH_ASP_PROVEEDOR) return 'ASP';
+  if(proveedor === DASH_COLOPLAST_PROVEEDOR) return 'COLOPLAST';
+  return 'Otros';
+}
+
+// "field" puede ser un nombre de campo simple (como antes, para
+// Minorista/Movilidad/Cirugía Estética) O una función clasificadora por
+// fila (sólo Cirugía General, ver arriba) -- ver dashAgruparTotales.
 const DASH_GROUP_CONFIG = {
   minorista:        { field:'canal',              label:'Canal',       fromByCanal:true },
   movilidad:        { field:'vendedorInstitucion', label:'Institución', fromByCanal:false },
-  cirugia_general:  { field:'vendedorInstitucion', label:'Institución', fromByCanal:false },
+  cirugia_general:  { field: dashUnidadNegocioCirugiaGeneral, label:'Unidad de Negocio', fromByCanal:false },
   cirugia_estetica: { field:'vendedorCliente',      label:'Visitador',   fromByCanal:false },
 };
 
@@ -3235,9 +3278,13 @@ function dashAgruparTotales(data, cfg){
     Object.entries(data.byCanal||{}).forEach(([canal,v])=>{ out[canal] = v.totalNeto||0; });
     return out;
   }
+  // 28/08/2026 (Dashboard de Cirugía General por Unidad de Negocio): cfg.field
+  // puede ser una función clasificadora por fila en vez de un nombre de campo
+  // -- ver DASH_GROUP_CONFIG/dashUnidadNegocioCirugiaGeneral más arriba.
+  const clasificar = typeof cfg.field === 'function' ? cfg.field : (r)=> r[cfg.field];
   const out = {};
   (data.rows||[]).forEach(r=>{
-    const key = r[cfg.field] || 'Sin dato';
+    const key = clasificar(r) || 'Sin dato';
     out[key] = (out[key]||0) + (r.f||0);
   });
   return out;
