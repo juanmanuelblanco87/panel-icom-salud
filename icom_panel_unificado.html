@@ -990,7 +990,7 @@
             <span class="erp-count" id="erpProveedorFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearProveedorFilter()" title="Tocar para quitar el filtro"></span>
           </h2>
           <div id="erpProveedorNote" style="display:none;font-size:12px;color:#a35b00;background:#FFF3E0;border:1px solid #f3d5a6;border-radius:7px;padding:10px 12px;margin-bottom:12px">
-            Para ver este desglose, primero subí la <b>Base de Productos</b> (menú lateral) — de ahí sale el proveedor de cada SKU (columna "Articulo - Proveedor").
+            Todavía no hay datos de proveedor por SKU — se sincronizan solos una vez al día (6:00 AM) desde oppen.io, probá recargar la página en unos minutos.
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
@@ -1889,10 +1889,6 @@ const PM_HEADER_MAP = {
   macrocategoria:'macro', macro:'macro', nombredegrupo:'macro',
   categoria:'categoria', cat:'categoria', segmento:'categoria', nombresubgrupo:'categoria',
   marca:'marca',
-  // 28/08/2026 ("Por Proveedor", dato de Articulo - Proveedor): mismo
-  // criterio de alias flexibles que el resto -- "Articulo - Proveedor"
-  // normaliza a 'articuloproveedor' (pmNormHeader saca espacios/guiones/acentos).
-  proveedor:'proveedor', articuloproveedor:'proveedor', proveedorarticulo:'proveedor',
   estado:'estado', status:'estado', situacion:'estado'
 };
 
@@ -1910,7 +1906,6 @@ function pmParseRows(headers, dataRows){
       macro: idx.macro!==undefined ? String(r[idx.macro]||'').trim() : '',
       categoria: idx.categoria!==undefined ? String(r[idx.categoria]||'').trim() : '',
       marca: idx.marca!==undefined ? String(r[idx.marca]||'').trim() : '',
-      proveedor: idx.proveedor!==undefined ? String(r[idx.proveedor]||'').trim() : '',
       estado: idx.estado!==undefined ? String(r[idx.estado]||'').trim() : ''
     });
   });
@@ -4749,25 +4744,20 @@ async function erpRenderSkuTable(){
   ).join('') + (rows.length>MAX ? '<tr><td colspan="6" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
 }
 
-// Puebla (o repuebla, con force=true) ERP_SKU_TO_PROVEEDOR_CACHE a partir de
-// la Base de Productos local (product_master). 28/08/2026 ("Por Proveedor",
-// dato nuevo): a diferencia de macro/marca, todavía no hay una RPC de
-// Seguimiento para esto -- sale ÚNICAMENTE de PM_DATA.rows (columna
-// "Proveedor"/"Articulo - Proveedor" del archivo subido, ver PM_HEADER_MAP).
-// Esta es la ÚNICA función que arma el mapa sku->proveedor -- tanto
-// erpRenderProveedorTable (para agrupar y mostrar) como erpGetFilteredData
-// (para filtrar TODO el tablero al hacer click en una fila) leen del mismo
-// mapa.
+// 28/08/2026 ("Proveedor es un dato que viene en la factura de OPPEN,
+// chequea" -- confirmado que en realidad vive en SupplierItem.SupName, no
+// en la factura ni en la Base de Productos): puebla (o repuebla, con
+// force=true) ERP_SKU_TO_PROVEEDOR_CACHE a partir de ERP_STOCK_SNAPSHOT_BYSKU
+// (el snapshot diario que ya trae proveedor mezclado server-side, ver
+// api/actualizar-stock-diario.js y erpFetchStockNowImpl) -- ya NO depende de
+// que se suba la Base de Productos a mano. Esta es la ÚNICA función que
+// arma el mapa sku->proveedor -- tanto erpRenderProveedorTable (para
+// agrupar y mostrar) como erpGetFilteredData (para filtrar TODO el tablero
+// al hacer click en una fila) leen del mismo mapa.
 async function erpEnsureSkuToProveedorCache(force){
   if(ERP_SKU_TO_PROVEEDOR_CACHE && !force) return ERP_SKU_TO_PROVEEDOR_CACHE;
-  let skuToProveedor = {};
-  try{
-    const fresh = await pmIdbGet(PM_KEY);
-    if(fresh && fresh.rows) PM_DATA = fresh;
-  }catch(e){ console.log('erpEnsureSkuToProveedorCache: no se pudo refrescar PM_DATA:', e); }
-  if(PM_DATA && PM_DATA.rows){
-    PM_DATA.rows.forEach(r=>{ if(r.sku && r.proveedor && !skuToProveedor[r.sku]) skuToProveedor[r.sku] = r.proveedor; });
-  }
+  const skuToProveedor = {};
+  Object.entries(ERP_STOCK_SNAPSHOT_BYSKU).forEach(([sku, v])=>{ if(v && v.proveedor) skuToProveedor[sku] = v.proveedor; });
   ERP_SKU_TO_PROVEEDOR_CACHE = skuToProveedor;
   return skuToProveedor;
 }
@@ -4866,23 +4856,20 @@ function erpNormalizeMarcaKey(raw){
 
 
 
-// Puebla (o repuebla, con force=true) ERP_SKU_TO_SUBGRUPO_CACHE: el campo
-// "categoria" de la Base de Productos local (que en el fondo es el
-// subgrupo -- ver PM_HEADER_MAP, ahí "NombreSubgrupo" mapea a ese campo).
-// Todavía no hay una RPC de Seguimiento para esto, sale sólo de PM_DATA.
-// Misma función que usan erpRenderSubgrupoTable (agrupar y mostrar) y
-// erpGetFilteredData (filtrar TODO el tablero) -- así el buscador de "Por
-// Subgrupos" queda consistente en toda la pantalla.
+// 28/08/2026 ("Proveedor es un dato que viene en la factura de OPPEN,
+// chequea" -- misma investigación confirmó que Sub-grupo vive en
+// Item.ItemSubGroup): puebla (o repuebla, con force=true)
+// ERP_SKU_TO_SUBGRUPO_CACHE a partir de ERP_STOCK_SNAPSHOT_BYSKU (mismo
+// snapshot diario, ver api/actualizar-stock-diario.js y
+// erpFetchStockNowImpl) -- ya NO depende de la Base de Productos subida a
+// mano (el campo "categoria" que se usaba antes). Misma función que usan
+// erpRenderSubgrupoTable (agrupar y mostrar) y erpGetFilteredData (filtrar
+// TODO el tablero) -- así el buscador de "Por Subgrupos" queda consistente
+// en toda la pantalla.
 async function erpEnsureSkuToSubgrupoCache(force){
   if(ERP_SKU_TO_SUBGRUPO_CACHE && !force) return ERP_SKU_TO_SUBGRUPO_CACHE;
-  let skuToSubgrupo = {};
-  try{
-    const fresh = await pmIdbGet(PM_KEY);
-    if(fresh && fresh.rows) PM_DATA = fresh;
-  }catch(e){ console.log('erpEnsureSkuToSubgrupoCache: no se pudo refrescar PM_DATA:', e); }
-  if(PM_DATA && PM_DATA.rows){
-    PM_DATA.rows.forEach(r=>{ if(r.sku && r.categoria && !skuToSubgrupo[r.sku]) skuToSubgrupo[r.sku] = r.categoria; });
-  }
+  const skuToSubgrupo = {};
+  Object.entries(ERP_STOCK_SNAPSHOT_BYSKU).forEach(([sku, v])=>{ if(v && v.subgrupo) skuToSubgrupo[sku] = v.subgrupo; });
   ERP_SKU_TO_SUBGRUPO_CACHE = skuToSubgrupo;
   return skuToSubgrupo;
 }
@@ -5720,6 +5707,13 @@ function erpStartGlobalPolling(){
 // de IndexedDB (por navegador) a un blob compartido (ver
 // api/stock-fx-override.js e icom_set_fx_override más arriba) -- ya no hace
 // falta leerlo acá antes de cada sync, el servidor ya lo aplica solo.
+// 28/08/2026 ("Por Subgrupos"/"Por Proveedor" en Ventas en Vivo, ahora
+// sacados de Item/SupplierItem en vez de la Base de Productos subida a
+// mano): erpFetchStockNowImpl ya trae el snapshot completo (bySku, con
+// subgrupo/proveedor mezclados server-side, ver api/actualizar-stock-
+// diario.js) -- se guarda acá para que erpEnsureSkuToSubgrupoCache/
+// erpEnsureSkuToProveedorCache lo lean directo, sin pedirlo de nuevo.
+let ERP_STOCK_SNAPSHOT_BYSKU = {};
 let erpStockFetchPromise = null;
 async function erpFetchStockNow(){
   if(erpStockFetchPromise) return erpStockFetchPromise; // ya hay un ciclo en vuelo -- no lo duplicamos, ver nota grande junto a erpFetchConTimeout
@@ -5738,6 +5732,7 @@ async function erpFetchStockNowImpl(){
     const data = await res.json();
     if(!data.ok) throw new Error(data.error || 'Respuesta inválida de /api/stock-snapshot');
     bySku = data.bySku || {};
+    ERP_STOCK_SNAPSHOT_BYSKU = bySku;
     itemCostFx = data.fx || null;
     snapshotGeneratedAt = data.generatedAt || null;
     snapshotCompleto = data.completo !== false;
@@ -5803,6 +5798,17 @@ async function erpFetchStockNowImpl(){
       // contra el SKU 7000 en la app Stocks: 1194 desactualizado vs 294 real).
       ERP_SKU_TO_STOCK_CACHE = null;
       erpRenderSkuTable();
+      // 28/08/2026 ("Por Subgrupos"/"Por Proveedor", ahora sacados de este
+      // mismo snapshot en vez de la Base de Productos): mismo problema de
+      // carrera que el de arriba con "Stock Total" -- si esas 2 tablas
+      // llegaron a renderizarse ANTES de que este fetch terminara,
+      // ERP_STOCK_SNAPSHOT_BYSKU todavía estaba vacío en ese momento y
+      // quedaban pegadas en "Sin datos" para siempre. Mismo fix: invalidar
+      // sus cachés y repintar acá.
+      ERP_SKU_TO_PROVEEDOR_CACHE = null;
+      ERP_SKU_TO_SUBGRUPO_CACHE = null;
+      erpRenderProveedorTable();
+      erpRenderSubgrupoTable();
     }, 1500);
   }catch(e){
     console.error('Error consultando /api/stock-snapshot:', e);

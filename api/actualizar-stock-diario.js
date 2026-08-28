@@ -33,6 +33,16 @@
 // que lee el cliente (api/stock-snapshot.js) y se borra el progreso
 // intermedio.
 //
+// 28/08/2026 ("Proveedor es un dato que viene en la factura de OPPEN,
+// chequea" -- confirmado que en realidad vive en Item.ItemSubGroup y
+// SupplierItem.SupName, 2 entidades del catálogo que Juan Manuel agregó al
+// Swagger de ICOMGENERAL): 2 fases más al final de la máquina de estados,
+// mismo patrón retomable -- stock -> itemcost -> item -> supplieritem ->
+// (mezcla final + snapshot). Reemplaza la fuente anterior de "Por
+// Subgrupos"/"Por Proveedor" en Ventas en Vivo (que dependía de subir la
+// Base de Productos a mano con esas 2 columnas) -- ahora sale sola, mismo
+// mecanismo que ya usa el costo real de ItemCost.
+//
 // CONCURRENCIA (agregado tras probar en producción -- ver historial de
 // commits del mismo día): llamar a este endpoint 2 veces casi al mismo
 // tiempo (por ejemplo, reintentar a mano sin esperar a que la llamada
@@ -58,7 +68,9 @@
 //                   (útil para forzar un re-escaneo completo a mano).
 //   chunkMs=N    -- tamaño del pedacito de tiempo por llamada, en ms
 //                   (default 15000 = 15s, acotado entre 3000 y 45000).
-const { escanearStockCompleto, escanearItemCostCompleto } = require('./_stock-scan');
+const {
+  escanearStockCompleto, escanearItemCostCompleto, escanearItemCompleto, escanearSupplierItemCompleto,
+} = require('./_stock-scan');
 const {
   leerFxOverride, escribirSnapshot, leerProgreso, escribirProgreso, borrarProgreso,
 } = require('./_stock-store');
@@ -89,10 +101,21 @@ module.exports = async function handler(req, res) {
         phase: 'stock',
         stockOffset: 0,
         itemCostOffset: 0,
+        itemOffset: 0,
+        supplierItemOffset: 0,
         bySku: {},
         depoCounts: {},
         costoBySku: {},
         nombreBySku: {},
+        // 28/08/2026 ("Proveedor es un dato que viene en la factura de
+        // OPPEN, chequea" -- confirmado en realidad en Item.ItemSubGroup y
+        // SupplierItem.SupName, 2 entidades nuevas del catálogo, ver
+        // _stock-scan.js): 2 fases más al final de este mismo escaneo diario
+        // -- reemplaza la fuente anterior (Base de Productos subida a mano)
+        // de "Por Subgrupos"/"Por Proveedor" en Ventas en Vivo.
+        subgrupoBySku: {},
+        proveedorBySku: {},
+        tieneDefaultProveedorBySku: {},
         fx: null,
         startedAt: new Date().toISOString(),
       };
@@ -138,29 +161,28 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // state.phase === 'itemcost'
-    const overrideRate = await leerFxOverride();
-    const r = await escanearItemCostCompleto({
-      fxOverride: overrideRate,
-      startTime,
-      maxMs: chunkMs,
-      startOffset: state.itemCostOffset,
-      costoBySku: state.costoBySku,
-      nombreBySku: state.nombreBySku,
-      fx: state.fx,
-    });
-    state.costoBySku = r.costoBySku;
-    state.nombreBySku = r.nombreBySku;
-    state.fx = r.fx;
-    state.itemCostOffset = r.nextOffset;
-
-    if (!r.completo) {
+    if (state.phase === 'itemcost') {
+      const overrideRate = await leerFxOverride();
+      const r = await escanearItemCostCompleto({
+        fxOverride: overrideRate,
+        startTime,
+        maxMs: chunkMs,
+        startOffset: state.itemCostOffset,
+        costoBySku: state.costoBySku,
+        nombreBySku: state.nombreBySku,
+        fx: state.fx,
+      });
+      state.costoBySku = r.costoBySku;
+      state.nombreBySku = r.nombreBySku;
+      state.fx = r.fx;
+      state.itemCostOffset = r.nextOffset;
+      if (r.completo) state.phase = 'item'; // ItemCost terminado -- la próxima llamada arranca Item (Sub-grupo)
       state.lockedUntil = null; // ver nota junto a la fase "stock" -- soltamos apenas termina este pedacito
       await escribirProgreso(state);
       res.status(200).json({
         ok: true,
         completo: false,
-        phase: 'itemcost',
+        phase: state.phase,
         itemCostOffset: state.itemCostOffset,
         paginasEstaLlamada: r.pages,
         registrosEstaLlamada: r.recordsProcessed,
@@ -169,8 +191,56 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // ItemCost también terminó -- mezclamos costo/nombre en bySku y
-    // escribimos el snapshot FINAL (el único que lee el cliente).
+    if (state.phase === 'item') {
+      const r = await escanearItemCompleto({
+        startTime, maxMs: chunkMs, startOffset: state.itemOffset, subgrupoBySku: state.subgrupoBySku,
+      });
+      state.subgrupoBySku = r.subgrupoBySku;
+      state.itemOffset = r.nextOffset;
+      if (r.completo) state.phase = 'supplieritem'; // Item terminado -- la próxima llamada arranca SupplierItem (Proveedor)
+      state.lockedUntil = null;
+      await escribirProgreso(state);
+      res.status(200).json({
+        ok: true,
+        completo: false,
+        phase: state.phase,
+        itemOffset: state.itemOffset,
+        paginasEstaLlamada: r.pages,
+        registrosEstaLlamada: r.recordsProcessed,
+        tookMs: Date.now() - startTime,
+      });
+      return;
+    }
+
+    // state.phase === 'supplieritem'
+    const r = await escanearSupplierItemCompleto({
+      startTime,
+      maxMs: chunkMs,
+      startOffset: state.supplierItemOffset,
+      proveedorBySku: state.proveedorBySku,
+      tieneDefaultBySku: state.tieneDefaultProveedorBySku,
+    });
+    state.proveedorBySku = r.proveedorBySku;
+    state.tieneDefaultProveedorBySku = r.tieneDefaultBySku;
+    state.supplierItemOffset = r.nextOffset;
+
+    if (!r.completo) {
+      state.lockedUntil = null;
+      await escribirProgreso(state);
+      res.status(200).json({
+        ok: true,
+        completo: false,
+        phase: 'supplieritem',
+        supplierItemOffset: state.supplierItemOffset,
+        paginasEstaLlamada: r.pages,
+        registrosEstaLlamada: r.recordsProcessed,
+        tookMs: Date.now() - startTime,
+      });
+      return;
+    }
+
+    // Las 4 fases terminaron -- mezclamos costo/nombre/subgrupo/proveedor en
+    // bySku y escribimos el snapshot FINAL (el único que lee el cliente).
     const bySku = state.bySku;
     Object.entries(state.costoBySku).forEach(([sku, costo]) => {
       if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
@@ -179,6 +249,16 @@ module.exports = async function handler(req, res) {
     Object.entries(state.nombreBySku).forEach(([sku, nombre]) => {
       if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
       bySku[sku].nombre = nombre;
+    });
+    // 28/08/2026 ("Por Subgrupos"/"Por Proveedor" en Ventas en Vivo): mismo
+    // criterio de merge que costo/nombre arriba.
+    Object.entries(state.subgrupoBySku).forEach(([sku, subgrupo]) => {
+      if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
+      bySku[sku].subgrupo = subgrupo;
+    });
+    Object.entries(state.proveedorBySku).forEach(([sku, proveedor]) => {
+      if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
+      bySku[sku].proveedor = proveedor;
     });
 
     await escribirSnapshot({
@@ -189,6 +269,8 @@ module.exports = async function handler(req, res) {
       stats: {
         stockOffset: state.stockOffset,
         itemCostOffset: state.itemCostOffset,
+        itemOffset: state.itemOffset,
+        supplierItemOffset: state.supplierItemOffset,
       },
     });
     await borrarProgreso();

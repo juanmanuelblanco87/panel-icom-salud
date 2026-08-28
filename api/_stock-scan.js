@@ -278,4 +278,121 @@ async function escanearItemCostCompleto({
   };
 }
 
-module.exports = { getToken, escanearStockCompleto, escanearItemCostCompleto };
+async function fetchItemPage(token, offset, limit) {
+  const params = new URLSearchParams({ __limit__: String(limit), __offset__: String(offset) });
+  const res = await fetch(`${BASE_URL}/Item?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) { cachedToken = null; throw new Error('Token rechazado por oppen.io (401) consultando Item.'); }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Error consultando Item (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+// 28/08/2026 ("Proveedor es un dato que viene en la factura de OPPEN,
+// chequea" -- confirmado que en realidad NO viene en la factura, sino en 2
+// entidades nuevas del catálogo que Juan Manuel agregó al Swagger de
+// ICOMGENERAL): Item es el maestro de artículos (1 fila por SKU, Code =
+// ArtCode) -- trae ItemSubGroup, confirmado con datos reales como el campo
+// real de "Sub-grupo" (ver endpoint de diagnóstico, ya borrado). Mismo
+// patrón retomable que escanearItemCostCompleto.
+async function escanearItemCompleto({
+  startTime, maxMs, startOffset = 0, subgrupoBySku = {},
+}) {
+  const token = await getToken();
+  let offset = startOffset;
+  let hasMore = true;
+  let pages = 0;
+  let recordsProcessed = 0;
+  const MAX_PAGES = 200; // mismo orden de magnitud que ItemCost (1 fila por artículo)
+
+  while (hasMore && pages < MAX_PAGES) {
+    if (Date.now() - startTime > maxMs) break;
+    let page;
+    try {
+      page = await fetchItemPage(token, offset, 500);
+    } catch (e) {
+      console.error('escanearItemCompleto: error de página en offset ' + offset + ', se corta acá (se reintenta desde el mismo offset en la próxima llamada):', e);
+      break;
+    }
+    const rawRows = page.data || [];
+    for (const row of rawRows) {
+      recordsProcessed++;
+      const sku = cleanSku(row.Code);
+      const subgrupo = String(row.ItemSubGroup || '').trim();
+      if (subgrupo) subgrupoBySku[sku] = subgrupo;
+    }
+    hasMore = !!page.has_more;
+    offset += 500;
+    pages++;
+  }
+  return {
+    subgrupoBySku, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
+  };
+}
+
+async function fetchSupplierItemPage(token, offset, limit) {
+  const params = new URLSearchParams({ __limit__: String(limit), __offset__: String(offset) });
+  const res = await fetch(`${BASE_URL}/SupplierItem?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) { cachedToken = null; throw new Error('Token rechazado por oppen.io (401) consultando SupplierItem.'); }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Error consultando SupplierItem (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+// SupplierItem es la relación artículo<->proveedor -- un mismo ArtCode puede
+// tener VARIOS proveedores cargados (ej. históricos), cada fila con su
+// propio SupName. `Default:true` marca cuál es el proveedor vigente/
+// principal para ese artículo (confirmado con datos reales, ver endpoint de
+// diagnóstico) -- se prioriza esa fila; si un SKU nunca tiene ninguna marcada
+// como default, se deja la PRIMERA que aparezca (mejor un dato razonable que
+// ninguno).
+async function escanearSupplierItemCompleto({
+  startTime, maxMs, startOffset = 0, proveedorBySku = {}, tieneDefaultBySku = {},
+}) {
+  const token = await getToken();
+  let offset = startOffset;
+  let hasMore = true;
+  let pages = 0;
+  let recordsProcessed = 0;
+  const MAX_PAGES = 200;
+
+  while (hasMore && pages < MAX_PAGES) {
+    if (Date.now() - startTime > maxMs) break;
+    let page;
+    try {
+      page = await fetchSupplierItemPage(token, offset, 500);
+    } catch (e) {
+      console.error('escanearSupplierItemCompleto: error de página en offset ' + offset + ', se corta acá (se reintenta desde el mismo offset en la próxima llamada):', e);
+      break;
+    }
+    const rawRows = page.data || [];
+    for (const row of rawRows) {
+      recordsProcessed++;
+      const sku = cleanSku(row.ArtCode);
+      const proveedor = String(row.SupName || '').trim();
+      if (!proveedor) continue;
+      const esDefault = row.Default === true;
+      if (esDefault) {
+        proveedorBySku[sku] = proveedor;
+        tieneDefaultBySku[sku] = true;
+      } else if (!proveedorBySku[sku]) {
+        // Todavía no hay ninguna fila para este SKU -- se deja ésta como
+        // provisoria, se pisa si más adelante aparece una marcada Default.
+        proveedorBySku[sku] = proveedor;
+      }
+    }
+    hasMore = !!page.has_more;
+    offset += 500;
+    pages++;
+  }
+  return {
+    proveedorBySku, tieneDefaultBySku, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
+  };
+}
+
+module.exports = {
+  getToken, escanearStockCompleto, escanearItemCostCompleto, escanearItemCompleto, escanearSupplierItemCompleto,
+};
