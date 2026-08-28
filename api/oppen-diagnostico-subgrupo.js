@@ -148,6 +148,40 @@ module.exports = async function handler(req, res) {
     });
     const stockData = stockRes.ok ? await stockRes.json() : { data: [], error: await stockRes.text().catch(() => '') };
 
+    // 28/08/2026 ("acabo de agregar al swagger 3 mas, sales order, supplier
+    // y supplieritem"): esas 3 entidades nuevas están en el tenant viejo
+    // "ICOM" (no en "ICOMGENERAL", que es el que usa el resto de este
+    // archivo/api/oppen-invoices.js) -- se consultan acá aparte, con su
+    // propio token (mismo user/pass, tenant distinto en la URL), sólo para
+    // ver los campos reales de Supplier/SupplierItem. Si esto confirma el
+    // campo, hay que pedir que se agreguen también a ICOMGENERAL antes de
+    // poder usarlas en producción (ver comentario grande en
+    // api/oppen-invoices.js sobre por qué se migró de ICOM a ICOMGENERAL).
+    const ICOM_BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOM';
+    let icomTenant = { error: null, supplierMuestra: null, supplierItemMuestra: null };
+    try {
+      const icomAuthRes = await fetch(`${ICOM_BASE_URL}/authenticate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: process.env.OPPEN_USER_API, password: process.env.OPPEN_PASS_API }),
+      });
+      if (!icomAuthRes.ok) {
+        icomTenant.error = `authenticate (${icomAuthRes.status}): ` + (await icomAuthRes.text().catch(() => ''));
+      } else {
+        const icomAuthData = await icomAuthRes.json();
+        const icomToken = icomAuthData.token;
+        const commonParams = new URLSearchParams({ __limit__: '5', __offset__: '0', __total_records__: '1' });
+        const [supRes, supItemRes] = await Promise.all([
+          fetch(`${ICOM_BASE_URL}/Supplier?${commonParams.toString()}`, { headers: { Authorization: `Bearer ${icomToken}` } }),
+          fetch(`${ICOM_BASE_URL}/SupplierItem?${commonParams.toString()}`, { headers: { Authorization: `Bearer ${icomToken}` } }),
+        ]);
+        icomTenant.supplierMuestra = supRes.ok ? (await supRes.json()).data : `error ${supRes.status}: ` + (await supRes.text().catch(() => ''));
+        icomTenant.supplierItemMuestra = supItemRes.ok ? (await supItemRes.json()).data : `error ${supItemRes.status}: ` + (await supItemRes.text().catch(() => ''));
+      }
+    } catch (e) {
+      icomTenant.error = String((e && e.message) || e);
+    }
+
     res.status(200).json({
       ok: true,
       nota: 'ENDPOINT TEMPORAL -- borrar api/oppen-diagnostico-subgrupo.js una vez encontrado el campo de Sub-grupo/Proveedor.',
@@ -158,6 +192,7 @@ module.exports = async function handler(req, res) {
       facturas: resultado,
       itemCostMuestra: itemCostData.data || itemCostData,
       stockMuestra: stockData.data || stockData,
+      tenantICOM: icomTenant,
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: String((e && e.message) || e) });
