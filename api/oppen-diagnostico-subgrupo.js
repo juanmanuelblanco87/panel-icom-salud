@@ -119,6 +119,22 @@ module.exports = async function handler(req, res) {
       items: inv.Items || [],
     }));
 
+    // 28/08/2026 ("Proveedor es un dato que viene en la factura de OPPEN,
+    // chequea"): ni Invoice.Items ni la factura completa tienen un campo
+    // obvio de Proveedor/Sub-grupo (confirmado arriba) -- se suma acá,
+    // mismo criterio, un vistazo crudo a ItemCost (la entidad "una fila por
+    // ARTÍCULO", ver comentario grande en oppen-item-cost.js) por si vive
+    // ahí en vez de en la factura.
+    const itemCostParams = new URLSearchParams({
+      __limit__: '5',
+      __offset__: '0',
+      __total_records__: '1',
+    });
+    const itemCostRes = await fetch(`${BASE_URL}/ItemCost?${itemCostParams.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const itemCostData = itemCostRes.ok ? await itemCostRes.json() : { data: [], error: await itemCostRes.text().catch(() => '') };
+
     res.status(200).json({
       ok: true,
       nota: 'ENDPOINT TEMPORAL -- borrar api/oppen-diagnostico-subgrupo.js una vez encontrado el campo de Sub-grupo/Proveedor.',
@@ -127,6 +143,7 @@ module.exports = async function handler(req, res) {
       facturasDeCirugiaGeneralEncontradas: cirugiaGeneralInvoices.length,
       facturasMostradas: resultado.length,
       facturas: resultado,
+      itemCostMuestra: itemCostData.data || itemCostData,
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: String((e && e.message) || e) });
