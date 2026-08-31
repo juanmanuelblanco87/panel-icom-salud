@@ -984,7 +984,40 @@
           <div id="erpCanalPills" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"></div>
         </div>
 
-        <div class="erp-card">
+        <div class="erp-card" id="erpMacroCard" style="display:none">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Macro Categoría</span>
+            <span class="erp-count" id="erpMacroFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearMacroFilter()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div id="erpMacroNote" style="display:none;font-size:12px;color:#a35b00;background:#FFF3E0;border:1px solid #f3d5a6;border-radius:7px;padding:10px 12px;margin-bottom:12px">
+            Para ver este desglose, primero subí la <b>Base de Productos</b> (menú lateral) — de ahí sale la macro categoría de cada SKU.
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Macro Categoría</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="erpMacroBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card" id="erpMarcaCard" style="display:none">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Marca</span>
+            <span class="erp-count" id="erpMarcaFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearMarcaSelection()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <input type="text" id="erpMarcaSearch" placeholder="Buscar por marca..." oninput="erpOnMarcaSearchInput()">
+            <span class="erp-count" id="erpMarcaCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Marca</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="erpMarcaBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card" id="erpProveedorCard">
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
             <span>Por Proveedor</span>
             <span class="erp-count" id="erpProveedorFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearProveedorFilter()" title="Tocar para quitar el filtro"></span>
@@ -1000,7 +1033,7 @@
           </div>
         </div>
 
-        <div class="erp-card">
+        <div class="erp-card" id="erpSubgrupoCard">
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
             <span>Por Subgrupos</span>
             <span class="erp-count" id="erpSubgrupoFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="erpClearSubgrupoSelection()" title="Tocar para quitar el filtro"></span>
@@ -2699,6 +2732,20 @@ let ERP_VIEW_DATA = null;
 // (buscador + selección + agrupación normalizada), otra columna de origen
 // (categoria en vez de marca -- ver PM_HEADER_MAP, ahí "NombreSubgrupo" ya
 // mapeaba a ese campo).
+// 28/08/2026 ("quedaron igual que antes con Marcas y Macrocategorias"
+// -- Ventas en Vivo vuelve a mostrar AMBAS clasificaciones, Cirugia
+// General usa Subgrupo/Proveedor (arriba), el resto de las unidades usa
+// Marca/Macro Categoria (restaurado tal cual estaba antes del cambio a
+// Subgrupo/Proveedor -- ver erpUpdateChannelSpecificUI para el toggle de
+// que tarjetas se muestran según currentChannel).
+let ERP_SKU_TO_MARCA_CACHE = null;
+let ERP_SKU_TO_MACRO_CACHE = null;
+let erpMacroSelected = null;
+const ERP_MACRO_SIN_CATEGORIZAR = 'Sin categorizar (no está en la Base de Productos)';
+let erpMarcaSelectedKey = null;
+let erpMarcaSelectedLabel = '';
+const ERP_MARCA_SENTINELS = new Set(['s/m','sm','s m','sin marca','n/a','na','n a','','sa','s a']);
+
 let ERP_SKU_TO_SUBGRUPO_CACHE = null;
 
 // Cache del mapa SKU -> proveedor (ver erpEnsureSkuToProveedorCache más
@@ -4170,6 +4217,22 @@ function erpUpdateChannelSpecificUI(channel){
   // MedicalSalesRepresentative, y quedaban duplicados) y el que queda
   // ("Vendedor") pasa a llamarse "Visitador Médico". En Cirugía General/
   // Movilidad se mantienen los 2 selectores con sus nombres de siempre.
+  // 28/08/2026 ("Ventas en Vivo del resto de los negocios deberia
+  // quedar igual que antes con Marcas y Macrocategorias"): Cirugia
+  // General usa Subgrupo/Proveedor (consistente con su Dashboard, ver
+  // DASH_GROUP_CONFIG), el resto de las unidades usa Marca/Macro
+  // Categoria como siempre -- las 4 tarjetas existen siempre en el DOM,
+  // esto solo alterna cual PAR se ve.
+  const isCirugiaGeneral = channel === 'cirugia_general';
+  const proveedorCard = document.getElementById('erpProveedorCard');
+  const subgrupoCard = document.getElementById('erpSubgrupoCard');
+  const macroCard = document.getElementById('erpMacroCard');
+  const marcaCard = document.getElementById('erpMarcaCard');
+  if(proveedorCard) proveedorCard.style.display = isCirugiaGeneral ? '' : 'none';
+  if(subgrupoCard) subgrupoCard.style.display = isCirugiaGeneral ? '' : 'none';
+  if(macroCard) macroCard.style.display = isCirugiaGeneral ? 'none' : '';
+  if(marcaCard) marcaCard.style.display = isCirugiaGeneral ? 'none' : '';
+
   const isCirugiaEstetica = channel === 'cirugia_estetica';
   const vendInstSection = document.getElementById('erpVendInstSection');
   if(vendInstSection) vendInstSection.style.display = isCirugiaEstetica ? 'none' : '';
@@ -4185,6 +4248,8 @@ function erpSwitchToChannelView(channel){
   erpCanalExcluded = new Set();
   erpProveedorSelected = null;
   erpSubgrupoSelectedKey = null;
+  erpMacroSelected = null;
+  erpMarcaSelectedKey = null;
   erpSubgrupoSelectedLabel = '';
   // Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... Vendedor
   // (Cliente) y Vendedor (Institución)" -- mismo criterio de reseteo que
@@ -4205,6 +4270,8 @@ function erpSwitchToChannelView(channel){
   if(toInput) toInput.value = today;
   const subgrupoSearch = document.getElementById('erpSubgrupoSearch');
   if(subgrupoSearch) subgrupoSearch.value = '';
+  const marcaSearch = document.getElementById('erpMarcaSearch');
+  if(marcaSearch) marcaSearch.value = '';
   const skuSearch = document.getElementById('erpSkuSearch');
   if(skuSearch) skuSearch.value = '';
   const clienteSearch = document.getElementById('erpClienteSearch');
@@ -4661,7 +4728,7 @@ function erpRowPassesFilters(row, skip){
   if(!skip.vendCliente && erpVendClienteExcluded.has(row.vendedorCliente)) return false;
   if(!skip.cliente && erpClienteSelectedKey && erpNormalizeMarcaKey(row.cliente) !== erpClienteSelectedKey) return false;
   if(!skip.tipoOperacion && erpTipoOperacionSelected && row.tipoOperacion !== erpTipoOperacionSelected) return false;
-  if(!skip.subgrupoProveedor && erpHasActiveSubgrupoProveedorFilter() && !erpSkuMatchesSubgrupoProveedorFilters(row.sku)) return false;
+  if(!skip.clasificacion && erpHasActiveClasificacionFilter() && !erpSkuMatchesClasificacionFilter(row.sku)) return false;
   return true;
 }
 
@@ -4673,7 +4740,7 @@ function erpRowPassesFilters(row, skip){
 function erpGetFilteredData(){
   if(!ERP_VIEW_DATA) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
   const anyFilter = erpCanalExcluded.size > 0 || erpVendInstExcluded.size > 0
-    || erpVendClienteExcluded.size > 0 || !!erpClienteSelectedKey || !!erpTipoOperacionSelected || erpHasActiveSubgrupoProveedorFilter();
+    || erpVendClienteExcluded.size > 0 || !!erpClienteSelectedKey || !!erpTipoOperacionSelected || erpHasActiveClasificacionFilter();
   if(!anyFilter){
     return {bySku: ERP_VIEW_DATA.bySku, totals: ERP_VIEW_DATA.totals};
   }
@@ -4719,7 +4786,7 @@ function erpComputeRowGroupTotals(getKey, skip){
 function erpComputeCanalTotals(){
   if(!ERP_VIEW_DATA || !ERP_VIEW_DATA.byCanal) return {};
   const anyOtherFilter = erpVendInstExcluded.size > 0 || erpVendClienteExcluded.size > 0
-    || !!erpClienteSelectedKey || !!erpTipoOperacionSelected || erpHasActiveSubgrupoProveedorFilter();
+    || !!erpClienteSelectedKey || !!erpTipoOperacionSelected || erpHasActiveClasificacionFilter();
   if(!anyOtherFilter) return ERP_VIEW_DATA.byCanal;
   return erpComputeRowGroupTotals(row=>row.canal, {canal:true});
 }
@@ -4806,6 +4873,246 @@ async function erpRenderSkuTable(){
   body.innerHTML = shown.map(([sku, v])=>
     '<tr><td>'+sku+'</td><td>'+(v.nombre||'—')+'</td><td class="num">'+erpFmtInt(skuToStock[sku]||0)+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td></tr>'
   ).join('') + (rows.length>MAX ? '<tr><td colspan="6" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
+}
+
+// 28/08/2026 ("quedaron igual que antes con Marcas y Macrocategorias"):
+// restaurado tal cual estaba ANTES del cambio a Subgrupo/Proveedor -- lo
+// unico nuevo es que ahora conviven los 2 sistemas (ver
+// erpUpdateChannelSpecificUI/DASH... el toggle de que tarjetas se ven segun
+// currentChannel vive en erpUpdateChannelSpecificUI). Cirugia General usa
+// Subgrupo/Proveedor (arriba), el resto de las unidades usa esto.
+//
+// Lee y normaliza el texto del buscador de "Por Marca" (mismo criterio que
+// erpNormalizeMarcaKey, asi "femmt" matchea "Femmto" ignorando mayusculas y
+// acentos). Devuelve '' si no hay buscador en el DOM o esta vacio.
+function erpGetActiveMarcaQuery(){
+  const el = document.getElementById('erpMarcaSearch');
+  if(!el) return '';
+  return erpNormalizeMarcaKey(el.value||'');
+}
+
+// Puebla (o repuebla, con force=true) ERP_SKU_TO_MACRO_CACHE: combina
+// BASE_SKUS (pedido por RPC a Seguimiento, ver getSkuCategoryMap) +
+// product_master local como respaldo. Antes SOLO se miraba product_master, y
+// como BASE_SKUS (el catalogo estatico) vive unicamente dentro de
+// Seguimiento, cualquier SKU categorizado por ese catalogo (no por la Base de
+// Productos) aparecia siempre "sin categorizar" aca, aunque Seguimiento lo
+// mostrara bien. Esta es la UNICA funcion que arma el mapa sku->macro -- tanto
+// erpRenderMacroTable (para agrupar y mostrar) como erpGetFilteredData (para
+// filtrar TODO el tablero al hacer click en una fila) leen del mismo mapa.
+async function erpEnsureSkuToMacroCache(force){
+  if(ERP_SKU_TO_MACRO_CACHE && !force) return ERP_SKU_TO_MACRO_CACHE;
+  let skuToMacro = {};
+  try{
+    skuToMacro = await erpRpcCall('getSkuCategoryMap', []) || {};
+  }catch(e){
+    console.log('erpEnsureSkuToMacroCache: no se pudo pedir el mapa de categorias por RPC, sigo solo con product_master local:', e);
+  }
+  try{
+    const fresh = await pmIdbGet(PM_KEY);
+    if(fresh && fresh.rows) PM_DATA = fresh;
+  }catch(e){ console.log('erpEnsureSkuToMacroCache: no se pudo refrescar PM_DATA:', e); }
+  if(PM_DATA && PM_DATA.rows){
+    PM_DATA.rows.forEach(r=>{ if(r.sku && r.macro && !skuToMacro[r.sku]) skuToMacro[r.sku] = r.macro; });
+  }
+  ERP_SKU_TO_MACRO_CACHE = skuToMacro;
+  return skuToMacro;
+}
+
+// Click en una fila de "Por Macro Categoria": selecciona (o deselecciona si
+// ya estaba tildada) esa categoria y repinta todo el tablero -- Por Marca,
+// Por SKU y KPIs quedan recortados a los SKUs de esa categoria, igual que ya
+// pasa con el filtro de canales y el buscador de marca.
+function erpToggleMacro(macro){
+  erpMacroSelected = (erpMacroSelected === macro) ? null : macro;
+  erpRenderAll();
+}
+
+function erpClearMacroFilter(){
+  erpMacroSelected = null;
+  erpRenderAll();
+}
+
+async function erpRenderMacroTable(){
+  const body = document.getElementById('erpMacroBody');
+  const note = document.getElementById('erpMacroNote');
+  const filterNote = document.getElementById('erpMacroFilterNote');
+  const {bySku} = erpGetFilteredData();
+  if(!ERP_VIEW_DATA || !bySku){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  const skuToMacro = await erpEnsureSkuToMacroCache();
+  if(!Object.keys(skuToMacro).length){
+    note.style.display = 'block';
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos de categorias todavia -- proba recargar la pagina en unos minutos.</td></tr>';
+    return;
+  }
+  note.style.display = 'none';
+
+  if(filterNote){
+    if(erpMacroSelected){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + erpMacroSelected + ' \u2715';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+
+  const byMacro = {};
+  Object.entries(bySku).forEach(([sku, v])=>{
+    const macro = skuToMacro[sku] || ERP_MACRO_SIN_CATEGORIZAR;
+    if(!byMacro[macro]) byMacro[macro] = {unidades:0, totalNeto:0};
+    byMacro[macro].unidades += v.unidades;
+    byMacro[macro].totalNeto += v.totalNeto;
+  });
+
+  const rows = Object.entries(byMacro).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(erpMacroSelected ? 'Sin datos para esta categoria.' : 'Sin facturas este mes todavia.')+'</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,[,v])=>a+v.totalNeto, 0);
+  body.innerHTML = rows.map(([macro, v])=>{
+    const selected = erpMacroSelected === macro;
+    return '<tr onclick="erpToggleMacro(\''+erpJsStrEscape(macro)+'\')" title="Tocar para filtrar por esta categoria (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '\u2611 ' : '')+macro+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td><td class="num">'+erpFmtPct(v.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
+async function erpEnsureSkuToMarcaCache(force){
+  if(ERP_SKU_TO_MARCA_CACHE && !force) return ERP_SKU_TO_MARCA_CACHE;
+  let skuToMarca = {};
+  try{
+    skuToMarca = await erpRpcCall('getSkuMarcaMap', []) || {};
+  }catch(e){
+    console.log('erpEnsureSkuToMarcaCache: no se pudo pedir el mapa de marcas por RPC, sigo solo con product_master local:', e);
+  }
+  try{
+    const fresh = await pmIdbGet(PM_KEY);
+    if(fresh && fresh.rows) PM_DATA = fresh;
+  }catch(e){ console.log('erpEnsureSkuToMarcaCache: no se pudo refrescar PM_DATA:', e); }
+  if(PM_DATA && PM_DATA.rows){
+    PM_DATA.rows.forEach(r=>{
+      if(r.sku && r.marca && !skuToMarca[r.sku] && !ERP_MARCA_SENTINELS.has(erpNormalizeMarcaKey(r.marca))){
+        skuToMarca[r.sku] = r.marca;
+      }
+    });
+  }
+  ERP_SKU_TO_MARCA_CACHE = skuToMarca;
+  return skuToMarca;
+}
+
+async function erpOnMarcaSearchInput(){
+  if(!ERP_SKU_TO_MARCA_CACHE) await erpEnsureSkuToMarcaCache();
+  erpRenderAll();
+}
+
+function erpToggleMarcaRow(key, label){
+  if(erpMarcaSelectedKey === key){
+    erpMarcaSelectedKey = null;
+    erpMarcaSelectedLabel = '';
+  }else{
+    erpMarcaSelectedKey = key;
+    erpMarcaSelectedLabel = label;
+  }
+  erpRenderAll();
+}
+
+function erpClearMarcaSelection(){
+  erpMarcaSelectedKey = null;
+  erpMarcaSelectedLabel = '';
+  erpRenderAll();
+}
+
+async function erpRenderMarcaTable(){
+  const body = document.getElementById('erpMarcaBody');
+  const countSpan = document.getElementById('erpMarcaCount');
+  const filterNote = document.getElementById('erpMarcaFilterNote');
+  const {bySku} = erpGetFilteredData();
+  if(!ERP_VIEW_DATA || !bySku){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  const skuToMarca = await erpEnsureSkuToMarcaCache();
+
+  if(filterNote){
+    if(erpMarcaSelectedKey){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + erpMarcaSelectedLabel + ' \u2715';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+
+  const byMarca = {};
+  Object.entries(bySku).forEach(([sku, v])=>{
+    const rawMarca = skuToMarca[sku] || 'Sin marca';
+    const key = erpNormalizeMarcaKey(rawMarca);
+    if(!byMarca[key]) byMarca[key] = {unidades:0, totalNeto:0, labelCounts:{}};
+    byMarca[key].unidades += v.unidades;
+    byMarca[key].totalNeto += v.totalNeto;
+    byMarca[key].labelCounts[rawMarca] = (byMarca[key].labelCounts[rawMarca]||0) + 1;
+  });
+
+  let rows = Object.entries(byMarca).map(([key, v])=>{
+    const labels = Object.entries(v.labelCounts).sort((a,b)=> b[1]-a[1] || b[0].length-a[0].length);
+    return {key, marca: labels[0][0].toUpperCase(), unidades: v.unidades, totalNeto: v.totalNeto};
+  });
+
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  const q = erpGetActiveMarcaQuery();
+  if(countSpan) countSpan.textContent = rows.length + ' marcas';
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(q ? 'Sin marcas que coincidan con la busqueda.' : 'Sin facturas este dia.')+'</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = erpMarcaSelectedKey === r.key;
+    return '<tr onclick="erpToggleMarcaRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.marca)+'\')" title="Tocar para filtrar por esta marca (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '\u2611 ' : '')+r.marca+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
+function erpSkuMatchesMarcaMacroFilters(sku){
+  const marcaQuery = erpGetActiveMarcaQuery();
+  if(marcaQuery && ERP_SKU_TO_MARCA_CACHE){
+    const rawMarca = ERP_SKU_TO_MARCA_CACHE[sku] || 'Sin marca';
+    if(!erpNormalizeMarcaKey(rawMarca).includes(marcaQuery)) return false;
+  }
+  if(erpMarcaSelectedKey && ERP_SKU_TO_MARCA_CACHE){
+    const rawMarca = ERP_SKU_TO_MARCA_CACHE[sku] || 'Sin marca';
+    if(erpNormalizeMarcaKey(rawMarca) !== erpMarcaSelectedKey) return false;
+  }
+  if(erpMacroSelected && ERP_SKU_TO_MACRO_CACHE){
+    const macro = ERP_SKU_TO_MACRO_CACHE[sku] || ERP_MACRO_SIN_CATEGORIZAR;
+    if(macro !== erpMacroSelected) return false;
+  }
+  return true;
+}
+
+function erpHasActiveMarcaMacroFilter(){
+  if(erpGetActiveMarcaQuery() && ERP_SKU_TO_MARCA_CACHE) return true;
+  if(erpMarcaSelectedKey && ERP_SKU_TO_MARCA_CACHE) return true;
+  if(erpMacroSelected && ERP_SKU_TO_MACRO_CACHE) return true;
+  return false;
+}
+
+// Dispatcher: Cirugia General usa Subgrupo/Proveedor, el resto usa
+// Marca/Macro Categoria -- erpRowPassesFilters/erpGetFilteredData/
+// erpComputeCanalTotals llaman a ESTAS 2 funciones, nunca directo a las
+// especificas de cada sistema, para no tener que acordarse del canal en
+// cada punto de uso.
+function erpHasActiveClasificacionFilter(){
+  return currentChannel === 'cirugia_general' ? erpHasActiveSubgrupoProveedorFilter() : erpHasActiveMarcaMacroFilter();
+}
+function erpSkuMatchesClasificacionFilter(sku){
+  return currentChannel === 'cirugia_general' ? erpSkuMatchesSubgrupoProveedorFilters(sku) : erpSkuMatchesMarcaMacroFilters(sku);
 }
 
 // 28/08/2026 ("Proveedor es un dato que viene en la factura de OPPEN,
@@ -5104,6 +5411,8 @@ function erpRenderAll(){
   erpRenderKpis();
   erpRenderProveedorTable();
   erpRenderSubgrupoTable();
+  erpRenderMacroTable();
+  erpRenderMarcaTable();
   erpRenderSkuTable();
   // Juan Manuel, 27/07/2026: gráfico de torta solo en la vista ICOM (ver
   // erpUpdateChannelSpecificUI, que muestra/oculta #erpIcomPieCard).
