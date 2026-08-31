@@ -718,6 +718,19 @@
           </div>
         </div>
 
+        <!-- 31/08/2026 ("es importante conocer la cantidad de cirugias
+             diarias... en el dashboard agregar indicador de Cirugias
+             promedio diaria por Tipo y Especialidad debajo de los
+             graficos de torta de unidad de negocio"): exclusivo de
+             Cirugía General (ver dashUpdateCirugiasIndicadorVisibility,
+             llamada desde dashSwitchToChannelView) -- fuente de datos
+             DISTINTA del resto del Dashboard (Ordenes de Venta, no
+             Facturas, ver dashFetchCirugiasIndicadorImpl). -->
+        <div class="erp-card" id="dashCirugiasCard" style="display:none">
+          <h2>Cirugías promedio diaria — por Tipo y Especialidad</h2>
+          <div id="dashCirugiasBody"><span class="pm-empty">Cargando…</span></div>
+        </div>
+
         <div class="erp-card">
           <h2>Venta estimada de cierre de mes</h2>
           <div id="dashProyeccion"><span class="pm-empty">Cargando…</span></div>
@@ -1132,7 +1145,7 @@
         <div class="erp-kpis" id="ovKpis">
           <div class="erp-kpi"><div class="lbl">Total Neto</div><div class="val" id="ovKpiTotal">—</div></div>
           <div class="erp-kpi"><div class="lbl">Unidades</div><div class="val" id="ovKpiUnidades">—</div></div>
-          <div class="erp-kpi"><div class="lbl">Órdenes procesadas</div><div class="val" id="ovKpiOrdenes">—</div></div>
+          <div class="erp-kpi"><div class="lbl"># Cirugías</div><div class="val" id="ovKpiOrdenes">—</div></div>
           <div class="erp-kpi"><div class="lbl">Última actualización</div><div class="val" id="ovKpiUpdated" style="font-size:13px">—</div></div>
         </div>
 
@@ -1146,8 +1159,8 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Tipo de Operación</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
-              <tbody id="ovTipoOpBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+              <thead><tr><th>Tipo de Operación</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovTipoOpBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1162,8 +1175,8 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Especialidad</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
-              <tbody id="ovEspecialidadBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+              <thead><tr><th>Especialidad</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovEspecialidadBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -3846,6 +3859,110 @@ function dashSwitchToChannelView(channel){
   dashRenderPieHoy();
   dashRenderDohStock();
   dashFetchMonthly(channel); // dispara (o continúa) el fetch mes a mes -- dedup interno, ver dashFetchMonthly
+  dashUpdateCirugiasIndicadorVisibility(channel);
+}
+
+/* ---- Indicador "Cirugías promedio diaria" (exclusivo Cirugía General) ----
+   31/08/2026 ("es importante conocer la cantidad de cirugias diarias...
+   agregar indicador de Cirugias promedio diaria por Tipo y Especialidad
+   debajo de los graficos de torta de unidad de negocio"): a diferencia del
+   resto de este Dashboard (que lee /api/oppen-invoices, Facturas, agrupado
+   por dashUnidadNegocioCirugiaGeneral), acá "cirugía" = Orden de Venta
+   (mismo concepto que "# Cirugías" en Monitor OV, ver
+   api/oppen-sales-orders.js) -- necesita su PROPIO fetch a esa entidad,
+   Tipo de Operación/Especialidad no existen en Facturas.
+   Rango: acumulado del año en curso (1 de enero a hoy), mismo período que
+   la torta "Acumulado Año" de al lado -- un solo día no alcanza para un
+   promedio representativo. Cacheado en memoria por año calendario (se
+   vuelve a pedir solo si cambia el año, o al recargar la página). */
+let dashCirugiasData = null; // { porTipo: {label:total}, porEspecialidad: {label:total}, dias }
+let dashCirugiasPromise = null;
+let dashCirugiasFetchedYear = null;
+
+function dashUpdateCirugiasIndicadorVisibility(channel){
+  const card = document.getElementById('dashCirugiasCard');
+  if(!card) return;
+  if(channel === 'cirugia_general'){
+    card.style.display = '';
+    dashFetchCirugiasIndicador();
+  }else{
+    card.style.display = 'none';
+  }
+}
+
+async function dashFetchCirugiasIndicador(){
+  const anio = new Date().getFullYear();
+  if(dashCirugiasData && dashCirugiasFetchedYear === anio){ dashRenderCirugiasIndicador(); return; }
+  if(dashCirugiasPromise) return dashCirugiasPromise;
+  dashCirugiasPromise = dashFetchCirugiasIndicadorImpl(anio).finally(()=>{ dashCirugiasPromise = null; });
+  return dashCirugiasPromise;
+}
+
+// Mismo patrón de chunking secuencial que ovFetchViewData/erpFetchViewData
+// (erpDateChunksForRange -- un pedido por mes, nunca en paralelo, ver el
+// comentario grande junto a esa función) -- un año completo de Cirugía
+// General son varios meses, mismo orden de magnitud ya probado en
+// producción para Ventas en Vivo con rangos largos.
+async function dashFetchCirugiasIndicadorImpl(anio){
+  const body = document.getElementById('dashCirugiasBody');
+  if(body) body.innerHTML = '<span class="pm-empty">Cargando…</span>';
+  try{
+    const hoy = new Date();
+    const jan1 = new Date(anio, 0, 1);
+    const fromStr = anio+'-01-01';
+    const toStr = erpDateStr(hoy);
+    const chunks = erpDateChunksForRange(fromStr, toStr);
+    const ordenesPorTipo = {};
+    const ordenesPorEspecialidad = {};
+    for(let i=0;i<chunks.length;i++){
+      if(body) body.innerHTML = '<span class="pm-empty">Cargando… ('+(i+1)+'/'+chunks.length+')</span>';
+      const c = chunks[i];
+      const params = new URLSearchParams({unidadNegocio:'cirugia_general', from:c.from, to:c.to});
+      const res = await erpFetchConTimeout('/api/oppen-sales-orders?'+params.toString(), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
+      const d = await res.json();
+      if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
+      (d.rows||[]).forEach(row=>{
+        if(row.sernr == null) return;
+        if(!ordenesPorTipo[row.tipoOperacion]) ordenesPorTipo[row.tipoOperacion] = new Set();
+        ordenesPorTipo[row.tipoOperacion].add(row.sernr);
+        if(!ordenesPorEspecialidad[row.especialidad]) ordenesPorEspecialidad[row.especialidad] = new Set();
+        ordenesPorEspecialidad[row.especialidad].add(row.sernr);
+      });
+    }
+    const dias = Math.floor((hoy - jan1) / 86400000) + 1; // días transcurridos del año, inclusive hoy
+    dashCirugiasData = {
+      porTipo: Object.fromEntries(Object.entries(ordenesPorTipo).map(([k,v])=>[k, v.size])),
+      porEspecialidad: Object.fromEntries(Object.entries(ordenesPorEspecialidad).map(([k,v])=>[k, v.size])),
+      dias,
+    };
+    dashCirugiasFetchedYear = anio;
+    dashRenderCirugiasIndicador();
+  }catch(e){
+    console.error('dashFetchCirugiasIndicadorImpl: error consultando /api/oppen-sales-orders:', e);
+    if(body) body.innerHTML = '<span class="pm-empty" style="color:#c0422a">⚠ No se pudo cargar: '+e.message+'</span>';
+  }
+}
+
+function dashRenderCirugiasTabla(porGrupo, dias){
+  const rows = Object.entries(porGrupo).map(([label, total])=>({label, total, promedio: dias>0 ? total/dias : 0}));
+  rows.sort((a,b)=>b.total-a.total);
+  if(!rows.length) return '<span class="pm-empty">Sin órdenes en lo que va del año.</span>';
+  return '<table class="erp-table"><thead><tr><th></th><th class="num">Cirugías/día (prom.)</th><th class="num">Total año</th></tr></thead><tbody>'
+    + rows.map(r=>'<tr><td>'+r.label+'</td><td class="num">'+r.promedio.toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+'</td><td class="num">'+erpFmtInt(r.total)+'</td></tr>').join('')
+    + '</tbody></table>';
+}
+
+function dashRenderCirugiasIndicador(){
+  const body = document.getElementById('dashCirugiasBody');
+  if(!body) return;
+  if(!dashCirugiasData){ body.innerHTML = '<span class="pm-empty">Cargando…</span>'; return; }
+  const { porTipo, porEspecialidad, dias } = dashCirugiasData;
+  body.innerHTML =
+      '<div style="display:flex;flex-wrap:wrap;gap:24px">'
+    +   '<div style="flex:1;min-width:260px"><h3 style="font-size:12.5px;color:#666;margin:0 0 8px 0">Por Tipo de Operación</h3>'+dashRenderCirugiasTabla(porTipo, dias)+'</div>'
+    +   '<div style="flex:1;min-width:260px"><h3 style="font-size:12.5px;color:#666;margin:0 0 8px 0">Por Especialidad</h3>'+dashRenderCirugiasTabla(porEspecialidad, dias)+'</div>'
+    + '</div>'
+    + '<div style="font-size:10.5px;color:#999;margin-top:10px">Promedio calculado sobre '+dias+' día'+(dias===1?'':'s')+' transcurridos de '+new Date().getFullYear()+' (1 de enero a hoy).</div>';
 }
 
 // Dibuja el gráfico de torta de #erpIcomPieChart (mitad izquierda de
@@ -6645,6 +6762,29 @@ function ovComputeRowGroupTotals(getKey, skip){
   return out;
 }
 
+// 31/08/2026 ("es importante conocer la cantidad de cirugias diarias...
+// en el resto de los cuadros (Por Tipo de Operación) por Especialidad
+// sumar antes de precio pr cantidad de cirugias"): a diferencia de
+// ovComputeRowGroupTotals (suma unidades/totalNeto por LÍNEA), acá se
+// cuentan ÓRDENES DISTINTAS (por sernr) por grupo -- una orden con 2+
+// líneas del mismo tipo/especialidad cuenta como 1 sola cirugía, no 2.
+// Mismo criterio que ovComputeFilteredOrderCount (Set de sernr), pero por
+// grupo en vez de global.
+function ovComputeGroupOrderCounts(getKey, skip){
+  const setsPorGrupo = {};
+  if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows) return {};
+  OV_VIEW_DATA.rows.forEach(row=>{
+    if(!ovRowPassesFilters(row, skip)) return;
+    const key = getKey(row);
+    if(key == null || row.sernr == null) return;
+    if(!setsPorGrupo[key]) setsPorGrupo[key] = new Set();
+    setsPorGrupo[key].add(row.sernr);
+  });
+  const out = {};
+  Object.entries(setsPorGrupo).forEach(([key, set])=>{ out[key] = set.size; });
+  return out;
+}
+
 function ovComputeCanalTotals(){
   if(!OV_VIEW_DATA || !OV_VIEW_DATA.byCanal) return {};
   const anyOtherFilter = ovVendInstExcluded.size > 0 || ovVendClienteExcluded.size > 0
@@ -6862,7 +7002,7 @@ function ovRenderTipoOperacionTable(){
   const countSpan = document.getElementById('ovTipoOpCount');
   const filterNote = document.getElementById('ovTipoOpFilterNote');
   if(!OV_VIEW_DATA){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
     return;
   }
   if(filterNote){
@@ -6875,11 +7015,14 @@ function ovRenderTipoOperacionTable(){
     }
   }
   const totals = ovComputeTipoOperacionTotals();
-  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto}));
+  // 31/08/2026 ("es importante conocer la cantidad de cirugias diarias"):
+  // ver ovComputeGroupOrderCounts -- cirugías = órdenes DISTINTAS, no líneas.
+  const cirugias = ovComputeGroupOrderCounts(row=>row.tipoOperacion, {tipoOperacion:true});
+  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' tipo' : ' tipos');
   if(!rows.length){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin órdenes este día.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin órdenes este día.</td></tr>';
     return;
   }
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
@@ -6887,7 +7030,7 @@ function ovRenderTipoOperacionTable(){
     const selected = ovTipoOperacionSelected === r.label;
     return '<tr onclick="ovToggleTipoOperacion(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este tipo de operación (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
   }).join('');
 }
 
@@ -6909,7 +7052,7 @@ function ovRenderEspecialidadTable(){
   const countSpan = document.getElementById('ovEspecialidadCount');
   const filterNote = document.getElementById('ovEspecialidadFilterNote');
   if(!OV_VIEW_DATA){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
     return;
   }
   if(filterNote){
@@ -6922,11 +7065,14 @@ function ovRenderEspecialidadTable(){
     }
   }
   const totals = ovComputeEspecialidadTotals();
-  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto}));
+  // 31/08/2026 ("es importante conocer la cantidad de cirugias diarias"):
+  // ver ovComputeGroupOrderCounts -- cirugías = órdenes DISTINTAS, no líneas.
+  const cirugias = ovComputeGroupOrderCounts(row=>row.especialidad, {especialidad:true});
+  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' especialidad' : ' especialidades');
   if(!rows.length){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin órdenes este día.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin órdenes este día.</td></tr>';
     return;
   }
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
@@ -6934,7 +7080,7 @@ function ovRenderEspecialidadTable(){
     const selected = ovEspecialidadSelected === r.label;
     return '<tr onclick="ovToggleEspecialidad(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por esta especialidad (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
   }).join('');
 }
 
