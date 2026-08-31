@@ -4983,7 +4983,7 @@ function erpComputeFilteredInvoiceCount(){
   if(!anyFilter) return ERP_VIEW_DATA.invoicesProcessed || 0;
   const seen = new Set();
   (ERP_VIEW_DATA.rows||[]).forEach(row=>{
-    if(!erpRowPassesFilters(row, {subgrupoProveedor:true})) return;
+    if(!erpRowPassesFilters(row, {clasificacion:true})) return;
     if(row.sernr != null) seen.add(row.sernr);
   });
   return seen.size;
