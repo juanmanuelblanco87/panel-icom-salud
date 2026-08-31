@@ -1324,7 +1324,7 @@
              nombre legible (confirmado, mismo caso que ItemGroup/macro
              categoría). -->
         <div class="erp-card" id="ovDetalleOrdenesCard">
-          <h2>Detalle de Órdenes <span style="font-weight:400;color:#999;font-size:11.5px">— Clase CR, Tipo de Operación Ethicon</span></h2>
+          <h2>Detalle de Órdenes <span style="font-weight:400;color:#999;font-size:11.5px" id="ovDetalleOrdenesSubtitulo">— Clase CR, Tipo de Operación Ethicon</span></h2>
           <div class="erp-toolbar">
             <span class="erp-count" id="ovDetalleCount"></span>
           </div>
@@ -7295,20 +7295,21 @@ async function ovFetchSalesOrdersChunk(c, unit, attempt, bustCache){
 // Operación: solo ETH, el resto se excluye -- y SOLO para Monitor OV, no
 // aplica en las otras apps"): filtro FIJO, no un selector que el usuario
 // elige -- Monitor OV completo (KPIs, todas las tablas, Detalle de
-// Órdenes) solo ve órdenes Clase=CR + Tipo=Ethicon, siempre. Se aplica
-// ACÁ, en el cliente (NO en api/oppen-sales-orders.js), a propósito --
-// ese mismo endpoint también lo usa el Dashboard para "Cirugías promedio
-// diaria" (ver dashFetchCirugiasIndicadorImpl), que necesita ver TODOS
-// los tipos/especialidades -- filtrar en el backend rompería esa card,
-// que es de otra app.
+// Órdenes) solo ve órdenes Clase=CR + Tipo=Ethicon. Se aplica ACÁ, en el
+// cliente (NO en api/oppen-sales-orders.js), a propósito -- ese mismo
+// endpoint también lo usa el Dashboard para "Cirugías promedio diaria"
+// (ver dashFetchCirugiasIndicadorImpl), que necesita ver TODOS los
+// tipos/especialidades -- filtrar en el backend rompería esa card, que
+// es de otra app.
 //
-// OJO -- efecto colateral real, no un bug: ETH es un código exclusivo de
-// Cirugía General (ver OPERATION_TYPE_UNIT_MAP en api/oppen-sales-orders.js
-// -- Cirugía Estética solo factura con MEN/CAN/GMEN). Con este filtro
-// fijo, Monitor OV en Cirugía Estética SIEMPRE va a mostrar "sin datos"
-// (ninguna orden de esa unidad puede tener Tipo=ETH). Se deja así a
-// propósito -- no se tocó el soporte de Cirugía Estética recién agregado
-// -- si esto no es lo esperado, avisar.
+// 31/08/2026 (2da vuelta, "En cirugia estetica no... solo en cirugia
+// general aplica esto"): CR/ETH son conceptos de Cirugía General --
+// Cirugía Estética factura con otros códigos (MEN/CAN/GMEN, ver
+// OPERATION_TYPE_UNIT_MAP en api/oppen-sales-orders.js) y necesita seguir
+// viendo TODOS sus datos sin este recorte. El filtro solo se aplica
+// cuando channel === 'cirugia_general' (ver ovAplicarFiltroFijo) -- en
+// Cirugía Estética, Monitor OV queda exactamente como estaba antes de
+// este pedido.
 function ovBuildAggregatesFromRows(rows){
   const bySku = {}, byCanal = {}, byCanalSku = {}, byTipoOperacion = {}, byEspecialidad = {};
   const sernrSet = new Set();
@@ -7344,8 +7345,16 @@ function ovBuildAggregatesFromRows(rows){
 // normalizeTipoOperacion/TIPO_OPERACION_LABELS ahí mismo).
 const OV_CLASE_FIJA = 'CR';
 const OV_TIPO_OPERACION_FIJO = 'Ethicon';
-function ovAplicarFiltroFijo(data){
+// 31/08/2026 ("En cirugia estetica no... solo en cirugia general aplica
+// esto" -- corrección sobre el filtro fijo agregado un rato antes):
+// ETH/CR son conceptos de Cirugía General -- Cirugía Estética factura con
+// otros códigos (MEN/CAN/GMEN) y necesita ver TODOS sus datos sin este
+// recorte, no quedar siempre vacía. `channel` se recibe explícito (mismo
+// criterio que targetChannel en ovFetchViewData) en vez de leer
+// currentChannel acá adentro.
+function ovAplicarFiltroFijo(data, channel){
   if(!data) return data;
+  if(channel !== 'cirugia_general') return data; // Cirugía Estética (y cualquier unidad futura) ve todo, sin filtrar
   const rowsFiltrados = (data.rows||[]).filter(row => row.clase === OV_CLASE_FIJA && row.tipoOperacion === OV_TIPO_OPERACION_FIJO);
   const agregados = ovBuildAggregatesFromRows(rowsFiltrados);
   return Object.assign({}, data, agregados, { rows: rowsFiltrados });
@@ -7370,7 +7379,7 @@ async function ovFetchViewData(fromStr, toStr){
       data = ovMergeViewData(results);
     }
     if(targetChannel !== currentChannel) return; // la unidad ya cambió -- esta respuesta quedó vieja, se descarta
-    OV_VIEW_DATA = ovAplicarFiltroFijo(data); // "antes de mostrar la info" -- ver comentario grande junto a ovAplicarFiltroFijo
+    OV_VIEW_DATA = ovAplicarFiltroFijo(data, targetChannel); // "antes de mostrar la info", solo Cirugía General -- ver comentario grande junto a ovAplicarFiltroFijo
     ovRenderAll();
     ovSetStatus('OK', 'ok');
     const overlay = document.getElementById('ovFirstLoadOverlay');
@@ -8140,6 +8149,14 @@ function ovUpdateChannelSpecificUI(channel){
     vendClienteTitle.innerHTML = isCirugiaEstetica
       ? 'Visitador Médico <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>'
       : 'Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>';
+  }
+  // 31/08/2026 ("En cirugia estetica no... solo en cirugia general aplica
+  // esto"): el subtítulo de "Detalle de Órdenes" solo tiene sentido
+  // cuando el filtro fijo Clase=CR/Tipo=Ethicon realmente está activo
+  // (Cirugía General) -- ver ovAplicarFiltroFijo.
+  const detalleSubtitulo = document.getElementById('ovDetalleOrdenesSubtitulo');
+  if(detalleSubtitulo){
+    detalleSubtitulo.textContent = (channel === 'cirugia_general') ? '— Clase CR, Tipo de Operación Ethicon' : '';
   }
 }
 
