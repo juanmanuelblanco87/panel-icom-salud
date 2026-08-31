@@ -1326,6 +1326,7 @@
         <div class="erp-card" id="ovDetalleOrdenesCard">
           <h2>Detalle de Órdenes <span style="font-weight:400;color:#999;font-size:11.5px" id="ovDetalleOrdenesSubtitulo">— Clase CR, Tipo de Operación Ethicon</span></h2>
           <div class="erp-toolbar">
+            <button class="pm-btn" onclick="ovExportDetalleOrdenesExcel()" title="Descarga TODAS las líneas (no solo las que se ven en pantalla) en un Excel">⭳ Exportar a Excel</button>
             <span class="erp-count" id="ovDetalleCount"></span>
           </div>
           <div class="erp-table-wrap">
@@ -7566,6 +7567,28 @@ async function ovRenderSkuTable(){
   body.innerHTML = shown.map(([sku, v])=>
     '<tr><td>'+sku+'</td><td>'+(v.nombre||'—')+'</td><td class="num">'+erpFmtInt(skuToStock[sku]||0)+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td></tr>'
   ).join('') + (rows.length>MAX ? '<tr><td colspan="6" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
+}
+
+// 31/08/2026 (3ra vuelta, "Aqui deja un boton para descargar el excel"):
+// mismo patrón ya probado que pmExportCatalogHealth (SheetJS, ya cargado
+// globalmente en el shell -- ver <script src=".../xlsx.full.min.js">).
+// A diferencia de la tabla en pantalla (recortada a 300 filas, ver
+// ovRenderDetalleOrdenes), acá se exportan TODAS las líneas de
+// OV_VIEW_DATA.rows -- para eso está el botón, para llevarse lo que no
+// entra en pantalla.
+function ovExportDetalleOrdenesExcel(){
+  if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows || !OV_VIEW_DATA.rows.length){
+    alert('No hay datos para exportar todavía.');
+    return;
+  }
+  const header = ['Cliente','Institución','Médico','Especialidad Qx','SKU'];
+  const aoa = [header].concat(OV_VIEW_DATA.rows.map(r=>[
+    r.cliente || '', r.institucionNombre || '', r.medicoNombre || '', r.especialidad || '', r.sku
+  ]));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Detalle de Ordenes');
+  XLSX.writeFile(wb, 'monitor_ov_detalle_ordenes_' + new Date().toISOString().slice(0,10) + '.xlsx');
 }
 
 // "Detalle de Órdenes" -- 31/08/2026 ("Filtros a aplicar: Clase: CR /
