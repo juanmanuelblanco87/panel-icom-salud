@@ -62,7 +62,11 @@
 //                    // "COLON"), mismo criterio que byTipoOperacion.
 //   rows: [ { sku, f, u, fecha, office, canal, unidadNegocio, desc, costoUnit,
 //             vendedorCliente, vendedorInstitucion, cliente, tipoOperacion,
-//             especialidad, sernr }, ... ]
+//             especialidad, clase, institucionNombre, medicoNombre,
+//             sernr }, ... ] // clase/institucionNombre/medicoNombre:
+//             31/08/2026 ("Filtros a aplicar: Clase: CR / Tipo de
+//             Operación: ETH... para Cirugías Monitor OV") -- SOGroup/
+//             InstitutionName/DoctorName.
 // }
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 
@@ -232,6 +236,16 @@ function normalizeTipoOperacion(code) {
 function normalizeEspecialidad(raw) {
   const c = String(raw || '').trim().toUpperCase();
   return c || 'Sin especialidad';
+}
+
+// 31/08/2026 ("Filtros a aplicar: Clase: CR / Tipo de Operación: ETH...
+// para Cirugías Monitor OV"): "Clase" -- confirmado con datos reales
+// (endpoint de diagnóstico temporal, ya borrado) que es el campo
+// SOGroup ("Sales Order Group") -- un código corto (ej. "CR"), mismo
+// criterio de normalización que Especialidad.
+function normalizeClase(raw) {
+  const c = String(raw || '').trim().toUpperCase();
+  return c || 'Sin clase';
 }
 
 // Mismo mapa que OPERATION_TYPE_UNIT_MAP en oppen-invoices.js -- ver ese
@@ -457,6 +471,16 @@ module.exports = async function handler(req, res) {
         // Especialidad (CLASE CR) agrega el cuadro debajo de TIPO"): ver
         // normalizeEspecialidad arriba.
         const especialidad = normalizeEspecialidad(ord.EspecialidadQx);
+        // 31/08/2026 ("Filtros a aplicar: Clase: CR / Tipo de Operación:
+        // ETH... Información a relevar: Nombre del Cliente/Institución/
+        // Médico/Especialidad Qx/SKU -- para Cirugías Monitor OV"): ver
+        // normalizeClase arriba. Institución/Médico son atributos de la
+        // ORDEN completa (igual que Cliente/Especialidad), no de cada
+        // línea -- confirmados con datos reales (InstitutionName/
+        // DoctorName).
+        const clase = normalizeClase(ord.SOGroup);
+        const institucionNombre = ord.InstitutionName ? String(ord.InstitutionName).trim() : '';
+        const medicoNombre = ord.DoctorName ? String(ord.DoctorName).trim() : '';
 
         // 31/08/2026 ("Sumemos el Monitor de OV para Cirugia Estetica" --
         // "Mismo criterio que utilizamos para Cirugia General"): Cirugía
@@ -532,6 +556,9 @@ module.exports = async function handler(req, res) {
             cliente,
             tipoOperacion,
             especialidad,
+            clase,
+            institucionNombre,
+            medicoNombre,
             sernr: ord.SerNr != null ? String(ord.SerNr) : null,
           });
         }

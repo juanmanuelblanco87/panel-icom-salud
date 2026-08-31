@@ -1306,6 +1306,34 @@
             </table>
           </div>
         </div>
+
+        <!-- 31/08/2026 ("Filtros a aplicar: Clase: CR / Tipo de Operación:
+             ETH... Información a relevar: Nombre del Cliente/Institución/
+             Médico/Especialidad Qx/SKU -- para Cirugías Monitor OV"): a
+             diferencia de las tablas de arriba (agregados $$/unidades por
+             grupo), acá cada fila es una LÍNEA de orden real -- selectores
+             propios de Clase/Tipo de Operación (independientes del resto
+             de los filtros de la página, para no atarlo a "Por Tipo de
+             Operación" de arriba) en vez de fijo a CR+ETH, así sirve para
+             cualquier combinación futura. "Nombre Etiqueta" quedó afuera a
+             propósito -- el campo real (Labels) es un código crudo sin
+             ninguna entidad en el Swagger que lo resuelva a nombre
+             legible (confirmado, mismo caso que ItemGroup/macro
+             categoría). -->
+        <div class="erp-card" id="ovDetalleOrdenesCard">
+          <h2>Detalle de Órdenes</h2>
+          <div class="erp-toolbar">
+            <select id="ovDetalleClaseSelect" onchange="ovRenderDetalleOrdenes()"><option value="">Todas las clases</option></select>
+            <select id="ovDetalleTipoOpSelect" onchange="ovRenderDetalleOrdenes()"><option value="">Todos los tipos de operación</option></select>
+            <span class="erp-count" id="ovDetalleCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Cliente</th><th>Institución</th><th>Médico</th><th>Especialidad Qx</th><th>SKU</th></tr></thead>
+              <tbody id="ovDetalleOrdenesBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -7468,6 +7496,60 @@ async function ovRenderSkuTable(){
   ).join('') + (rows.length>MAX ? '<tr><td colspan="6" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
 }
 
+/* ---- "Detalle de Órdenes" -- 31/08/2026 ("Filtros a aplicar: Clase: CR
+   / Tipo de Operación: ETH... Información a relevar: Nombre del Cliente/
+   Institución/Médico/Especialidad Qx/SKU -- para Cirugías Monitor OV").
+   A diferencia de las demás tablas (agregados $$/unidades por grupo),
+   cada fila acá es una LÍNEA de orden real -- sin agregar nada, solo
+   filtrar y listar. Selectores de Clase/Tipo de Operación PROPIOS de esta
+   card (no comparten estado con el resto de los filtros de la página --
+   ver comentario grande junto al HTML), para no atar este detalle puntual
+   a los demás cuadros ni viceversa. ---- */
+function ovPopulateDetalleSelects(){
+  const claseSel = document.getElementById('ovDetalleClaseSelect');
+  const tipoSel = document.getElementById('ovDetalleTipoOpSelect');
+  if(!claseSel || !tipoSel || !OV_VIEW_DATA || !OV_VIEW_DATA.rows) return;
+  const clases = new Set(), tipos = new Set();
+  OV_VIEW_DATA.rows.forEach(r=>{ if(r.clase) clases.add(r.clase); if(r.tipoOperacion) tipos.add(r.tipoOperacion); });
+  // Conserva la selección actual si sigue existiendo en el rango nuevo --
+  // repoblar los <select> en cada render (nuevo fetch, nuevo rango) no
+  // debe resetear el filtro que el usuario ya eligió sin necesidad.
+  const clasePrev = claseSel.value, tipoPrev = tipoSel.value;
+  claseSel.innerHTML = '<option value="">Todas las clases</option>'
+    + Array.from(clases).sort().map(c=>'<option value="'+erpJsStrEscape(c)+'">'+c+'</option>').join('');
+  tipoSel.innerHTML = '<option value="">Todos los tipos de operación</option>'
+    + Array.from(tipos).sort().map(t=>'<option value="'+erpJsStrEscape(t)+'">'+t+'</option>').join('');
+  if(clases.has(clasePrev)) claseSel.value = clasePrev;
+  if(tipos.has(tipoPrev)) tipoSel.value = tipoPrev;
+}
+
+function ovRenderDetalleOrdenes(){
+  const body = document.getElementById('ovDetalleOrdenesBody');
+  const countSpan = document.getElementById('ovDetalleCount');
+  if(!body) return;
+  ovPopulateDetalleSelects();
+  if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    if(countSpan) countSpan.textContent = '';
+    return;
+  }
+  const claseSel = document.getElementById('ovDetalleClaseSelect').value;
+  const tipoSel = document.getElementById('ovDetalleTipoOpSelect').value;
+  let rows = OV_VIEW_DATA.rows;
+  if(claseSel) rows = rows.filter(r=>r.clase === claseSel);
+  if(tipoSel) rows = rows.filter(r=>r.tipoOperacion === tipoSel);
+  if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' línea' : ' líneas');
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+((claseSel||tipoSel) ? 'Sin órdenes que coincidan con el filtro.' : 'Sin órdenes este día.')+'</td></tr>';
+    return;
+  }
+  const MAX = 300;
+  const shown = rows.slice(0, MAX);
+  body.innerHTML = shown.map(r=>
+    '<tr><td>'+(r.cliente||'—')+'</td><td>'+(r.institucionNombre||'—')+'</td><td>'+(r.medicoNombre||'—')+'</td><td>'+(r.especialidad||'—')+'</td><td>'+r.sku+'</td></tr>'
+  ).join('') + (rows.length>MAX ? '<tr><td colspan="5" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (elegí Clase/Tipo de Operación para acotar)</td></tr>' : '');
+}
+
 function ovToggleProveedor(proveedor){
   ovProveedorSelected = (ovProveedorSelected === proveedor) ? null : proveedor;
   ovRenderAll();
@@ -7835,6 +7917,7 @@ function ovRenderAll(){
   ovRenderClienteTable();
   ovRenderTipoOperacionTable();
   ovRenderEspecialidadTable();
+  ovRenderDetalleOrdenes();
 }
 
 /* ─── Selector de rango de fechas: calendario único (clon de erp*, ver
