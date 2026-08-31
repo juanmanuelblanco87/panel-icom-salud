@@ -1311,20 +1311,21 @@
              ETH... Información a relevar: Nombre del Cliente/Institución/
              Médico/Especialidad Qx/SKU -- para Cirugías Monitor OV"): a
              diferencia de las tablas de arriba (agregados $$/unidades por
-             grupo), acá cada fila es una LÍNEA de orden real -- selectores
-             propios de Clase/Tipo de Operación (independientes del resto
-             de los filtros de la página, para no atarlo a "Por Tipo de
-             Operación" de arriba) en vez de fijo a CR+ETH, así sirve para
-             cualquier combinación futura. "Nombre Etiqueta" quedó afuera a
-             propósito -- el campo real (Labels) es un código crudo sin
-             ninguna entidad en el Swagger que lo resuelva a nombre
-             legible (confirmado, mismo caso que ItemGroup/macro
+             grupo), acá cada fila es una LÍNEA de orden real. 31/08/2026
+             (2da vuelta, "no nos estamos entendiendo... hay que aplicar
+             los filtros ANTES de mostrar la info... el resto se
+             excluye"): NO son selectores que el usuario elige -- Clase=CR
+             y Tipo=Ethicon son un filtro FIJO de todo Monitor OV (ver
+             ovAplicarFiltroFijo), así que acá ya no hace falta ningún
+             selector -- toda fila que llega a esta tabla ya es,
+             siempre, Clase=CR + Tipo=Ethicon. "Nombre Etiqueta" quedó
+             afuera a propósito -- el campo real (Labels) es un código
+             crudo sin ninguna entidad en el Swagger que lo resuelva a
+             nombre legible (confirmado, mismo caso que ItemGroup/macro
              categoría). -->
         <div class="erp-card" id="ovDetalleOrdenesCard">
-          <h2>Detalle de Órdenes</h2>
+          <h2>Detalle de Órdenes <span style="font-weight:400;color:#999;font-size:11.5px">— Clase CR, Tipo de Operación Ethicon</span></h2>
           <div class="erp-toolbar">
-            <select id="ovDetalleClaseSelect" onchange="ovRenderDetalleOrdenes()"><option value="">Todas las clases</option></select>
-            <select id="ovDetalleTipoOpSelect" onchange="ovRenderDetalleOrdenes()"><option value="">Todos los tipos de operación</option></select>
             <span class="erp-count" id="ovDetalleCount"></span>
           </div>
           <div class="erp-table-wrap">
@@ -7288,6 +7289,68 @@ async function ovFetchSalesOrdersChunk(c, unit, attempt, bustCache){
 // mientras el fetch estaba en vuelo" que ya usa erpFetchViewData (si no,
 // la respuesta de Cirugía General podría terminar pisando la vista de
 // Cirugía Estética si el usuario cambia de unidad rápido).
+
+// 31/08/2026 ("creo que no nos estamos entendiendo: hay que aplicar los
+// siguientes filtros ANTES de mostrar la info -- Clase: solo CR, Tipo de
+// Operación: solo ETH, el resto se excluye -- y SOLO para Monitor OV, no
+// aplica en las otras apps"): filtro FIJO, no un selector que el usuario
+// elige -- Monitor OV completo (KPIs, todas las tablas, Detalle de
+// Órdenes) solo ve órdenes Clase=CR + Tipo=Ethicon, siempre. Se aplica
+// ACÁ, en el cliente (NO en api/oppen-sales-orders.js), a propósito --
+// ese mismo endpoint también lo usa el Dashboard para "Cirugías promedio
+// diaria" (ver dashFetchCirugiasIndicadorImpl), que necesita ver TODOS
+// los tipos/especialidades -- filtrar en el backend rompería esa card,
+// que es de otra app.
+//
+// OJO -- efecto colateral real, no un bug: ETH es un código exclusivo de
+// Cirugía General (ver OPERATION_TYPE_UNIT_MAP en api/oppen-sales-orders.js
+// -- Cirugía Estética solo factura con MEN/CAN/GMEN). Con este filtro
+// fijo, Monitor OV en Cirugía Estética SIEMPRE va a mostrar "sin datos"
+// (ninguna orden de esa unidad puede tener Tipo=ETH). Se deja así a
+// propósito -- no se tocó el soporte de Cirugía Estética recién agregado
+// -- si esto no es lo esperado, avisar.
+function ovBuildAggregatesFromRows(rows){
+  const bySku = {}, byCanal = {}, byCanalSku = {}, byTipoOperacion = {}, byEspecialidad = {};
+  const sernrSet = new Set();
+  rows.forEach(row=>{
+    if(!bySku[row.sku]) bySku[row.sku] = { nombre: row.desc||row.sku, unidades:0, totalNeto:0 };
+    bySku[row.sku].unidades += row.u;
+    bySku[row.sku].totalNeto += row.f;
+    if(!bySku[row.sku].nombre && row.desc) bySku[row.sku].nombre = row.desc;
+    if(row.canal){
+      if(!byCanal[row.canal]) byCanal[row.canal] = {unidades:0, totalNeto:0};
+      byCanal[row.canal].unidades += row.u;
+      byCanal[row.canal].totalNeto += row.f;
+      if(!byCanalSku[row.canal]) byCanalSku[row.canal] = {};
+      if(!byCanalSku[row.canal][row.sku]) byCanalSku[row.canal][row.sku] = {unidades:0, totalNeto:0};
+      byCanalSku[row.canal][row.sku].unidades += row.u;
+      byCanalSku[row.canal][row.sku].totalNeto += row.f;
+    }
+    if(!byTipoOperacion[row.tipoOperacion]) byTipoOperacion[row.tipoOperacion] = {unidades:0, totalNeto:0};
+    byTipoOperacion[row.tipoOperacion].unidades += row.u;
+    byTipoOperacion[row.tipoOperacion].totalNeto += row.f;
+    if(!byEspecialidad[row.especialidad]) byEspecialidad[row.especialidad] = {unidades:0, totalNeto:0};
+    byEspecialidad[row.especialidad].unidades += row.u;
+    byEspecialidad[row.especialidad].totalNeto += row.f;
+    if(row.sernr != null) sernrSet.add(row.sernr);
+  });
+  const totals = Object.values(bySku).reduce((a,v)=>({unidades:a.unidades+v.unidades, totalNeto:a.totalNeto+v.totalNeto}), {unidades:0,totalNeto:0});
+  return { bySku, byCanal, byCanalSku, byTipoOperacion, byEspecialidad, totals, ordersProcessed: sernrSet.size };
+}
+
+// Clase="CR" ya viene normalizada en mayúsculas desde el backend (ver
+// normalizeClase en api/oppen-sales-orders.js); Tipo de Operación viene
+// como el LABEL ya traducido ("Ethicon", no el código crudo "ETH" -- ver
+// normalizeTipoOperacion/TIPO_OPERACION_LABELS ahí mismo).
+const OV_CLASE_FIJA = 'CR';
+const OV_TIPO_OPERACION_FIJO = 'Ethicon';
+function ovAplicarFiltroFijo(data){
+  if(!data) return data;
+  const rowsFiltrados = (data.rows||[]).filter(row => row.clase === OV_CLASE_FIJA && row.tipoOperacion === OV_TIPO_OPERACION_FIJO);
+  const agregados = ovBuildAggregatesFromRows(rowsFiltrados);
+  return Object.assign({}, data, agregados, { rows: rowsFiltrados });
+}
+
 async function ovFetchViewData(fromStr, toStr){
   const targetChannel = currentChannel;
   ovSetStatus('Cargando…', 'loading');
@@ -7307,7 +7370,7 @@ async function ovFetchViewData(fromStr, toStr){
       data = ovMergeViewData(results);
     }
     if(targetChannel !== currentChannel) return; // la unidad ya cambió -- esta respuesta quedó vieja, se descarta
-    OV_VIEW_DATA = data;
+    OV_VIEW_DATA = ovAplicarFiltroFijo(data); // "antes de mostrar la info" -- ver comentario grande junto a ovAplicarFiltroFijo
     ovRenderAll();
     ovSetStatus('OK', 'ok');
     const overlay = document.getElementById('ovFirstLoadOverlay');
@@ -7496,58 +7559,34 @@ async function ovRenderSkuTable(){
   ).join('') + (rows.length>MAX ? '<tr><td colspan="6" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
 }
 
-/* ---- "Detalle de Órdenes" -- 31/08/2026 ("Filtros a aplicar: Clase: CR
-   / Tipo de Operación: ETH... Información a relevar: Nombre del Cliente/
-   Institución/Médico/Especialidad Qx/SKU -- para Cirugías Monitor OV").
-   A diferencia de las demás tablas (agregados $$/unidades por grupo),
-   cada fila acá es una LÍNEA de orden real -- sin agregar nada, solo
-   filtrar y listar. Selectores de Clase/Tipo de Operación PROPIOS de esta
-   card (no comparten estado con el resto de los filtros de la página --
-   ver comentario grande junto al HTML), para no atar este detalle puntual
-   a los demás cuadros ni viceversa. ---- */
-function ovPopulateDetalleSelects(){
-  const claseSel = document.getElementById('ovDetalleClaseSelect');
-  const tipoSel = document.getElementById('ovDetalleTipoOpSelect');
-  if(!claseSel || !tipoSel || !OV_VIEW_DATA || !OV_VIEW_DATA.rows) return;
-  const clases = new Set(), tipos = new Set();
-  OV_VIEW_DATA.rows.forEach(r=>{ if(r.clase) clases.add(r.clase); if(r.tipoOperacion) tipos.add(r.tipoOperacion); });
-  // Conserva la selección actual si sigue existiendo en el rango nuevo --
-  // repoblar los <select> en cada render (nuevo fetch, nuevo rango) no
-  // debe resetear el filtro que el usuario ya eligió sin necesidad.
-  const clasePrev = claseSel.value, tipoPrev = tipoSel.value;
-  claseSel.innerHTML = '<option value="">Todas las clases</option>'
-    + Array.from(clases).sort().map(c=>'<option value="'+erpJsStrEscape(c)+'">'+c+'</option>').join('');
-  tipoSel.innerHTML = '<option value="">Todos los tipos de operación</option>'
-    + Array.from(tipos).sort().map(t=>'<option value="'+erpJsStrEscape(t)+'">'+t+'</option>').join('');
-  if(clases.has(clasePrev)) claseSel.value = clasePrev;
-  if(tipos.has(tipoPrev)) tipoSel.value = tipoPrev;
-}
-
+// "Detalle de Órdenes" -- 31/08/2026 ("Filtros a aplicar: Clase: CR /
+// Tipo de Operación: ETH... Información a relevar: Nombre del Cliente/
+// Institución/Médico/Especialidad Qx/SKU -- para Cirugías Monitor OV").
+// A diferencia de las demás tablas (agregados $$/unidades por grupo),
+// cada fila acá es una LÍNEA de orden real. 31/08/2026 (2da vuelta): ya
+// NO hay selectores propios -- OV_VIEW_DATA.rows llega acá YA filtrado a
+// Clase=CR + Tipo=Ethicon (ver ovAplicarFiltroFijo/ovFetchViewData), así
+// que esta función solo lista lo que hay, sin filtrar de nuevo.
 function ovRenderDetalleOrdenes(){
   const body = document.getElementById('ovDetalleOrdenesBody');
   const countSpan = document.getElementById('ovDetalleCount');
   if(!body) return;
-  ovPopulateDetalleSelects();
   if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows){
     body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
     if(countSpan) countSpan.textContent = '';
     return;
   }
-  const claseSel = document.getElementById('ovDetalleClaseSelect').value;
-  const tipoSel = document.getElementById('ovDetalleTipoOpSelect').value;
-  let rows = OV_VIEW_DATA.rows;
-  if(claseSel) rows = rows.filter(r=>r.clase === claseSel);
-  if(tipoSel) rows = rows.filter(r=>r.tipoOperacion === tipoSel);
+  const rows = OV_VIEW_DATA.rows;
   if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' línea' : ' líneas');
   if(!rows.length){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+((claseSel||tipoSel) ? 'Sin órdenes que coincidan con el filtro.' : 'Sin órdenes este día.')+'</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin órdenes Clase CR / Tipo Ethicon este día.</td></tr>';
     return;
   }
   const MAX = 300;
   const shown = rows.slice(0, MAX);
   body.innerHTML = shown.map(r=>
     '<tr><td>'+(r.cliente||'—')+'</td><td>'+(r.institucionNombre||'—')+'</td><td>'+(r.medicoNombre||'—')+'</td><td>'+(r.especialidad||'—')+'</td><td>'+r.sku+'</td></tr>'
-  ).join('') + (rows.length>MAX ? '<tr><td colspan="5" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (elegí Clase/Tipo de Operación para acotar)</td></tr>' : '');
+  ).join('') + (rows.length>MAX ? '<tr><td colspan="5" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más</td></tr>' : '');
 }
 
 function ovToggleProveedor(proveedor){
