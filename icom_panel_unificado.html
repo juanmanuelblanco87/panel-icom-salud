@@ -138,6 +138,14 @@
   .sb-icon{width:16px;text-align:center;font-size:14px;flex-shrink:0}
   .sb-label{overflow:hidden}
   .sb-spacer{flex:1}
+  /* 31/08/2026 ("Si le doy click en el menu a las unidades de negocio...
+     deberia colapsar o ampliar las apps debajo contenidas"): flechita que
+     indica que la lista de Apps de esa unidad se puede mostrar/ocultar --
+     mismo criterio que erpBackfillToggleIcon (rotar 90° al colapsar), ver
+     setAppsGroupCollapsed. Solo la unidad ACTIVA importa en la práctica
+     (es la única que tiene #appsGroup debajo en un momento dado, ver
+     switchChannel), pero se dibuja en las 5 para que se vea consistente. */
+  .sb-channel-caret{display:inline-block;font-size:10px;color:rgba(255,255,255,.5);flex-shrink:0;transition:transform .15s}
 
   /* "Principal" -- las 4 unidades de negocio (Minorista, Movilidad, Cirugía
      Estética, Cirugía General) — y el separador antes de la lista de apps
@@ -204,7 +212,8 @@
   }
 
   #sidebar.collapsed .sb-logo-text,
-  #sidebar.collapsed .sb-label{display:none}
+  #sidebar.collapsed .sb-label,
+  #sidebar.collapsed .sb-channel-caret{display:none}
   #sidebar.collapsed .sb-top{justify-content:center;padding:0}
   #sidebar.collapsed .sb-logo-wrap{display:none}
   #sidebar.collapsed .sb-item, #sidebar.collapsed .sb-logout{justify-content:center;padding:11px 0}
@@ -532,6 +541,7 @@
          currentChannel más abajo en el script). -->
     <div class="sb-item sb-channel active" data-channel="icom" onclick="switchChannel('icom')">
       <span class="sb-icon">🧭</span> <span class="sb-label">ICOM</span>
+      <span class="sb-spacer"></span> <span class="sb-channel-caret">▾</span>
     </div>
     <!-- appsGroup arranca acá (debajo de ICOM, la unidad activa por
          defecto al loguearse) a propósito, así el primer render ya sale
@@ -602,17 +612,21 @@
          de filtros/APIs que ya depende de ese id. -->
     <div class="sb-item sb-channel" data-channel="minorista" onclick="switchChannel('minorista')">
       <span class="sb-icon">🏪</span> <span class="sb-label">Ortopedia</span>
+      <span class="sb-spacer"></span> <span class="sb-channel-caret">▾</span>
     </div>
     <div class="sb-item sb-channel" data-channel="movilidad" onclick="switchChannel('movilidad')">
       <span class="sb-icon">♿</span> <span class="sb-label">Movilidad</span>
+      <span class="sb-spacer"></span> <span class="sb-channel-caret">▾</span>
     </div>
     <div class="sb-item sb-channel" data-channel="cirugia_estetica" onclick="switchChannel('cirugia_estetica')">
       <span class="sb-icon">💉</span> <span class="sb-label">Cirugía Estética</span>
+      <span class="sb-spacer"></span> <span class="sb-channel-caret">▾</span>
     </div>
     <!-- Juan Manuel, 05/08/2026: "A 'Cirugia General', deja solo 'Cirugia'"
          -- mismo criterio que Ortopedia arriba, solo el texto visible. -->
     <div class="sb-item sb-channel" data-channel="cirugia_general" onclick="switchChannel('cirugia_general')">
       <span class="sb-icon">🏥</span> <span class="sb-label">Cirugía</span>
+      <span class="sb-spacer"></span> <span class="sb-channel-caret">▾</span>
     </div>
     <!-- Juan Manuel, 21/08/2026 ("mover la app de gestion de talento a la
          pantalla inicial debajo de Cirugia"): Gestión de Talento pasa de
@@ -1544,12 +1558,38 @@ function updateAppVisibilityForChannel(){
   });
 }
 
+// 31/08/2026 ("Si le doy click en el menu a las unidades de negocio
+// (Ortopedia) deberia colapsar o ampliar las apps debajo contenidas"):
+// #appsGroup es SIEMPRE el mismo nodo (se reubica, no se clona -- ver
+// comentario en switchChannel/#appsGroup), así que un solo booleano
+// alcanza para su estado de mostrado/oculto, sin importar debajo de qué
+// unidad esté en un momento dado.
+let appsGroupCollapsed = false;
+function setAppsGroupCollapsed(collapsed){
+  appsGroupCollapsed = collapsed;
+  const appsGroup = document.getElementById('appsGroup');
+  if(appsGroup) appsGroup.style.display = collapsed ? 'none' : '';
+  const caret = document.querySelector('.sb-channel.active .sb-channel-caret');
+  if(caret) caret.style.transform = collapsed ? 'rotate(-90deg)' : '';
+}
+function toggleAppsGroupCollapsed(){
+  setAppsGroupCollapsed(!appsGroupCollapsed);
+}
+
 function switchChannel(channel){
-  if(!CHANNELS[channel] || channel === currentChannel){
-    // Igual cerramos el menú mobile: en el celular tocar la unidad ya
-    // seleccionada debería cerrar el overlay, no quedar como si no hubiera
-    // pasado nada.
-    if(CHANNELS[channel]) closeMobileSidebar();
+  if(!CHANNELS[channel]) return;
+  if(channel === currentChannel){
+    // 31/08/2026: en DESKTOP, clickear la unidad YA activa alterna
+    // mostrar/ocultar su lista de Apps -- ayuda a no tener que scrollear
+    // tanto (ver "agrega el scroll sobre el menu tambien en desktop",
+    // mismo día) cuando esa unidad no hace falta ver en detalle. En
+    // MOBILE el menú es un overlay que se cierra solo al re-tocar la
+    // unidad ya elegida (comportamiento de siempre, sin cambios) -- no
+    // tiene sentido colapsar las Apps adentro de un overlay que se está
+    // por cerrar igual.
+    const esMobile = window.innerWidth <= 768;
+    if(!esMobile) toggleAppsGroupCollapsed();
+    closeMobileSidebar();
     return;
   }
   currentChannel = channel;
@@ -1564,6 +1604,9 @@ function switchChannel(channel){
     const appsGroup = document.getElementById('appsGroup');
     if(appsGroup) chanItem.insertAdjacentElement('afterend', appsGroup);
   }
+  // Elegir una unidad NUEVA siempre arranca con sus Apps a la vista --
+  // solo re-tocar la MISMA unidad (ver arriba) alterna el colapso.
+  setAppsGroupCollapsed(false);
   updateAppVisibilityForChannel();
 
   // Si el pane que estaba abierto no existe para la unidad nueva (ej.
