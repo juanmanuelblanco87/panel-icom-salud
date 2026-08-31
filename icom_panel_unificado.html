@@ -98,7 +98,18 @@
   #sidebar{
     width:210px;flex-shrink:0;background:#14305a;color:#fff;
     display:flex;flex-direction:column;padding:14px 0;
-    transition:width .18s ease;overflow:hidden;position:relative;
+    transition:width .18s ease;position:relative;
+    /* 31/08/2026 ("agrega el scroll sobre el menu tambien en desktop"):
+       antes era overflow:hidden a secas -- con varias unidades de negocio
+       (Movilidad/Cirugía Estética/Cirugía General) y una unidad con
+       muchas Apps desplegada (ej. Ortopedia, 7 apps), el menú puede
+       superar el alto de la ventana en escritorio también (no solo en
+       mobile, que ya tenía este mismo fix -- ver la regla de #sidebar
+       dentro del media query de mobile más abajo). overflow-x se mantiene
+       oculto (hace falta durante la transición de ancho al colapsar a
+       solo íconos, para que las etiquetas no se vean desbordando).
+    */
+    overflow-y:auto;overflow-x:hidden;
   }
   #sidebar.collapsed{width:56px}
 
@@ -227,12 +238,14 @@
       position:fixed;top:calc(52px + env(safe-area-inset-top,0px));left:0;bottom:0;z-index:500;
       width:250px;transform:translateX(-100%);transition:transform .22s ease;
       box-shadow:3px 0 24px rgba(0,0,0,.35);
-      /* 26/08/2026 ("el menu del costado no permite scroll"): #sidebar
-         hereda overflow:hidden de la regla de desktop (ahí tiene sentido,
-         ese modo nunca desborda) -- en mobile, con Ortopedia desplegando
-         su lista larga de Apps, el menú fácilmente supera el alto
-         disponible y quedaba cortado sin forma de llegar a Importaciones
-         más abajo. */
+      /* 26/08/2026 ("el menu del costado no permite scroll"): en mobile,
+         con Ortopedia desplegando su lista larga de Apps, el menú
+         fácilmente supera el alto disponible y quedaba cortado sin forma
+         de llegar a Importaciones más abajo. 31/08/2026 ("agrega el
+         scroll sobre el menu tambien en desktop"): overflow-y:auto ya es
+         el default heredado de la regla de #sidebar de escritorio (mismo
+         problema, mismo fix) -- se repite acá solo por -webkit-overflow-
+         scrolling (touch), que es específico de mobile. */
       overflow-y:auto;-webkit-overflow-scrolling:touch;
     }
     #sidebar.mobile-open{transform:translateX(0)}
