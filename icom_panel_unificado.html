@@ -376,6 +376,7 @@
 
   /* ── VENTAS ERP EN VIVO ── */
   #pane-erp{overflow:auto;background:#f7f6f2}
+  #pane-monitor_ov{overflow:auto;background:#f7f6f2}
   .erp-wrap{max-width:1100px;margin:0 auto;padding:28px 32px 60px}
   .erp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px}
   .erp-header h1{font-size:19px;color:var(--accent);font-weight:700}
@@ -529,6 +530,18 @@
       <div class="sb-section-label sb-apps-label">Apps</div>
       <div class="sb-item active" data-pane="erp" data-channels="all" onclick="switchPane('erp')">
         <span class="sb-icon">📡</span> <span class="sb-label">Ventas en Vivo</span>
+      </div>
+      <!-- 31/08/2026 ("hay una nueva entidad 'Ordenes de Venta' SOLO
+           para la app y unidad de negocios 'CIRUGIA'... armar una app
+           igual a 'Ventas en Vivo'... coloca la App de Monitor OV abajo
+           de Ventas en Vivo y arriba de Dashboard"): exclusivo de
+           Cirugia General -- updateAppVisibilityForChannel (existente,
+           lee data-channels) ya lo oculta/muestra solo, y switchChannel
+           ya sabe volver a "Ventas en Vivo" si el pane activo no
+           matchea la unidad nueva (mismo mecanismo que ya usan
+           Stocks/Seguimiento/Forecast, ver comentario ahi). -->
+      <div class="sb-item" data-pane="monitor_ov" data-channels="cirugia_general" onclick="switchPane('monitor_ov')">
+        <span class="sb-icon">📋</span> <span class="sb-label">Monitor OV</span>
       </div>
       <div class="sb-item" data-pane="dashboard" data-channels="minorista,movilidad,cirugia_estetica,cirugia_general" onclick="switchPane('dashboard')">
         <span class="sb-icon">📊</span> <span class="sb-label">Dashboard</span>
@@ -1086,6 +1099,153 @@
         </div>
       </div>
     </div>
+<div class="pane" id="pane-monitor_ov">
+      <div class="erp-wrap">
+        <div class="erp-header">
+          <div>
+            <h1>Monitor OV</h1>
+            <p>Órdenes de Venta de Cirugía General (aún no facturadas o ya facturadas), agregadas por canal y por SKU, directo desde oppen.io.</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div class="erp-daterange">
+              <button type="button" class="pm-btn" id="ovDateRangeBtn" onclick="ovToggleDateRangePicker(event)" title="Elegir rango de fechas: tocá el día de inicio y después el de fin" style="display:inline-flex;align-items:center;gap:6px;min-width:190px;justify-content:flex-start">
+                <span>📅</span><span id="ovDateRangeLabel">—</span>
+              </button>
+              <div id="ovDateRangePopup" class="erp-daterange-popup" style="display:none"></div>
+            </div>
+            <input type="date" id="ovViewDateFrom" style="display:none">
+            <input type="date" id="ovViewDateTo" style="display:none">
+            <button class="pm-btn" id="ovBtnHoy" onclick="ovGoToday()" title="Volver a hoy">Hoy</button>
+            <button class="pm-btn" id="ovBtnAyer" onclick="ovGoYesterday()" title="Ver el día anterior (cerrado)">Ayer</button>
+            <button class="pm-btn" id="ovBtnSemanaAct" onclick="ovGoThisWeek()" title="Ver desde el lunes de esta semana hasta hoy inclusive">Semana Act.</button>
+            <button class="pm-btn" id="ovBtnSemanaAnt" onclick="ovGoLastWeek()" title="Ver la semana anterior completa (lunes a domingo)">Semana Ant.</button>
+            <button class="pm-btn" id="ovBtnMesAct" onclick="ovGoThisMonth()" title="Ver desde el día 1 de este mes hasta hoy inclusive">Mes Actual</button>
+            <span class="erp-status loading" id="ovStatus">💲 <span class="erp-status-spin"></span> Cargando…</span>
+          </div>
+        </div>
+
+        <div id="ovFirstLoadOverlay" style="display:flex;align-items:center;gap:10px;background:#eef3fb;border:1px solid #c0cfe8;border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#1a3d70;font-size:13px">
+          <span style="display:inline-block;width:16px;height:16px;border:2px solid #c0cfe8;border-top-color:#1a3d70;border-radius:50%;animation:erpSpin .8s linear infinite;flex-shrink:0"></span>
+          <span>⏳ Actualizando datos del ERP… la primera carga puede tardar unos segundos.</span>
+        </div>
+
+        <div class="erp-kpis" id="ovKpis">
+          <div class="erp-kpi"><div class="lbl">Total Neto</div><div class="val" id="ovKpiTotal">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Unidades</div><div class="val" id="ovKpiUnidades">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Órdenes procesadas</div><div class="val" id="ovKpiOrdenes">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Última actualización</div><div class="val" id="ovKpiUpdated" style="font-size:13px">—</div></div>
+        </div>
+
+        <div class="erp-card" id="ovTipoOperacionCard">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Tipo de Operación</span>
+            <span class="erp-count" id="ovTipoOpFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearTipoOperacionFilter()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <span class="erp-count" id="ovTipoOpCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Tipo de Operación</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovTipoOpBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card" id="ovEspecialidadCard">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Especialidad</span>
+            <span class="erp-count" id="ovEspecialidadFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearEspecialidadFilter()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <span class="erp-count" id="ovEspecialidadCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Especialidad</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovEspecialidadBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card" id="ovVendedoresCard" style="padding-bottom:14px">
+          <div id="ovVendInstSection">
+            <h2>Vendedor Institución <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+            <div id="ovVendInstPills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
+          </div>
+
+          <h2>Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+          <div id="ovVendClientePills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
+
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Cliente</span>
+            <span class="erp-count" id="ovClienteFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearClienteSelection()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <input type="text" id="ovClienteSearch" placeholder="Buscar por cliente..." oninput="ovOnClienteSearchInput()">
+            <span class="erp-count" id="ovClienteCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Cliente</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovClienteBody"><tr><td colspan="4" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card" style="padding-bottom:14px">
+          <h2>Canales <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+          <div id="ovCanalPills" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"></div>
+        </div>
+
+        <div class="erp-card" id="ovProveedorCard">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Proveedor</span>
+            <span class="erp-count" id="ovProveedorFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearProveedorFilter()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div id="ovProveedorNote" style="display:none;font-size:12px;color:#a35b00;background:#FFF3E0;border:1px solid #f3d5a6;border-radius:7px;padding:10px 12px;margin-bottom:12px">
+            Todavía no hay datos de proveedor por SKU — se sincronizan solos una vez al día (6:00 AM) desde oppen.io, probá recargar la página en unos minutos.
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Proveedor</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovProveedorBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card" id="ovSubgrupoCard">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Subgrupos</span>
+            <span class="erp-count" id="ovSubgrupoFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearSubgrupoSelection()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <input type="text" id="ovSubgrupoSearch" placeholder="Buscar por subgrupo..." oninput="ovOnSubgrupoSearchInput()">
+            <span class="erp-count" id="ovSubgrupoCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Subgrupo</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovSubgrupoBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card">
+          <h2>Por SKU</h2>
+          <div class="erp-toolbar">
+            <input type="text" id="ovSkuSearch" placeholder="Buscar por SKU o nombre..." oninput="ovRenderSkuTable()">
+            <span class="erp-count" id="ovSkuCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>SKU</th><th>Nombre</th><th class="num">Stock Total</th><th class="num">Precio Neto</th><th class="num">Unidades</th><th class="num">Total Neto</th></tr></thead>
+              <tbody id="ovSkuBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1140,12 +1300,13 @@ function b64ToUtf8(b64){
   return new TextDecoder('utf-8').decode(bytes);
 }
 
-const loaded = {seguimiento:false, forecast:false, exhibiciones:false, ortopedias:false, gestion_talento:false};
+const loaded = {seguimiento:false, forecast:false, exhibiciones:false, ortopedias:false, gestion_talento:false, monitor_ov:false};
 
 function loadPane(name){
   if(loaded[name]) return;
   if(name==='productos'){ loaded[name] = true; pmInit(); return; }
   if(name==='erp'){ loaded[name] = true; erpInit(); return; }
+  if(name==='monitor_ov'){ loaded[name] = true; ovInit(); return; }
   // Juan Manuel, 05/08/2026 ("el Dashboard de Minorista se cuelga... vamos a
   // eliminarlo y crearlo de nuevo para todas las unidades de negocio"): el
   // Dashboard viejo corría en su propio iframe con una copia inyectada
@@ -6218,6 +6379,891 @@ function erpInit(){
   // mismo llamado en erpSwitchToChannelView).
   if(currentChannel === 'icom') erpFetchIcomMonthlyWeights();
   erpStartGlobalPolling(); // no hace nada si ya arrancó en el login
+}
+
+/* ============================================================
+   MONITOR OV -- "Ordenes de Venta" de Cirugía General
+   ============================================================
+   31/08/2026 ("hay una nueva entidad 'Ordenes de Venta' SOLO para la app y
+   unidad de negocios 'CIRUGIA' necesito armar una app igual a 'Ventas en
+   Vivo'... en vez de construir los cuadros con la info de Facturas se
+   construye con la info de Ordenes de Venta"): pane NUEVO, hermano de
+   "Ventas en Vivo" (erp*) pero leyendo de api/oppen-sales-orders.js (la
+   entidad SalesOrder de oppen.io, confirmado con datos reales: usa los
+   MISMOS códigos de OperationType que Invoice, pero trae TODA la empresa
+   mezclada -- no viene pre-filtrada a Cirugía) en vez de
+   api/oppen-invoices.js. Por pedido explícito del usuario (confirmado):
+   esta pantalla es EXCLUSIVA de Cirugía General (ver
+   data-channels="cirugia_general" en el sidebar) -- nunca corre en otra
+   unidad, así que a diferencia de "erp" (multi-canal, vista ICOM agregada,
+   backfill mensual hacia Seguimiento, Marca/Macro Categoría para las
+   demás unidades) este pipeline es deliberadamente MÁS SIMPLE: sin
+   selector de unidad de negocio, sin vista ICOM, sin Marca/Macro Categoría
+   (Cirugía General usa Subgrupo/Proveedor, igual que ya hace "Ventas en
+   Vivo" para esa misma unidad), sin ON-LINE/OFF-LINE (exclusivo de
+   Minorista), sin herramienta de backfill mensual (esa empuja a
+   Seguimiento, que no tiene ningún concepto de "Orden de Venta").
+
+   REUTILIZA sin duplicar (son agnósticas a la fuente de datos, ver esos
+   mismos nombres más arriba en el bloque "erp"): erpFmtMoney/erpFmtInt/
+   erpFmtAvgPrice/erpFmtPct, erpTodayStr/erpDateStr/erpMondayOf/
+   erpDateChunksForRange, erpFetchConTimeout/ERP_INVOICES_RANGE_TIMEOUT_MS,
+   erpJsStrEscape, erpNormalizeMarcaKey, erpCanalIcon, ERP_CAL_DOW/
+   ERP_CAL_MESES, erpEnsureSkuToSubgrupoCache/erpEnsureSkuToProveedorCache
+   (leen ERP_STOCK_SNAPSHOT_BYSKU, el mismo snapshot diario de Oppen -- no
+   dependen de qué pane los llama, y comparten la MISMA caché en memoria
+   -- ERP_SKU_TO_SUBGRUPO_CACHE/ERP_SKU_TO_PROVEEDOR_CACHE -- que ya usa
+   "Ventas en Vivo" para Cirugía General, así que las 2 pantallas siempre
+   están de acuerdo), erpEnsureSkuToStockCache, ERP_PROVEEDOR_SIN_CATEGORIZAR. */
+
+let OV_VIEW_DATA = null;
+let ovViewFrom = erpTodayStr();
+let ovViewTo = erpTodayStr();
+let ovActiveQuickRangeKey = 'hoy';
+let ovInitDone = false;
+
+let ovCanalExcluded = new Set();
+let ovVendInstExcluded = new Set();
+let ovVendClienteExcluded = new Set();
+let ovClienteSelectedKey = null;
+let ovClienteSelectedLabel = '';
+let ovTipoOperacionSelected = null;
+// 31/08/2026 ("Es importante en ordenes de venta conocer Especialidad
+// (CLASE CR) agrega el cuadro debajo de TIPO. mismo cuadro que 'TIPO'
+// clickeable"): row.especialidad (EspecialidadQx del ERP, ej. "COLON"),
+// mismo criterio de selección única que Tipo de Operación.
+let ovEspecialidadSelected = null;
+let ovSubgrupoSelectedKey = null;
+let ovSubgrupoSelectedLabel = '';
+let ovProveedorSelected = null;
+
+function ovSetStatus(text, cls){
+  const el = document.getElementById('ovStatus');
+  if(!el) return;
+  el.innerHTML = '💲<span class="erp-status-spin"></span><span>'+text+'</span>';
+  el.className = 'erp-status ' + cls;
+}
+
+// Monitor OV es EXCLUSIVO de Cirugía General (ver comentario grande
+// arriba) -- a diferencia de erpInvoicesUrl, acá no hace falta ningún
+// parámetro de unidad variable, siempre se fija a la misma.
+function ovSalesOrdersUrl(params, bustCache){
+  const sp = new URLSearchParams(params || {});
+  sp.set('unidadNegocio', 'cirugia_general');
+  if(bustCache) sp.set('_cb', String(Date.now()));
+  return '/api/oppen-sales-orders?' + sp.toString();
+}
+
+// Combina el JSON de varios meses (mismo shape que /api/oppen-sales-orders)
+// en uno solo -- mismo criterio que erpMergeViewData, pero además suma
+// byTipoOperacion (acá "Por Tipo de Operación" es una tarjeta central,
+// siempre visible, a diferencia de erp donde es opcional).
+function ovMergeViewData(results){
+  const merged = {
+    ok: true,
+    updatedAt: results.map(r=>r.updatedAt||'').sort().slice(-1)[0] || new Date().toISOString(),
+    month: null,
+    ordersProcessed: 0,
+    ordersByCanal: {},
+    totals: { unidades: 0, totalNeto: 0 },
+    byCanal: {},
+    bySku: {},
+    byCanalSku: {},
+    byTipoOperacion: {},
+    byEspecialidad: {},
+    rows: [],
+  };
+  results.forEach(d=>{
+    merged.ordersProcessed += d.ordersProcessed || 0;
+    if(Array.isArray(d.rows)) merged.rows.push.apply(merged.rows, d.rows);
+    Object.entries(d.ordersByCanal||{}).forEach(([canal, n])=>{
+      merged.ordersByCanal[canal] = (merged.ordersByCanal[canal]||0) + n;
+    });
+    merged.totals.unidades += (d.totals && d.totals.unidades) || 0;
+    merged.totals.totalNeto += (d.totals && d.totals.totalNeto) || 0;
+    Object.entries(d.byCanal||{}).forEach(([canal, v])=>{
+      if(!merged.byCanal[canal]) merged.byCanal[canal] = { unidades:0, totalNeto:0 };
+      merged.byCanal[canal].unidades += v.unidades||0;
+      merged.byCanal[canal].totalNeto += v.totalNeto||0;
+    });
+    Object.entries(d.bySku||{}).forEach(([sku, v])=>{
+      if(!merged.bySku[sku]) merged.bySku[sku] = { nombre: v.nombre||'', unidades:0, totalNeto:0 };
+      merged.bySku[sku].unidades += v.unidades||0;
+      merged.bySku[sku].totalNeto += v.totalNeto||0;
+      if(!merged.bySku[sku].nombre && v.nombre) merged.bySku[sku].nombre = v.nombre;
+    });
+    Object.entries(d.byCanalSku||{}).forEach(([canal, skuMap])=>{
+      if(!merged.byCanalSku[canal]) merged.byCanalSku[canal] = {};
+      Object.entries(skuMap||{}).forEach(([sku, v])=>{
+        if(!merged.byCanalSku[canal][sku]) merged.byCanalSku[canal][sku] = { unidades:0, totalNeto:0 };
+        merged.byCanalSku[canal][sku].unidades += v.unidades||0;
+        merged.byCanalSku[canal][sku].totalNeto += v.totalNeto||0;
+      });
+    });
+    Object.entries(d.byTipoOperacion||{}).forEach(([label, v])=>{
+      if(!merged.byTipoOperacion[label]) merged.byTipoOperacion[label] = { unidades:0, totalNeto:0 };
+      merged.byTipoOperacion[label].unidades += v.unidades||0;
+      merged.byTipoOperacion[label].totalNeto += v.totalNeto||0;
+    });
+    Object.entries(d.byEspecialidad||{}).forEach(([label, v])=>{
+      if(!merged.byEspecialidad[label]) merged.byEspecialidad[label] = { unidades:0, totalNeto:0 };
+      merged.byEspecialidad[label].unidades += v.unidades||0;
+      merged.byEspecialidad[label].totalNeto += v.totalNeto||0;
+    });
+  });
+  return merged;
+}
+
+// Pide un chunk {from,to} a /api/oppen-sales-orders, con UN reintento
+// automático -- mismo criterio que erpFetchInvoicesChunk (oppen.io a veces
+// devuelve un error de conexión transitorio).
+async function ovFetchSalesOrdersChunk(c, attempt, bustCache){
+  attempt = attempt || 1;
+  try{
+    const params = {from:c.from, to:c.to};
+    const res = await erpFetchConTimeout(ovSalesOrdersUrl(params, bustCache), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
+    const d = await res.json();
+    if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
+    return d;
+  }catch(e){
+    if(attempt < 2){
+      await new Promise(r=>setTimeout(r, 1500));
+      return ovFetchSalesOrdersChunk(c, attempt+1, bustCache);
+    }
+    throw new Error((e.message || 'Error desconocido del proxy') + ' (rango '+c.from+' a '+c.to+')');
+  }
+}
+
+// Mismo patrón que erpFetchViewData (partir rangos de más de 1 mes
+// calendario en un pedido por mes, secuencial, no en paralelo -- ver el
+// comentario grande junto a erpDateChunksForRange), simplificado: sin
+// selector de unidad/vista ICOM, siempre Cirugía General.
+async function ovFetchViewData(fromStr, toStr){
+  ovSetStatus('Cargando…', 'loading');
+  try{
+    const chunks = erpDateChunksForRange(fromStr, toStr);
+    let data;
+    if(chunks.length <= 1){
+      const res = await erpFetchConTimeout(ovSalesOrdersUrl({from:fromStr, to:toStr}), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
+      data = await res.json();
+      if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
+    }else{
+      const results = [];
+      for(let i=0;i<chunks.length;i++){
+        ovSetStatus('Cargando… ('+(i+1)+'/'+chunks.length+')', 'loading');
+        results.push(await ovFetchSalesOrdersChunk(chunks[i]));
+      }
+      data = ovMergeViewData(results);
+    }
+    OV_VIEW_DATA = data;
+    ovRenderAll();
+    ovSetStatus('OK', 'ok');
+    const overlay = document.getElementById('ovFirstLoadOverlay');
+    if(overlay) overlay.style.display = 'none';
+  }catch(e){
+    console.error('Error consultando /api/oppen-sales-orders (vista por rango de fechas):', e);
+    ovSetStatus('Error: ' + e.message, 'err');
+    const overlay = document.getElementById('ovFirstLoadOverlay');
+    if(overlay) overlay.innerHTML = '<span style="color:#c0422a">⚠ No se pudo cargar: '+e.message+' — probá "Actualizar ahora".</span>';
+  }
+}
+
+// Predicado único de filtros -- mismo criterio que erpRowPassesFilters,
+// sin marca/macro (Cirugía General siempre usa subgrupo/proveedor, no hace
+// falta el dispatcher erpHasActiveClasificacionFilter/
+// erpSkuMatchesClasificacionFilter que sí necesita "erp" para las demás
+// unidades).
+function ovSkuMatchesClasificacionFilter(sku){
+  const subgrupoQuery = ovGetActiveSubgrupoQuery();
+  if(subgrupoQuery && ERP_SKU_TO_SUBGRUPO_CACHE){
+    const rawSubgrupo = ERP_SKU_TO_SUBGRUPO_CACHE[sku] || 'Sin subgrupo';
+    if(!erpNormalizeMarcaKey(rawSubgrupo).includes(subgrupoQuery)) return false;
+  }
+  if(ovSubgrupoSelectedKey && ERP_SKU_TO_SUBGRUPO_CACHE){
+    const rawSubgrupo = ERP_SKU_TO_SUBGRUPO_CACHE[sku] || 'Sin subgrupo';
+    if(erpNormalizeMarcaKey(rawSubgrupo) !== ovSubgrupoSelectedKey) return false;
+  }
+  if(ovProveedorSelected && ERP_SKU_TO_PROVEEDOR_CACHE){
+    const proveedor = ERP_SKU_TO_PROVEEDOR_CACHE[sku] || ERP_PROVEEDOR_SIN_CATEGORIZAR;
+    if(proveedor !== ovProveedorSelected) return false;
+  }
+  return true;
+}
+function ovHasActiveClasificacionFilter(){
+  if(ovGetActiveSubgrupoQuery() && ERP_SKU_TO_SUBGRUPO_CACHE) return true;
+  if(ovSubgrupoSelectedKey && ERP_SKU_TO_SUBGRUPO_CACHE) return true;
+  if(ovProveedorSelected && ERP_SKU_TO_PROVEEDOR_CACHE) return true;
+  return false;
+}
+
+function ovRowPassesFilters(row, skip){
+  skip = skip || {};
+  if(!skip.canal && ovCanalExcluded.size > 0){
+    if(!row.canal || ovCanalExcluded.has(row.canal)) return false;
+  }
+  if(!skip.vendInst && ovVendInstExcluded.has(row.vendedorInstitucion)) return false;
+  if(!skip.vendCliente && ovVendClienteExcluded.has(row.vendedorCliente)) return false;
+  if(!skip.cliente && ovClienteSelectedKey && erpNormalizeMarcaKey(row.cliente) !== ovClienteSelectedKey) return false;
+  if(!skip.tipoOperacion && ovTipoOperacionSelected && row.tipoOperacion !== ovTipoOperacionSelected) return false;
+  if(!skip.especialidad && ovEspecialidadSelected && row.especialidad !== ovEspecialidadSelected) return false;
+  if(!skip.clasificacion && ovHasActiveClasificacionFilter() && !ovSkuMatchesClasificacionFilter(row.sku)) return false;
+  return true;
+}
+
+function ovGetFilteredData(){
+  if(!OV_VIEW_DATA) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
+  const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
+    || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected || ovHasActiveClasificacionFilter();
+  if(!anyFilter){
+    return {bySku: OV_VIEW_DATA.bySku, totals: OV_VIEW_DATA.totals};
+  }
+  const bySku = {};
+  (OV_VIEW_DATA.rows||[]).forEach(row=>{
+    if(!ovRowPassesFilters(row)) return;
+    if(!bySku[row.sku]){
+      const nombre = row.desc || (OV_VIEW_DATA.bySku[row.sku] && OV_VIEW_DATA.bySku[row.sku].nombre) || row.sku;
+      bySku[row.sku] = {nombre, unidades:0, totalNeto:0};
+    }
+    bySku[row.sku].unidades += row.u;
+    bySku[row.sku].totalNeto += row.f;
+  });
+  const totals = Object.values(bySku).reduce((a,v)=>({unidades:a.unidades+v.unidades, totalNeto:a.totalNeto+v.totalNeto}), {unidades:0,totalNeto:0});
+  return {bySku, totals};
+}
+
+function ovComputeRowGroupTotals(getKey, skip){
+  const out = {};
+  if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows) return out;
+  OV_VIEW_DATA.rows.forEach(row=>{
+    if(!ovRowPassesFilters(row, skip)) return;
+    const key = getKey(row);
+    if(key == null) return;
+    if(!out[key]) out[key] = {unidades:0, totalNeto:0};
+    out[key].unidades += row.u;
+    out[key].totalNeto += row.f;
+  });
+  return out;
+}
+
+function ovComputeCanalTotals(){
+  if(!OV_VIEW_DATA || !OV_VIEW_DATA.byCanal) return {};
+  const anyOtherFilter = ovVendInstExcluded.size > 0 || ovVendClienteExcluded.size > 0
+    || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected || ovHasActiveClasificacionFilter();
+  if(!anyOtherFilter) return OV_VIEW_DATA.byCanal;
+  return ovComputeRowGroupTotals(row=>row.canal, {canal:true});
+}
+function ovComputeTipoOperacionTotals(){
+  return ovComputeRowGroupTotals(row=>row.tipoOperacion, {tipoOperacion:true});
+}
+function ovComputeEspecialidadTotals(){
+  return ovComputeRowGroupTotals(row=>row.especialidad, {especialidad:true});
+}
+function ovComputeVendInstTotals(){
+  return ovComputeRowGroupTotals(row=>row.vendedorInstitucion, {vendInst:true});
+}
+function ovComputeVendClienteTotals(){
+  return ovComputeRowGroupTotals(row=>row.vendedorCliente, {vendCliente:true});
+}
+// Cuenta órdenes DISTINTAS (por sernr) que pasan los filtros de pill/cliente
+// activos -- mismo criterio que erpComputeFilteredInvoiceCount (a
+// propósito NO aplica subgrupo/proveedor, ver skip.clasificacion: "Órdenes
+// procesadas" cuenta órdenes completas, no líneas).
+function ovComputeFilteredOrderCount(){
+  if(!OV_VIEW_DATA) return 0;
+  const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
+    || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected;
+  if(!anyFilter) return OV_VIEW_DATA.ordersProcessed || 0;
+  const seen = new Set();
+  (OV_VIEW_DATA.rows||[]).forEach(row=>{
+    if(!ovRowPassesFilters(row, {clasificacion:true})) return;
+    if(row.sernr != null) seen.add(row.sernr);
+  });
+  return seen.size;
+}
+
+function ovGetActiveSubgrupoQuery(){
+  const el = document.getElementById('ovSubgrupoSearch');
+  if(!el) return '';
+  return erpNormalizeMarcaKey(el.value||'');
+}
+
+function ovRenderKpis(){
+  if(!OV_VIEW_DATA) return;
+  const {totals} = ovGetFilteredData();
+  document.getElementById('ovKpiTotal').textContent = erpFmtMoney(totals.totalNeto);
+  document.getElementById('ovKpiUnidades').textContent = erpFmtInt(totals.unidades);
+  document.getElementById('ovKpiOrdenes').textContent = erpFmtInt(ovComputeFilteredOrderCount());
+  const d = new Date(OV_VIEW_DATA.updatedAt);
+  document.getElementById('ovKpiUpdated').textContent = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+}
+
+async function ovRenderSkuTable(){
+  const body = document.getElementById('ovSkuBody');
+  const {bySku} = ovGetFilteredData();
+  if(!OV_VIEW_DATA || !bySku){
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
+    document.getElementById('ovSkuCount').textContent = '';
+    return;
+  }
+  const skuToStock = await erpEnsureSkuToStockCache();
+  const q = (document.getElementById('ovSkuSearch').value||'').trim().toLowerCase();
+  let rows = Object.entries(bySku);
+  if(q){
+    rows = rows.filter(([sku, v])=> sku.toLowerCase().includes(q) || (v.nombre||'').toLowerCase().includes(q));
+  }
+  rows.sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  document.getElementById('ovSkuCount').textContent = rows.length + ' SKUs';
+  const MAX = 300;
+  const shown = rows.slice(0, MAX);
+  body.innerHTML = shown.map(([sku, v])=>
+    '<tr><td>'+sku+'</td><td>'+(v.nombre||'—')+'</td><td class="num">'+erpFmtInt(skuToStock[sku]||0)+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td></tr>'
+  ).join('') + (rows.length>MAX ? '<tr><td colspan="6" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
+}
+
+function ovToggleProveedor(proveedor){
+  ovProveedorSelected = (ovProveedorSelected === proveedor) ? null : proveedor;
+  ovRenderAll();
+}
+function ovClearProveedorFilter(){
+  ovProveedorSelected = null;
+  ovRenderAll();
+}
+async function ovRenderProveedorTable(){
+  const body = document.getElementById('ovProveedorBody');
+  const note = document.getElementById('ovProveedorNote');
+  const filterNote = document.getElementById('ovProveedorFilterNote');
+  const {bySku} = ovGetFilteredData();
+  if(!OV_VIEW_DATA || !bySku){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  const skuToProveedor = await erpEnsureSkuToProveedorCache();
+  if(!Object.keys(skuToProveedor).length){
+    note.style.display = 'block';
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos de proveedor todavía — probá recargar la página en unos minutos.</td></tr>';
+    return;
+  }
+  note.style.display = 'none';
+
+  if(filterNote){
+    if(ovProveedorSelected){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + ovProveedorSelected + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+
+  const byProveedor = {};
+  Object.entries(bySku).forEach(([sku, v])=>{
+    const proveedor = skuToProveedor[sku] || ERP_PROVEEDOR_SIN_CATEGORIZAR;
+    if(!byProveedor[proveedor]) byProveedor[proveedor] = {unidades:0, totalNeto:0};
+    byProveedor[proveedor].unidades += v.unidades;
+    byProveedor[proveedor].totalNeto += v.totalNeto;
+  });
+
+  const rows = Object.entries(byProveedor).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(ovProveedorSelected ? 'Sin datos para este proveedor.' : 'Sin órdenes este mes todavía.')+'</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,[,v])=>a+v.totalNeto, 0);
+  body.innerHTML = rows.map(([proveedor, v])=>{
+    const selected = ovProveedorSelected === proveedor;
+    return '<tr onclick="ovToggleProveedor(\''+erpJsStrEscape(proveedor)+'\')" title="Tocar para filtrar por este proveedor (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+proveedor+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td><td class="num">'+erpFmtPct(v.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
+async function ovOnSubgrupoSearchInput(){
+  if(!ERP_SKU_TO_SUBGRUPO_CACHE) await erpEnsureSkuToSubgrupoCache();
+  ovRenderAll();
+}
+function ovToggleSubgrupoRow(key, label){
+  if(ovSubgrupoSelectedKey === key){
+    ovSubgrupoSelectedKey = null;
+    ovSubgrupoSelectedLabel = '';
+  }else{
+    ovSubgrupoSelectedKey = key;
+    ovSubgrupoSelectedLabel = label;
+  }
+  ovRenderAll();
+}
+function ovClearSubgrupoSelection(){
+  ovSubgrupoSelectedKey = null;
+  ovSubgrupoSelectedLabel = '';
+  ovRenderAll();
+}
+async function ovRenderSubgrupoTable(){
+  const body = document.getElementById('ovSubgrupoBody');
+  const countSpan = document.getElementById('ovSubgrupoCount');
+  const filterNote = document.getElementById('ovSubgrupoFilterNote');
+  const {bySku} = ovGetFilteredData();
+  if(!OV_VIEW_DATA || !bySku){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  const skuToSubgrupo = await erpEnsureSkuToSubgrupoCache();
+
+  if(filterNote){
+    if(ovSubgrupoSelectedKey){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + ovSubgrupoSelectedLabel + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+
+  const bySubgrupo = {};
+  Object.entries(bySku).forEach(([sku, v])=>{
+    const rawSubgrupo = skuToSubgrupo[sku] || 'Sin subgrupo';
+    const key = erpNormalizeMarcaKey(rawSubgrupo);
+    if(!bySubgrupo[key]) bySubgrupo[key] = {unidades:0, totalNeto:0, labelCounts:{}};
+    bySubgrupo[key].unidades += v.unidades;
+    bySubgrupo[key].totalNeto += v.totalNeto;
+    bySubgrupo[key].labelCounts[rawSubgrupo] = (bySubgrupo[key].labelCounts[rawSubgrupo]||0) + 1;
+  });
+
+  let rows = Object.entries(bySubgrupo).map(([key, v])=>{
+    const labels = Object.entries(v.labelCounts).sort((a,b)=> b[1]-a[1] || b[0].length-a[0].length);
+    return {key, subgrupo: labels[0][0].toUpperCase(), unidades: v.unidades, totalNeto: v.totalNeto};
+  });
+
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  const q = ovGetActiveSubgrupoQuery();
+  if(countSpan) countSpan.textContent = rows.length + ' subgrupos';
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(q ? 'Sin subgrupos que coincidan con la búsqueda.' : 'Sin órdenes este día.')+'</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = ovSubgrupoSelectedKey === r.key;
+    return '<tr onclick="ovToggleSubgrupoRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.subgrupo)+'\')" title="Tocar para filtrar por este subgrupo (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+r.subgrupo+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
+function ovToggleTipoOperacion(label){
+  ovTipoOperacionSelected = (ovTipoOperacionSelected === label) ? null : label;
+  ovRenderAll();
+}
+function ovClearTipoOperacionFilter(){
+  ovTipoOperacionSelected = null;
+  ovRenderAll();
+}
+function ovRenderTipoOperacionTable(){
+  const body = document.getElementById('ovTipoOpBody');
+  if(!body) return;
+  const countSpan = document.getElementById('ovTipoOpCount');
+  const filterNote = document.getElementById('ovTipoOpFilterNote');
+  if(!OV_VIEW_DATA){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  if(filterNote){
+    if(ovTipoOperacionSelected){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + ovTipoOperacionSelected + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+  const totals = ovComputeTipoOperacionTotals();
+  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto}));
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' tipo' : ' tipos');
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin órdenes este día.</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = ovTipoOperacionSelected === r.label;
+    return '<tr onclick="ovToggleTipoOperacion(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este tipo de operación (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
+// "Por Especialidad" -- mismo cuadro clickeable que "Por Tipo de
+// Operación" (31/08/2026, "agrega el cuadro debajo de TIPO. mismo cuadro
+// que 'TIPO' clickeable"), agrupando por row.especialidad en vez de
+// row.tipoOperacion.
+function ovToggleEspecialidad(label){
+  ovEspecialidadSelected = (ovEspecialidadSelected === label) ? null : label;
+  ovRenderAll();
+}
+function ovClearEspecialidadFilter(){
+  ovEspecialidadSelected = null;
+  ovRenderAll();
+}
+function ovRenderEspecialidadTable(){
+  const body = document.getElementById('ovEspecialidadBody');
+  if(!body) return;
+  const countSpan = document.getElementById('ovEspecialidadCount');
+  const filterNote = document.getElementById('ovEspecialidadFilterNote');
+  if(!OV_VIEW_DATA){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  if(filterNote){
+    if(ovEspecialidadSelected){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + ovEspecialidadSelected + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+  const totals = ovComputeEspecialidadTotals();
+  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto}));
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' especialidad' : ' especialidades');
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin órdenes este día.</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = ovEspecialidadSelected === r.label;
+    return '<tr onclick="ovToggleEspecialidad(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por esta especialidad (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
+function ovToggleVendInst(vendedor){
+  if(ovVendInstExcluded.has(vendedor)) ovVendInstExcluded.delete(vendedor);
+  else ovVendInstExcluded.add(vendedor);
+  ovRenderAll();
+}
+function ovToggleVendCliente(vendedor){
+  if(ovVendClienteExcluded.has(vendedor)) ovVendClienteExcluded.delete(vendedor);
+  else ovVendClienteExcluded.add(vendedor);
+  ovRenderAll();
+}
+function ovRenderVendPillsGeneric(wrapId, totals, excludedSet, toggleFnName){
+  const wrap = document.getElementById(wrapId);
+  if(!wrap) return;
+  if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows){
+    wrap.innerHTML = '<span class="pm-empty">Cargando datos del ERP…</span>';
+    return;
+  }
+  const rows = Object.entries(totals).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  if(!rows.length){
+    wrap.innerHTML = '<span class="pm-empty">Sin órdenes este día.</span>';
+    return;
+  }
+  wrap.innerHTML = rows.map(([vendedor, v])=>{
+    const excluded = excludedSet.has(vendedor);
+    return '<div onclick="'+toggleFnName+'(\''+erpJsStrEscape(vendedor)+'\')" title="Tocar para incluir/excluir" '
+      + 'style="cursor:pointer;user-select:none;border:2px solid '+(excluded?'#ddd':'#1a3d70')+';border-radius:11px;'
+      + 'padding:6px 10px;background:'+(excluded?'#f7f6f2':'#eef3fb')+';opacity:'+(excluded?'.5':'1')+';transition:.15s">'
+      + '<div style="font-size:11px;font-weight:700;color:#1a3d70;white-space:nowrap">'+(excluded?'☐':'☑')+' '+vendedor+'</div>'
+      + '<div style="font-size:12.5px;font-weight:700;color:#1a3d70;margin-top:1px">'+erpFmtMoney(v.totalNeto)+'</div>'
+      + '<div style="font-size:9.5px;color:#888;margin-top:1px">'+erpFmtInt(v.unidades)+' un.</div>'
+      + '</div>';
+  }).join('');
+}
+function ovRenderVendInstPills(){
+  ovRenderVendPillsGeneric('ovVendInstPills', ovComputeVendInstTotals(), ovVendInstExcluded, 'ovToggleVendInst');
+}
+function ovRenderVendClientePills(){
+  ovRenderVendPillsGeneric('ovVendClientePills', ovComputeVendClienteTotals(), ovVendClienteExcluded, 'ovToggleVendCliente');
+}
+
+function ovGetActiveClienteQuery(){
+  const el = document.getElementById('ovClienteSearch');
+  if(!el) return '';
+  return erpNormalizeMarcaKey(el.value||'');
+}
+function ovOnClienteSearchInput(){
+  ovRenderAll();
+}
+function ovToggleClienteRow(key, label){
+  if(ovClienteSelectedKey === key){
+    ovClienteSelectedKey = null;
+    ovClienteSelectedLabel = '';
+  }else{
+    ovClienteSelectedKey = key;
+    ovClienteSelectedLabel = label;
+  }
+  ovRenderAll();
+}
+function ovClearClienteSelection(){
+  ovClienteSelectedKey = null;
+  ovClienteSelectedLabel = '';
+  ovRenderAll();
+}
+function ovRenderClienteTable(){
+  const body = document.getElementById('ovClienteBody');
+  if(!body) return;
+  const countSpan = document.getElementById('ovClienteCount');
+  const filterNote = document.getElementById('ovClienteFilterNote');
+  if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows){
+    body.innerHTML = '<tr><td colspan="4" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  if(filterNote){
+    if(ovClienteSelectedKey){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + ovClienteSelectedLabel + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+  const byCliente = ovComputeRowGroupTotals(row=>row.cliente, {cliente:true});
+  let rows = Object.entries(byCliente).map(([label, v])=>({
+    key: erpNormalizeMarcaKey(label), label, unidades: v.unidades, totalNeto: v.totalNeto,
+  }));
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  const q = ovGetActiveClienteQuery();
+  if(q) rows = rows.filter(r=>erpNormalizeMarcaKey(r.label).includes(q));
+  if(countSpan) countSpan.textContent = rows.length + ' clientes';
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="4" class="pm-empty">'+(q ? 'Sin clientes que coincidan con la búsqueda.' : 'Sin órdenes este día.')+'</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = ovClienteSelectedKey === r.key;
+    return '<tr onclick="ovToggleClienteRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este cliente (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
+function ovToggleCanal(canal){
+  if(ovCanalExcluded.has(canal)) ovCanalExcluded.delete(canal);
+  else ovCanalExcluded.add(canal);
+  ovRenderAll();
+}
+function ovRenderCanalPills(){
+  const wrap = document.getElementById('ovCanalPills');
+  if(!wrap) return;
+  if(!OV_VIEW_DATA || !OV_VIEW_DATA.byCanal){
+    wrap.innerHTML = '<span class="pm-empty">Cargando datos del ERP…</span>';
+    return;
+  }
+  const canalTotals = ovComputeCanalTotals();
+  const rows = Object.entries(canalTotals).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  if(!rows.length){
+    wrap.innerHTML = '<span class="pm-empty">Sin órdenes este día.</span>';
+    return;
+  }
+  wrap.innerHTML = rows.map(([canal, v])=>{
+    const excluded = ovCanalExcluded.has(canal);
+    return '<div onclick="ovToggleCanal(\''+erpJsStrEscape(canal)+'\')" title="Tocar para incluir/excluir" '
+      + 'style="cursor:pointer;user-select:none;border:2px solid '+(excluded?'#ddd':'#1a3d70')+';border-radius:14px;'
+      + 'padding:10px 16px;min-width:150px;background:'+(excluded?'#f7f6f2':'#eef3fb')+';opacity:'+(excluded?'.5':'1')+';transition:.15s">'
+      + '<div style="font-size:12.5px;font-weight:700;color:#1a3d70;white-space:nowrap">'+(excluded?'☐':'☑')+' '+erpCanalIcon(canal)+' '+canal+'</div>'
+      + '<div style="font-size:15px;font-weight:700;color:#1a3d70;margin-top:2px">'+erpFmtMoney(v.totalNeto)+'</div>'
+      + '<div style="font-size:10.5px;color:#888;margin-top:1px">'+erpFmtInt(v.unidades)+' un.</div>'
+      + '</div>';
+  }).join('');
+}
+
+function ovRenderAll(){
+  ovRenderCanalPills();
+  ovRenderKpis();
+  ovRenderProveedorTable();
+  ovRenderSubgrupoTable();
+  ovRenderSkuTable();
+  ovRenderVendInstPills();
+  ovRenderVendClientePills();
+  ovRenderClienteTable();
+  ovRenderTipoOperacionTable();
+  ovRenderEspecialidadTable();
+}
+
+/* ─── Selector de rango de fechas: calendario único (clon de erp*, ver
+   comentario grande junto a erpToggleDateRangePicker) -- Monitor OV tiene
+   su PROPIO rango independiente del de "Ventas en Vivo" (se puede estar
+   viendo Agosto en una y Julio en la otra a la vez). ─── */
+let ovActiveQuickRangeKeyBtnMap = { hoy:'ovBtnHoy', ayer:'ovBtnAyer', semanaAct:'ovBtnSemanaAct', semanaAnt:'ovBtnSemanaAnt', mesAct:'ovBtnMesAct' };
+function ovRenderQuickRangeButtons(){
+  Object.entries(ovActiveQuickRangeKeyBtnMap).forEach(([key, id])=>{
+    const btn = document.getElementById(id);
+    if(btn) btn.classList.toggle('erp-quickbtn-active', ovActiveQuickRangeKey === key);
+  });
+}
+function ovFmtDateDDMMYYYY(isoStr){
+  if(!isoStr) return '—';
+  const [y,m,d] = isoStr.split('-');
+  return d+'/'+m+'/'+y;
+}
+function ovRenderDateRangeLabel(){
+  const el = document.getElementById('ovDateRangeLabel');
+  if(!el) return;
+  el.textContent = (ovViewFrom===ovViewTo)
+    ? ovFmtDateDDMMYYYY(ovViewFrom)
+    : ovFmtDateDDMMYYYY(ovViewFrom)+' a '+ovFmtDateDDMMYYYY(ovViewTo);
+}
+
+let ovCalPendingStart = null;
+let ovCalViewDate = new Date();
+
+function ovToggleDateRangePicker(ev){
+  if(ev) ev.stopPropagation();
+  const popup = document.getElementById('ovDateRangePopup');
+  if(!popup) return;
+  const isOpen = popup.style.display !== 'none';
+  if(isOpen){ ovCloseDateRangePicker(); return; }
+  ovCalPendingStart = null;
+  const base = ovViewFrom ? new Date(ovViewFrom+'T00:00:00') : new Date();
+  ovCalViewDate = new Date(base.getFullYear(), base.getMonth(), 1);
+  ovRenderCalendarPopup();
+  popup.style.display = 'block';
+  setTimeout(()=> document.addEventListener('click', ovOutsideClickCloseCal), 0);
+}
+// Scopeado a #pane-monitor_ov a propósito -- ahora hay 2 ".erp-daterange"
+// en el documento (el de "Ventas en Vivo" y este), y un querySelector sin
+// scope siempre encontraría el PRIMERO en el DOM (el de "Ventas en Vivo").
+function ovOutsideClickCloseCal(e){
+  const wrap = document.querySelector('#pane-monitor_ov .erp-daterange');
+  if(!wrap) return;
+  const path = e.composedPath ? e.composedPath() : [];
+  if(path.includes(wrap) || wrap.contains(e.target)) return;
+  ovCloseDateRangePicker();
+}
+function ovCloseDateRangePicker(){
+  const popup = document.getElementById('ovDateRangePopup');
+  if(popup) popup.style.display = 'none';
+  document.removeEventListener('click', ovOutsideClickCloseCal);
+}
+function ovCalMonthNav(delta, ev){
+  if(ev) ev.stopPropagation();
+  ovCalViewDate = new Date(ovCalViewDate.getFullYear(), ovCalViewDate.getMonth()+delta, 1);
+  ovRenderCalendarPopup();
+}
+function ovRenderCalendarPopup(){
+  const popup = document.getElementById('ovDateRangePopup');
+  if(!popup) return;
+  const y = ovCalViewDate.getFullYear(), m = ovCalViewDate.getMonth();
+  const firstOfMonth = new Date(y, m, 1);
+  const firstWeekday = (firstOfMonth.getDay() + 6) % 7;
+  const daysInMonth = new Date(y, m+1, 0).getDate();
+  const daysInPrevMonth = new Date(y, m, 0).getDate();
+  const todayStr = erpTodayStr();
+
+  let cells = '';
+  for(let i=0;i<firstWeekday;i++){
+    const d = daysInPrevMonth - firstWeekday + 1 + i;
+    cells += '<div class="erp-cal-day erp-cal-muted">'+d+'</div>';
+  }
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    let cls = 'erp-cal-day';
+    if(dateStr === todayStr) cls += ' erp-cal-today';
+    if(ovCalPendingStart){
+      if(dateStr === ovCalPendingStart) cls += ' erp-cal-selected';
+    } else if(ovViewFrom && ovViewTo){
+      if(dateStr === ovViewFrom || dateStr === ovViewTo) cls += ' erp-cal-selected';
+      else if(dateStr > ovViewFrom && dateStr < ovViewTo) cls += ' erp-cal-inrange';
+    }
+    cells += '<div class="'+cls+'" onclick="ovCalPickDay(\''+dateStr+'\')">'+d+'</div>';
+  }
+  const totalCells = firstWeekday + daysInMonth;
+  const trailing = (7 - (totalCells % 7)) % 7;
+  for(let i=1;i<=trailing;i++){
+    cells += '<div class="erp-cal-day erp-cal-muted">'+i+'</div>';
+  }
+
+  popup.innerHTML =
+      '<div class="erp-cal-head">'
+    +   '<button type="button" onclick="ovCalMonthNav(-1, event)">‹</button>'
+    +   '<span class="erp-cal-title">'+ERP_CAL_MESES[m]+' '+y+'</span>'
+    +   '<button type="button" onclick="ovCalMonthNav(1, event)">›</button>'
+    + '</div>'
+    + '<div class="erp-cal-grid">'
+    +   ERP_CAL_DOW.map(d=>'<div class="erp-cal-dow">'+d+'</div>').join('')
+    +   cells
+    + '</div>'
+    + '<div class="erp-cal-hint">'+(ovCalPendingStart ? 'Elegí la fecha de fin' : 'Elegí la fecha de inicio')+'</div>';
+}
+function ovCalPickDay(dateStr){
+  if(!ovCalPendingStart){
+    ovCalPendingStart = dateStr;
+    ovRenderCalendarPopup();
+    return;
+  }
+  let from = ovCalPendingStart, to = dateStr;
+  if(from > to){ [from, to] = [to, from]; }
+  ovCalPendingStart = null;
+  const fromInput = document.getElementById('ovViewDateFrom');
+  const toInput = document.getElementById('ovViewDateTo');
+  if(fromInput) fromInput.value = from;
+  if(toInput) toInput.value = to;
+  ovViewFrom = from;
+  ovViewTo = to;
+  ovActiveQuickRangeKey = null;
+  ovRenderQuickRangeButtons();
+  ovRenderDateRangeLabel();
+  ovCloseDateRangePicker();
+  ovFetchViewData(from, to);
+}
+
+function ovApplyQuickRange(fromStr, toStr, key){
+  const fromInput = document.getElementById('ovViewDateFrom');
+  const toInput = document.getElementById('ovViewDateTo');
+  if(fromInput) fromInput.value = fromStr;
+  if(toInput) toInput.value = toStr;
+  ovViewFrom = fromStr; ovViewTo = toStr;
+  ovActiveQuickRangeKey = key;
+  ovRenderQuickRangeButtons();
+  ovRenderDateRangeLabel();
+  ovFetchViewData(fromStr, toStr);
+}
+function ovGoToday(){
+  const today = erpTodayStr();
+  ovApplyQuickRange(today, today, 'hoy');
+}
+function ovGoYesterday(){
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const s = erpDateStr(d);
+  ovApplyQuickRange(s, s, 'ayer');
+}
+function ovGoThisWeek(){
+  const today = new Date();
+  const monday = erpMondayOf(today);
+  ovApplyQuickRange(erpDateStr(monday), erpDateStr(today), 'semanaAct');
+}
+function ovGoLastWeek(){
+  const today = new Date();
+  const thisMonday = erpMondayOf(today);
+  const lastMonday = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 7);
+  const lastSunday = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 1);
+  ovApplyQuickRange(erpDateStr(lastMonday), erpDateStr(lastSunday), 'semanaAnt');
+}
+function ovGoThisMonth(){
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  ovApplyQuickRange(erpDateStr(firstDay), erpDateStr(today), 'mesAct');
+}
+
+// Se llama desde loadPane('monitor_ov') -- ver la lista `loaded` y
+// loadPane más arriba -- la PRIMERA vez que se abre el pane (mismo patrón
+// que erpInit). A diferencia de erpInit, no hay unidad de negocio que
+// resolver (siempre Cirugía General) ni backfill/vista ICOM que inicializar.
+function ovInit(){
+  if(ovInitDone) return;
+  ovInitDone = true;
+  const fromInput = document.getElementById('ovViewDateFrom');
+  const toInput = document.getElementById('ovViewDateTo');
+  const today = erpTodayStr();
+  if(fromInput){ fromInput.max = today; fromInput.value = ovViewFrom; }
+  if(toInput){ toInput.max = today; toInput.value = ovViewTo; }
+  ovRenderQuickRangeButtons();
+  ovRenderDateRangeLabel();
+  ovFetchViewData(ovViewFrom, ovViewTo);
 }
 
 function doLogout(){
