@@ -541,7 +541,7 @@
            ya sabe volver a "Ventas en Vivo" si el pane activo no
            matchea la unidad nueva (mismo mecanismo que ya usan
            Stocks/Seguimiento/Forecast, ver comentario ahi). -->
-      <div class="sb-item" data-pane="monitor_ov" data-channels="cirugia_general" onclick="switchPane('monitor_ov')">
+      <div class="sb-item" data-pane="monitor_ov" data-channels="cirugia_general,cirugia_estetica" onclick="switchPane('monitor_ov')">
         <span class="sb-icon">📋</span> <span class="sb-label">Monitor OV</span>
       </div>
       <div class="sb-item" data-pane="dashboard" data-channels="minorista,movilidad,cirugia_estetica,cirugia_general" onclick="switchPane('dashboard')">
@@ -1209,7 +1209,7 @@
             <div id="ovVendInstPills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
           </div>
 
-          <h2>Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
+          <h2 id="ovVendClienteTitle">Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span></h2>
           <div id="ovVendClientePills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
 
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -1578,6 +1578,15 @@ function switchChannel(channel){
     // que refrescarlo, no alcanza con volver a mostrar el pane). Ver
     // erpSwitchToChannelView.
     erpSwitchToChannelView(channel);
+  }
+  // 31/08/2026 ("Sumemos el Monitor de OV para Cirugia Estetica" -- "Mismo
+  // criterio que utilizamos para Cirugia General"): Monitor OV es lazy (no
+  // se carga hasta que el usuario lo abre la primera vez, ver loadPane) --
+  // a diferencia de "erp" (siempre cargado desde el arranque), acá el
+  // guard `loaded['monitor_ov']` evita pedirle datos a una unidad que el
+  // usuario ni siquiera abrió todavía.
+  if((channel === 'cirugia_general' || channel === 'cirugia_estetica') && loaded['monitor_ov']){
+    ovSwitchToChannelView(channel);
   }
   if(channel === 'minorista'){
     // erpStartGlobalPolling ya arrancó solo al loguearse (ver showShell) --
@@ -7090,9 +7099,18 @@ function ovSetStatus(text, cls){
 // Monitor OV es EXCLUSIVO de Cirugía General (ver comentario grande
 // arriba) -- a diferencia de erpInvoicesUrl, acá no hace falta ningún
 // parámetro de unidad variable, siempre se fija a la misma.
-function ovSalesOrdersUrl(params, bustCache){
+// 31/08/2026 ("Sumemos el Monitor de OV para Cirugia Estetica" -- "Mismo
+// criterio que utilizamos para Cirugia General"): Monitor OV ahora sirve
+// a las 2 unidades de Cirugía (data-channels="cirugia_general,
+// cirugia_estetica", ver sidebar) -- unidadNegocio ya no está fijo. `unit`
+// se recibe como parámetro EXPLÍCITO (no se lee currentChannel acá
+// adentro) -- mismo criterio que erpInvoicesUrl: si se leyera el global
+// directo, un cambio de unidad A MITAD de un fetch con varios chunks
+// (ver ovFetchViewData) podría mezclar páginas de 2 unidades distintas en
+// la misma respuesta mergeada.
+function ovSalesOrdersUrl(params, unit, bustCache){
   const sp = new URLSearchParams(params || {});
-  sp.set('unidadNegocio', 'cirugia_general');
+  sp.set('unidadNegocio', unit);
   if(bustCache) sp.set('_cb', String(Date.now()));
   return '/api/oppen-sales-orders?' + sp.toString();
 }
@@ -7160,18 +7178,18 @@ function ovMergeViewData(results){
 // Pide un chunk {from,to} a /api/oppen-sales-orders, con UN reintento
 // automático -- mismo criterio que erpFetchInvoicesChunk (oppen.io a veces
 // devuelve un error de conexión transitorio).
-async function ovFetchSalesOrdersChunk(c, attempt, bustCache){
+async function ovFetchSalesOrdersChunk(c, unit, attempt, bustCache){
   attempt = attempt || 1;
   try{
     const params = {from:c.from, to:c.to};
-    const res = await erpFetchConTimeout(ovSalesOrdersUrl(params, bustCache), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
+    const res = await erpFetchConTimeout(ovSalesOrdersUrl(params, unit, bustCache), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
     const d = await res.json();
     if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
     return d;
   }catch(e){
     if(attempt < 2){
       await new Promise(r=>setTimeout(r, 1500));
-      return ovFetchSalesOrdersChunk(c, attempt+1, bustCache);
+      return ovFetchSalesOrdersChunk(c, unit, attempt+1, bustCache);
     }
     throw new Error((e.message || 'Error desconocido del proxy') + ' (rango '+c.from+' a '+c.to+')');
   }
@@ -7179,31 +7197,39 @@ async function ovFetchSalesOrdersChunk(c, attempt, bustCache){
 
 // Mismo patrón que erpFetchViewData (partir rangos de más de 1 mes
 // calendario en un pedido por mes, secuencial, no en paralelo -- ver el
-// comentario grande junto a erpDateChunksForRange), simplificado: sin
-// selector de unidad/vista ICOM, siempre Cirugía General.
+// comentario grande junto a erpDateChunksForRange).
+// 31/08/2026 ("Sumemos el Monitor de OV para Cirugia Estetica" -- "Mismo
+// criterio que utilizamos para Cirugia General"): ya no es de una sola
+// unidad fija -- ahora hace falta el MISMO guard de "unidad cambió
+// mientras el fetch estaba en vuelo" que ya usa erpFetchViewData (si no,
+// la respuesta de Cirugía General podría terminar pisando la vista de
+// Cirugía Estética si el usuario cambia de unidad rápido).
 async function ovFetchViewData(fromStr, toStr){
+  const targetChannel = currentChannel;
   ovSetStatus('Cargando…', 'loading');
   try{
     const chunks = erpDateChunksForRange(fromStr, toStr);
     let data;
     if(chunks.length <= 1){
-      const res = await erpFetchConTimeout(ovSalesOrdersUrl({from:fromStr, to:toStr}), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
+      const res = await erpFetchConTimeout(ovSalesOrdersUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
       data = await res.json();
       if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
     }else{
       const results = [];
       for(let i=0;i<chunks.length;i++){
         ovSetStatus('Cargando… ('+(i+1)+'/'+chunks.length+')', 'loading');
-        results.push(await ovFetchSalesOrdersChunk(chunks[i]));
+        results.push(await ovFetchSalesOrdersChunk(chunks[i], targetChannel));
       }
       data = ovMergeViewData(results);
     }
+    if(targetChannel !== currentChannel) return; // la unidad ya cambió -- esta respuesta quedó vieja, se descarta
     OV_VIEW_DATA = data;
     ovRenderAll();
     ovSetStatus('OK', 'ok');
     const overlay = document.getElementById('ovFirstLoadOverlay');
     if(overlay) overlay.style.display = 'none';
   }catch(e){
+    if(targetChannel !== currentChannel) return; // idem -- error de una unidad que ya no se está mirando
     console.error('Error consultando /api/oppen-sales-orders (vista por rango de fechas):', e);
     ovSetStatus('Error: ' + e.message, 'err');
     const overlay = document.getElementById('ovFirstLoadOverlay');
@@ -7921,10 +7947,64 @@ function ovGoThisMonth(){
   ovApplyQuickRange(erpDateStr(firstDay), erpDateStr(today), 'mesAct');
 }
 
+// 31/08/2026 ("Sumemos el Monitor de OV para Cirugia Estetica" -- "Mismo
+// criterio que utilizamos para Cirugia General"): Cirugía Estética usa
+// MedicalSalesRepresentative para AMBOS selectores de vendedor (colapsa
+// "Vendedor Institución" en "Vendedor", renombrado "Visitador Médico") --
+// mismo criterio EXACTO que erpUpdateChannelSpecificUI ya usa para "erp"
+// (ver ese bloque, mismo comentario original de Juan Manuel, 27/07/2026).
+function ovUpdateChannelSpecificUI(channel){
+  const isCirugiaEstetica = channel === 'cirugia_estetica';
+  const vendInstSection = document.getElementById('ovVendInstSection');
+  if(vendInstSection) vendInstSection.style.display = isCirugiaEstetica ? 'none' : '';
+  const vendClienteTitle = document.getElementById('ovVendClienteTitle');
+  if(vendClienteTitle){
+    vendClienteTitle.innerHTML = isCirugiaEstetica
+      ? 'Visitador Médico <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>'
+      : 'Vendedor <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>';
+  }
+}
+
+// Se llama desde switchChannel() cada vez que se entra a Cirugía General o
+// Cirugía Estética CON Monitor OV ya cargado al menos una vez (ver el
+// guard `loaded['monitor_ov']` en switchChannel) -- mismo criterio que
+// erpSwitchToChannelView para "erp": resetea filtros/fecha (no tiene
+// sentido arrastrar un filtro de Proveedor de Cirugía General a Cirugía
+// Estética) y pide fresco para la unidad recién elegida.
+function ovSwitchToChannelView(channel){
+  ovCanalExcluded = new Set();
+  ovProveedorSelected = null;
+  ovSubgrupoSelectedKey = null;
+  ovSubgrupoSelectedLabel = '';
+  ovVendInstExcluded = new Set();
+  ovVendClienteExcluded = new Set();
+  ovClienteSelectedKey = null;
+  ovClienteSelectedLabel = '';
+  ovTipoOperacionSelected = null;
+  ovEspecialidadSelected = null;
+  ovActiveQuickRangeKey = 'hoy';
+  const today = erpTodayStr();
+  ovViewFrom = today;
+  ovViewTo = today;
+  const fromInput = document.getElementById('ovViewDateFrom');
+  const toInput = document.getElementById('ovViewDateTo');
+  if(fromInput) fromInput.value = today;
+  if(toInput) toInput.value = today;
+  const subgrupoSearch = document.getElementById('ovSubgrupoSearch');
+  if(subgrupoSearch) subgrupoSearch.value = '';
+  const skuSearch = document.getElementById('ovSkuSearch');
+  if(skuSearch) skuSearch.value = '';
+  const clienteSearch = document.getElementById('ovClienteSearch');
+  if(clienteSearch) clienteSearch.value = '';
+  ovUpdateChannelSpecificUI(channel);
+  ovRenderQuickRangeButtons();
+  ovRenderDateRangeLabel();
+  ovFetchViewData(today, today);
+}
+
 // Se llama desde loadPane('monitor_ov') -- ver la lista `loaded` y
 // loadPane más arriba -- la PRIMERA vez que se abre el pane (mismo patrón
-// que erpInit). A diferencia de erpInit, no hay unidad de negocio que
-// resolver (siempre Cirugía General) ni backfill/vista ICOM que inicializar.
+// que erpInit).
 function ovInit(){
   if(ovInitDone) return;
   ovInitDone = true;
@@ -7933,6 +8013,7 @@ function ovInit(){
   const today = erpTodayStr();
   if(fromInput){ fromInput.max = today; fromInput.value = ovViewFrom; }
   if(toInput){ toInput.max = today; toInput.value = ovViewTo; }
+  ovUpdateChannelSpecificUI(currentChannel); // defensivo: si ya se abrió directo en Cirugía Estética
   ovRenderQuickRangeButtons();
   ovRenderDateRangeLabel();
   ovFetchViewData(ovViewFrom, ovViewTo);

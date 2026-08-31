@@ -24,16 +24,16 @@
 //   - Cada SalesOrder también trae un array `Items` anidado (líneas), con
 //     los MISMOS nombres de campo que Invoice.Items: ArtCode, Qty, RowNet,
 //     Name, OperativeCost.
-// Por pedido explícito del usuario (confirmado): esta unidad SOLO se usa
-// para Cirugía General -- se deja igual el mecanismo de filtro por
-// ?unidadNegocio= (mismas 4 claves que Invoice) por si algún día hiciera
-// falta otra unidad, pero por ahora el cliente (Monitor OV) siempre pide
-// ?unidadNegocio=cirugia_general. Simplificado respecto de oppen-invoices.js:
-//   - Sin las ramas específicas de Cirugía Estética (MedicalSalesRepresentative
-//     como vendedor, tipo de cambio histórico por fecha de factura) -- no
-//     aplican mientras Monitor OV sea Cirugía General únicamente. Si el día
-//     de mañana se suma Cirugía Estética a Monitor OV, se portan desde
-//     oppen-invoices.js igual que el resto.
+// Por pedido explícito del usuario (confirmado): al principio esta unidad
+// SOLO se usaba para Cirugía General -- ?unidadNegocio= (mismas 4 claves
+// que Invoice) queda igual, y el 31/08/2026 ("Sumemos el Monitor de OV
+// para Cirugia Estetica" -- "Mismo criterio que utilizamos para Cirugia
+// General") se sumó Cirugía Estética también: MedicalSalesRepresentative
+// como vendedor (ambos selectores) y tipo de cambio histórico por fecha
+// de orden para USD -- portados verbatim de oppen-invoices.js (ver
+// classifyUnidadNegocio/vendedorCliente/vendedorInstitucion y
+// getTipoCambioHistoricoParaFecha más abajo).
+// Sigue simplificado respecto de oppen-invoices.js en un solo punto:
 //   - Sin bySkuUnidadNegocio/?soloUnidadNegocio=1 -- esa pieza es específica
 //     del reparto de inventario por unidad de negocio en Stocks (ver
 //     comentario en oppen-invoices.js), no aplica acá.
@@ -196,8 +196,14 @@ function normalizeVendedor(code) {
   return SALESMAN_NAME_MAP[c] || 'Sin Vendedor';
 }
 
-// Mismos 7 códigos/etiquetas que oppen-invoices.js -- confirmado con datos
-// reales que SalesOrder también usa OperationType "ETH" (Ethicon).
+// Los 7 códigos de Cirugía General son los mismos que ya usaba
+// oppen-invoices.js (confirmado con datos reales que SalesOrder también
+// usa OperationType "ETH" (Ethicon)). Los 3 de Cirugía Estética (MEN/CAN/
+// GMEN) NO tenían etiqueta ahí (esa tarjeta era exclusiva de Cirugía
+// General en "Ventas en Vivo") -- 31/08/2026 ("Sumemos el Monitor de OV
+// para Cirugia Estetica"): se agregan acá con los nombres reales que dio
+// Juan Manuel (ver el comentario de OPERATION_TYPE_UNIT_MAP en
+// oppen-invoices.js: "MEN (Mentor), CAN (Canceladas), GMEN (Garantías)").
 const TIPO_OPERACION_LABELS = {
   ETH: 'Ethicon',
   ASP: 'ASP',
@@ -206,6 +212,9 @@ const TIPO_OPERACION_LABELS = {
   DESC: 'Descartables',
   '3M': '3M',
   ABBO: 'Abbott',
+  MEN: 'Mentor',
+  CAN: 'Canceladas',
+  GMEN: 'Garantías',
 };
 function normalizeTipoOperacion(code) {
   const c = String(code || '').trim().toUpperCase();
@@ -284,6 +293,80 @@ async function getTipoCambioOficialVenta() {
   }
 }
 
+// TIPO DE CAMBIO HISTÓRICO POR FECHA DE ORDEN -- 31/08/2026 ("Sumemos el
+// Monitor de OV para Cirugia Estetica" -- "Mismo criterio que utilizamos
+// para Cirugia General"): portado VERBATIM de oppen-invoices.js (ver ahí
+// el comentario original completo, Juan Manuel 27/07/2026 -- "necesito
+// que el tipo de cambio... de Cirugia estetica sea el tipo de cambio de
+// ese dia"). Solo aplica a Cirugía Estética (ver uso más abajo).
+let cachedFxHistorico = null; // Map<"YYYY-MM-DD", venta>
+let cachedFxHistoricoAt = 0;
+const FX_HISTORICO_CACHE_MS = 24 * 60 * 60 * 1000;
+
+async function getTablaFxHistoricoOficial() {
+  const now = Date.now();
+  if (cachedFxHistorico && now - cachedFxHistoricoAt < FX_HISTORICO_CACHE_MS) {
+    return cachedFxHistorico;
+  }
+  try {
+    const res = await fetch('https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial');
+    if (!res.ok) throw new Error(`argentinadatos.com respondió ${res.status}`);
+    const data = await res.json();
+    const tabla = new Map();
+    (Array.isArray(data) ? data : []).forEach(row => {
+      const fecha = row && row.fecha;
+      const venta = Number(row && row.venta);
+      if (fecha && venta > 0) tabla.set(fecha, venta);
+    });
+    if (tabla.size === 0) throw new Error('la tabla histórica de argentinadatos.com vino vacía');
+    cachedFxHistorico = tabla;
+    cachedFxHistoricoAt = now;
+    return tabla;
+  } catch (e) {
+    console.error('oppen-sales-orders: no se pudo armar la tabla histórica de tipo de cambio oficial (argentinadatos.com):', e);
+    return cachedFxHistorico || null;
+  }
+}
+
+const cachedFxPorFecha = new Map(); // "YYYY-MM-DD" -> venta | null (null = ya se probó y no había)
+
+async function getTipoCambioOficialVentaPorFecha(fechaISO) {
+  if (cachedFxPorFecha.has(fechaISO)) return cachedFxPorFecha.get(fechaISO);
+  try {
+    const [y, m, d] = fechaISO.split('-');
+    const res = await fetch(`https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial/${y}/${m}/${d}`);
+    if (!res.ok) {
+      cachedFxPorFecha.set(fechaISO, null);
+      return null;
+    }
+    const data = await res.json();
+    const venta = Number(data && data.venta);
+    if (!(venta > 0)) {
+      cachedFxPorFecha.set(fechaISO, null);
+      return null;
+    }
+    cachedFxPorFecha.set(fechaISO, venta);
+    return venta;
+  } catch (e) {
+    console.error(`oppen-sales-orders: no se pudo consultar el tipo de cambio oficial puntual del ${fechaISO} (argentinadatos.com):`, e);
+    cachedFxPorFecha.set(fechaISO, null);
+    return null;
+  }
+}
+
+async function getTipoCambioHistoricoParaFecha(fechaISO) {
+  const tabla = await getTablaFxHistoricoOficial();
+  if (tabla && tabla.has(fechaISO)) return tabla.get(fechaISO);
+
+  const puntual = await getTipoCambioOficialVentaPorFecha(fechaISO);
+  if (puntual) return puntual;
+
+  const hoy = await getTipoCambioOficialVenta();
+  if (hoy && hoy.rate > 0) return hoy.rate;
+
+  return null;
+}
+
 function toDDMMYYYY(isoDate) {
   const s = String(isoDate || '').slice(0, 10);
   const parts = s.split('-');
@@ -356,11 +439,18 @@ module.exports = async function handler(req, res) {
         }
 
         // Vendedor (Cliente)/Vendedor (Institución)/Cliente -- mismo
-        // criterio que oppen-invoices.js para Cirugía General (SalesMan/
-        // SalesManInstitution; sin la rama de MedicalSalesRepresentative,
-        // ver comentario grande arriba).
-        const vendedorCliente = normalizeVendedor(ord.SalesMan);
-        const vendedorInstitucion = normalizeVendedor(ord.SalesManInstitution);
+        // criterio que oppen-invoices.js: Cirugía Estética usa
+        // MedicalSalesRepresentative para AMBOS selectores (SalesMan/
+        // SalesManInstitution ahí no traen los códigos reales de
+        // vendedor, ver el comentario grande original en
+        // oppen-invoices.js); Cirugía General sigue con SalesMan/
+        // SalesManInstitution.
+        const vendedorCliente = unidadNegocio === 'cirugia_estetica'
+          ? normalizeVendedor(ord.MedicalSalesRepresentative)
+          : normalizeVendedor(ord.SalesMan);
+        const vendedorInstitucion = unidadNegocio === 'cirugia_estetica'
+          ? normalizeVendedor(ord.MedicalSalesRepresentative)
+          : normalizeVendedor(ord.SalesManInstitution);
         const cliente = ord.CustName ? String(ord.CustName).trim() : 'Sin Cliente';
         const tipoOperacion = normalizeTipoOperacion(ord.OperationType);
         // 31/08/2026 ("Es importante en ordenes de venta conocer
@@ -368,12 +458,19 @@ module.exports = async function handler(req, res) {
         // normalizeEspecialidad arriba.
         const especialidad = normalizeEspecialidad(ord.EspecialidadQx);
 
+        // 31/08/2026 ("Sumemos el Monitor de OV para Cirugia Estetica" --
+        // "Mismo criterio que utilizamos para Cirugia General"): Cirugía
+        // Estética usa el oficial del DÍA DE LA ORDEN (TransDate), igual
+        // que oppen-invoices.js -- las demás unidades siguen con el de
+        // HOY (dolarapi.com).
         const currency = String(ord.Currency || 'ARS').toUpperCase();
         let fxRate = null;
         if (currency === 'USD') {
-          const fx = await getTipoCambioOficialVenta();
-          if (fx && fx.rate > 0) {
-            fxRate = fx.rate;
+          const fxRateNum = unidadNegocio === 'cirugia_estetica'
+            ? await getTipoCambioHistoricoParaFecha(String(ord.TransDate || ''))
+            : (await getTipoCambioOficialVenta() || {}).rate;
+          if (fxRateNum && fxRateNum > 0) {
+            fxRate = fxRateNum;
           } else {
             console.error(`oppen-sales-orders: orden ${ord.SerNr} en USD sin tipo de cambio disponible -- sus líneas se descartan de los agregados (no se muestran en pesos crudos).`);
           }
