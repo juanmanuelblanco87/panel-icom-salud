@@ -308,8 +308,21 @@ async function fetchItemPage(token, offset, limit) {
 // CÓDIGO, no un nombre -- se resuelve contra Supplier (ver
 // escanearSupplierCompleto más abajo) recién en el merge final.
 // Mismo patrón retomable que escanearItemCostCompleto.
+// 31/08/2026 ("revisa getsku usando item, propone la mejor forma de
+// asegurar el correcto flujo de información"): se suma la captura de
+// Item.ItemGroup (ej. "GA01"/"JJGEN") en el MISMO recorrido de páginas que
+// ya lee ItemSubGroup/SupCode -- no pega de nuevo a oppen.io, es un campo
+// más del mismo row. Confirmado contra el Swagger real de ICOMGENERAL (no
+// el cacheado viejo) que hoy NO existe ninguna entidad tipo "ItemGroup" /
+// "Group" / "Family" que resuelva ese código a un nombre legible (a
+// diferencia de SupCode, que sí resuelve vía Supplier.Code->Name) -- por
+// eso ItemGroup viaja tal cual, como código crudo, para usarse como señal
+// ESTADÍSTICA en Seguimiento (ver getSkuCategoryMap/SKU_ITEMGROUP), no como
+// texto para mostrar. Ojo aparte: Item.Brand se investigó y se descartó --
+// en los datos reales SIEMPRE coincide con SupCode (es decir, no es una
+// marca real, es un alias del proveedor), así que no se captura acá.
 async function escanearItemCompleto({
-  startTime, maxMs, startOffset = 0, subgrupoBySku = {}, supCodeBySku = {},
+  startTime, maxMs, startOffset = 0, subgrupoBySku = {}, supCodeBySku = {}, itemGroupBySku = {},
 }) {
   const token = await getToken();
   let offset = startOffset;
@@ -335,13 +348,15 @@ async function escanearItemCompleto({
       if (subgrupo) subgrupoBySku[sku] = subgrupo;
       const supCode = String(row.SupCode || '').trim();
       if (supCode) supCodeBySku[sku] = supCode;
+      const itemGroup = String(row.ItemGroup || '').trim();
+      if (itemGroup) itemGroupBySku[sku] = itemGroup;
     }
     hasMore = !!page.has_more;
     offset += 500;
     pages++;
   }
   return {
-    subgrupoBySku, supCodeBySku, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
+    subgrupoBySku, supCodeBySku, itemGroupBySku, pages, recordsProcessed, completo: !hasMore, nextOffset: offset,
   };
 }
 

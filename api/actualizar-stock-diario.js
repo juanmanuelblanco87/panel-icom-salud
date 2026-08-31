@@ -195,6 +195,12 @@ module.exports = async function handler(req, res) {
         // cuando SupplierItem no tiene nada para ese SKU (ver merge final).
         nombreBySupCode: {},
         supCodeBySku: {},
+        // 31/08/2026 ("revisa getsku usando item, propone la mejor forma de
+        // asegurar el correcto flujo de información"): código crudo de
+        // Item.ItemGroup (sin master que lo resuelva a nombre, ver
+        // escanearItemCompleto) -- viaja tal cual para que Seguimiento lo
+        // use como señal estadística de macro-categoría (getSkuCategoryMap).
+        itemGroupBySku: {},
         proveedorBySku: {},
         tieneDefaultProveedorBySku: {},
         fx: null,
@@ -300,10 +306,11 @@ module.exports = async function handler(req, res) {
 
     if (state.phase === 'item') {
       const r = await escanearItemCompleto({
-        startTime, maxMs: chunkMs, startOffset: state.itemOffset, subgrupoBySku: state.subgrupoBySku, supCodeBySku: state.supCodeBySku,
+        startTime, maxMs: chunkMs, startOffset: state.itemOffset, subgrupoBySku: state.subgrupoBySku, supCodeBySku: state.supCodeBySku, itemGroupBySku: state.itemGroupBySku,
       });
       state.subgrupoBySku = r.subgrupoBySku;
       state.supCodeBySku = r.supCodeBySku;
+      state.itemGroupBySku = r.itemGroupBySku;
       state.itemOffset = r.nextOffset;
       if (r.completo) state.phase = 'supplieritem'; // Item terminado -- la próxima llamada arranca SupplierItem (Proveedor)
       state.lockedUntil = null;
@@ -365,6 +372,14 @@ module.exports = async function handler(req, res) {
     Object.entries(state.subgrupoBySku).forEach(([sku, subgrupo]) => {
       if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
       bySku[sku].subgrupo = subgrupo;
+    });
+    // 31/08/2026 ("revisa getsku usando item, propone la mejor forma de
+    // asegurar el correcto flujo de información"): mismo criterio de merge
+    // que subgrupo/proveedor arriba -- código crudo de ItemGroup, sin
+    // resolver a nombre (ver nota grande en escanearItemCompleto).
+    Object.entries(state.itemGroupBySku).forEach(([sku, itemGroup]) => {
+      if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
+      bySku[sku].itemGroup = itemGroup;
     });
     Object.entries(state.proveedorBySku).forEach(([sku, proveedor]) => {
       if (!bySku[sku]) bySku[sku] = { qtyDisponible: 0, qtyExcluida: 0, byCanal: {}, byDepoSinMapear: {}, costo: 0 };
