@@ -62,11 +62,13 @@
 //                    // "COLON"), mismo criterio que byTipoOperacion.
 //   rows: [ { sku, f, u, fecha, office, canal, unidadNegocio, desc, costoUnit,
 //             vendedorCliente, vendedorInstitucion, cliente, tipoOperacion,
-//             especialidad, clase, institucionNombre, medicoNombre,
+//             especialidad, clase, institucionNombre, medicoNombre, etiqueta,
 //             sernr }, ... ] // clase/institucionNombre/medicoNombre:
 //             31/08/2026 ("Filtros a aplicar: Clase: CR / Tipo de
 //             Operación: ETH... para Cirugías Monitor OV") -- SOGroup/
-//             InstitutionName/DoctorName.
+//             InstitutionName/DoctorName. etiqueta: 01/09/2026 ("Por
+//             Etiqueta -- J&J, Competencia, etc.") -- Labels de cabecera,
+//             ver ETIQUETA_LABELS.
 // }
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 
@@ -246,6 +248,31 @@ function normalizeEspecialidad(raw) {
 function normalizeClase(raw) {
   const c = String(raw || '').trim().toUpperCase();
   return c || 'Sin clase';
+}
+
+// 01/09/2026 ("Por proveedor reemplazarla por la de Etiquetas... es un
+// atributo de la orden de venta se llama etiqueta"): "Etiqueta" (J&J /
+// Competencia / Genérico / Mix) es el campo `Labels` de la CABECERA de la
+// orden -- confirmado con datos reales (endpoint de diagnóstico temporal,
+// ya borrado) que en órdenes de Cirugía General (OperationType ETH) trae
+// SIEMPRE un único código corto ("000001".."000004"), nunca una lista.
+// Ojo: `Labels` también existe en cada línea (`Items[].Labels`), pero ahí
+// se usa para otra cosa (propiedades de implante en Cirugía Estética, ej.
+// "LISA,REDO,PALTO") -- no tiene nada que ver con esta clasificación, así
+// que sólo se lee el de cabecera. Tabla de conversión dada por el usuario
+// (pantalla de Oppen, captura), no viene resuelta por ninguna entidad del
+// Swagger (mismo criterio que TIPO_OPERACION_LABELS -- hay que
+// mantenerla a mano acá si Oppen agrega códigos nuevos).
+const ETIQUETA_LABELS = {
+  '000001': 'J&J',
+  '000002': 'Competencia',
+  '000003': 'Genérico',
+  '000004': 'Mix',
+};
+function normalizeEtiqueta(raw) {
+  const c = String(raw || '').trim();
+  if (!c) return 'Sin etiqueta';
+  return ETIQUETA_LABELS[c] || c;
 }
 
 // Mismo mapa que OPERATION_TYPE_UNIT_MAP en oppen-invoices.js -- ver ese
@@ -481,6 +508,10 @@ module.exports = async function handler(req, res) {
         const clase = normalizeClase(ord.SOGroup);
         const institucionNombre = ord.InstitutionName ? String(ord.InstitutionName).trim() : '';
         const medicoNombre = ord.DoctorName ? String(ord.DoctorName).trim() : '';
+        // 01/09/2026 ("Por Etiqueta -- J&J, Competencia, etc."): ver
+        // normalizeEtiqueta/ETIQUETA_LABELS arriba. Labels de CABECERA,
+        // no de línea (Items[].Labels es otra cosa, ver comentario ahí).
+        const etiqueta = normalizeEtiqueta(ord.Labels);
 
         // 31/08/2026 ("Sumemos el Monitor de OV para Cirugia Estetica" --
         // "Mismo criterio que utilizamos para Cirugia General"): Cirugía
@@ -559,6 +590,7 @@ module.exports = async function handler(req, res) {
             clase,
             institucionNombre,
             medicoNombre,
+            etiqueta,
             sernr: ord.SerNr != null ? String(ord.SerNr) : null,
           });
         }

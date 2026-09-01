@@ -1292,18 +1292,18 @@
           <div id="ovCanalPills" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"></div>
         </div>
 
-        <div class="erp-card" id="ovProveedorCard">
+        <div class="erp-card" id="ovEtiquetaCard">
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-            <span>Por Proveedor</span>
-            <span class="erp-count" id="ovProveedorFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearProveedorFilter()" title="Tocar para quitar el filtro"></span>
+            <span>Por Etiqueta</span>
+            <span class="erp-count" id="ovEtiquetaFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearEtiquetaFilter()" title="Tocar para quitar el filtro"></span>
           </h2>
-          <div id="ovProveedorNote" style="display:none;font-size:12px;color:#a35b00;background:#FFF3E0;border:1px solid #f3d5a6;border-radius:7px;padding:10px 12px;margin-bottom:12px">
-            Todavía no hay datos de proveedor por SKU — se sincronizan solos una vez al día (6:00 AM) desde oppen.io, probá recargar la página en unos minutos.
+          <div class="erp-toolbar">
+            <span class="erp-count" id="ovEtiquetaCount"></span>
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Proveedor</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
-              <tbody id="ovProveedorBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+              <thead><tr><th>Etiqueta</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovEtiquetaBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -7211,7 +7211,11 @@ let ovInstitucionSelected = null;
 let ovMedicoSelected = null;
 let ovSubgrupoSelectedKey = null;
 let ovSubgrupoSelectedLabel = '';
-let ovProveedorSelected = null;
+// 01/09/2026 ("Por proveedor reemplazarla por la de Etiquetas"): "Por
+// Proveedor" se reemplaza por "Por Etiqueta" (J&J/Competencia/Genérico/
+// Mix, ver ETIQUETA_LABELS en oppen-sales-orders.js) -- ovProveedorSelected
+// se da de baja, mismo criterio de selección única que el resto.
+let ovEtiquetaSelected = null;
 
 function ovSetStatus(text, cls){
   const el = document.getElementById('ovStatus');
@@ -7447,16 +7451,11 @@ function ovSkuMatchesClasificacionFilter(sku){
     const rawSubgrupo = ERP_SKU_TO_SUBGRUPO_CACHE[sku] || 'Sin subgrupo';
     if(erpNormalizeMarcaKey(rawSubgrupo) !== ovSubgrupoSelectedKey) return false;
   }
-  if(ovProveedorSelected && ERP_SKU_TO_PROVEEDOR_CACHE){
-    const proveedor = ERP_SKU_TO_PROVEEDOR_CACHE[sku] || ERP_PROVEEDOR_SIN_CATEGORIZAR;
-    if(proveedor !== ovProveedorSelected) return false;
-  }
   return true;
 }
 function ovHasActiveClasificacionFilter(){
   if(ovGetActiveSubgrupoQuery() && ERP_SKU_TO_SUBGRUPO_CACHE) return true;
   if(ovSubgrupoSelectedKey && ERP_SKU_TO_SUBGRUPO_CACHE) return true;
-  if(ovProveedorSelected && ERP_SKU_TO_PROVEEDOR_CACHE) return true;
   return false;
 }
 
@@ -7472,6 +7471,7 @@ function ovRowPassesFilters(row, skip){
   if(!skip.especialidad && ovEspecialidadSelected && row.especialidad !== ovEspecialidadSelected) return false;
   if(!skip.institucion && ovInstitucionSelected && row.institucionNombre !== ovInstitucionSelected) return false;
   if(!skip.medico && ovMedicoSelected && row.medicoNombre !== ovMedicoSelected) return false;
+  if(!skip.etiqueta && ovEtiquetaSelected && row.etiqueta !== ovEtiquetaSelected) return false;
   if(!skip.clasificacion && ovHasActiveClasificacionFilter() && !ovSkuMatchesClasificacionFilter(row.sku)) return false;
   return true;
 }
@@ -7480,7 +7480,7 @@ function ovGetFilteredData(){
   if(!OV_VIEW_DATA) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
   const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
     || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
-    || !!ovInstitucionSelected || !!ovMedicoSelected || ovHasActiveClasificacionFilter();
+    || !!ovInstitucionSelected || !!ovMedicoSelected || !!ovEtiquetaSelected || ovHasActiveClasificacionFilter();
   if(!anyFilter){
     return {bySku: OV_VIEW_DATA.bySku, totals: OV_VIEW_DATA.totals};
   }
@@ -7539,7 +7539,7 @@ function ovComputeCanalTotals(){
   if(!OV_VIEW_DATA || !OV_VIEW_DATA.byCanal) return {};
   const anyOtherFilter = ovVendInstExcluded.size > 0 || ovVendClienteExcluded.size > 0
     || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
-    || !!ovInstitucionSelected || !!ovMedicoSelected || ovHasActiveClasificacionFilter();
+    || !!ovInstitucionSelected || !!ovMedicoSelected || !!ovEtiquetaSelected || ovHasActiveClasificacionFilter();
   if(!anyOtherFilter) return OV_VIEW_DATA.byCanal;
   return ovComputeRowGroupTotals(row=>row.canal, {canal:true});
 }
@@ -7556,6 +7556,12 @@ function ovComputeInstitucionTotals(){
 }
 function ovComputeMedicoTotals(){
   return ovComputeRowGroupTotals(row=>row.medicoNombre, {medico:true});
+}
+// 01/09/2026 ("Por proveedor reemplazarla por la de Etiquetas -- J&J,
+// Competencia, etc."): mismo criterio, agrupando por row.etiqueta (ver
+// ETIQUETA_LABELS en oppen-sales-orders.js).
+function ovComputeEtiquetaTotals(){
+  return ovComputeRowGroupTotals(row=>row.etiqueta, {etiqueta:true});
 }
 function ovComputeVendInstTotals(){
   return ovComputeRowGroupTotals(row=>row.vendedorInstitucion, {vendInst:true});
@@ -7576,7 +7582,7 @@ function ovComputeFilteredOrderCount(){
   // ovComputeCanalTotals al agregar esos 2 filtros).
   const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
     || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
-    || !!ovInstitucionSelected || !!ovMedicoSelected;
+    || !!ovInstitucionSelected || !!ovMedicoSelected || !!ovEtiquetaSelected;
   if(!anyFilter) return OV_VIEW_DATA.ordersProcessed || 0;
   const seen = new Set();
   (OV_VIEW_DATA.rows||[]).forEach(row=>{
@@ -7684,60 +7690,54 @@ function ovRenderDetalleOrdenes(){
   ).join('') + (rows.length>MAX ? '<tr><td colspan="5" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más</td></tr>' : '');
 }
 
-function ovToggleProveedor(proveedor){
-  ovProveedorSelected = (ovProveedorSelected === proveedor) ? null : proveedor;
+// 01/09/2026 ("Por proveedor reemplazarla por la de Etiquetas -- J&J,
+// Competencia, etc., usar esa tabla de conversión"): reemplaza
+// ovToggleProveedor/ovClearProveedorFilter/ovRenderProveedorTable (mismo
+// lugar en ovRenderAll) -- mismo patrón de selección única y mismo
+// formato de 6 columnas que Institución/Médico, agrupando por
+// row.etiqueta (ya viene resuelta desde el código Oppen, ver
+// ETIQUETA_LABELS en oppen-sales-orders.js).
+function ovToggleEtiqueta(label){
+  ovEtiquetaSelected = (ovEtiquetaSelected === label) ? null : label;
   ovRenderAll();
 }
-function ovClearProveedorFilter(){
-  ovProveedorSelected = null;
+function ovClearEtiquetaFilter(){
+  ovEtiquetaSelected = null;
   ovRenderAll();
 }
-async function ovRenderProveedorTable(){
-  const body = document.getElementById('ovProveedorBody');
-  const note = document.getElementById('ovProveedorNote');
-  const filterNote = document.getElementById('ovProveedorFilterNote');
-  const {bySku} = ovGetFilteredData();
-  if(!OV_VIEW_DATA || !bySku){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
+function ovRenderEtiquetaTable(){
+  const body = document.getElementById('ovEtiquetaBody');
+  if(!body) return;
+  const countSpan = document.getElementById('ovEtiquetaCount');
+  const filterNote = document.getElementById('ovEtiquetaFilterNote');
+  if(!OV_VIEW_DATA){
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
     return;
   }
-  const skuToProveedor = await erpEnsureSkuToProveedorCache();
-  if(!Object.keys(skuToProveedor).length){
-    note.style.display = 'block';
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos de proveedor todavía — probá recargar la página en unos minutos.</td></tr>';
-    return;
-  }
-  note.style.display = 'none';
-
   if(filterNote){
-    if(ovProveedorSelected){
+    if(ovEtiquetaSelected){
       filterNote.style.display = 'inline';
-      filterNote.textContent = 'Filtrando por: ' + ovProveedorSelected + ' ✕';
+      filterNote.textContent = 'Filtrando por: ' + ovEtiquetaSelected + ' ✕';
     }else{
       filterNote.style.display = 'none';
       filterNote.textContent = '';
     }
   }
-
-  const byProveedor = {};
-  Object.entries(bySku).forEach(([sku, v])=>{
-    const proveedor = skuToProveedor[sku] || ERP_PROVEEDOR_SIN_CATEGORIZAR;
-    if(!byProveedor[proveedor]) byProveedor[proveedor] = {unidades:0, totalNeto:0};
-    byProveedor[proveedor].unidades += v.unidades;
-    byProveedor[proveedor].totalNeto += v.totalNeto;
-  });
-
-  const rows = Object.entries(byProveedor).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  const totals = ovComputeEtiquetaTotals();
+  const cirugias = ovComputeGroupOrderCounts(row=>row.etiqueta, {etiqueta:true});
+  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' etiqueta' : ' etiquetas');
   if(!rows.length){
-    body.innerHTML = '<tr><td colspan="5" class="pm-empty">'+(ovProveedorSelected ? 'Sin datos para este proveedor.' : 'Sin órdenes este mes todavía.')+'</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin órdenes este día.</td></tr>';
     return;
   }
-  const grandTotal = rows.reduce((a,[,v])=>a+v.totalNeto, 0);
-  body.innerHTML = rows.map(([proveedor, v])=>{
-    const selected = ovProveedorSelected === proveedor;
-    return '<tr onclick="ovToggleProveedor(\''+erpJsStrEscape(proveedor)+'\')" title="Tocar para filtrar por este proveedor (tocar de nuevo para quitar el filtro)" '
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = ovEtiquetaSelected === r.label;
+    return '<tr onclick="ovToggleEtiqueta(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por esta etiqueta (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+proveedor+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td><td class="num">'+erpFmtPct(v.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
   }).join('');
 }
 
@@ -8140,7 +8140,7 @@ function ovRenderCanalPills(){
 function ovRenderAll(){
   ovRenderCanalPills();
   ovRenderKpis();
-  ovRenderProveedorTable();
+  ovRenderEtiquetaTable();
   ovRenderSubgrupoTable();
   ovRenderSkuTable();
   ovRenderVendInstPills();
@@ -8343,6 +8343,21 @@ function ovUpdateChannelSpecificUI(channel){
   if(detalleSubtitulo){
     detalleSubtitulo.textContent = (channel === 'cirugia_general') ? '— Clase CR, Tipo de Operación Ethicon' : '';
   }
+  // 01/09/2026 ("Esta ocultarla porque siempre va a venir ETH" / "El
+  // detalle de ordenes ocultar tambien"): en Cirugía General el filtro
+  // fijo Clase=CR/Tipo=Ethicon (ver ovAplicarFiltroFijo) deja "Por Tipo
+  // de Operación" mostrando siempre una única fila ("Ethicon", 100%) --
+  // sin información real que aportar, así que se oculta. En Cirugía
+  // Estética el Tipo de Operación SÍ varía (Mentor/Canceladas/Garantías,
+  // ver TIPO_OPERACION_LABELS en oppen-sales-orders.js), y ahí el filtro
+  // fijo no aplica -- la tabla se mantiene visible. "Detalle de Órdenes"
+  // se oculta con el mismo criterio (pedido explícito, sólo Cirugía
+  // General por ahora).
+  const isCirugiaGeneral = channel === 'cirugia_general';
+  const tipoOpCard = document.getElementById('ovTipoOperacionCard');
+  if(tipoOpCard) tipoOpCard.style.display = isCirugiaGeneral ? 'none' : '';
+  const detalleCard = document.getElementById('ovDetalleOrdenesCard');
+  if(detalleCard) detalleCard.style.display = isCirugiaGeneral ? 'none' : '';
 }
 
 // Se llama desde switchChannel() cada vez que se entra a Cirugía General o
@@ -8353,7 +8368,7 @@ function ovUpdateChannelSpecificUI(channel){
 // Estética) y pide fresco para la unidad recién elegida.
 function ovSwitchToChannelView(channel){
   ovCanalExcluded = new Set();
-  ovProveedorSelected = null;
+  ovEtiquetaSelected = null;
   ovSubgrupoSelectedKey = null;
   ovSubgrupoSelectedLabel = '';
   ovVendInstExcluded = new Set();
@@ -8362,6 +8377,12 @@ function ovSwitchToChannelView(channel){
   ovClienteSelectedLabel = '';
   ovTipoOperacionSelected = null;
   ovEspecialidadSelected = null;
+  // 01/09/2026: Institución/Médico se agregaron el mismo día que este
+  // reset -- se suman acá con el mismo criterio del resto (no tiene
+  // sentido arrastrar un filtro de Institución de Cirugía General a
+  // Cirugía Estética, mismo comentario original de arriba).
+  ovInstitucionSelected = null;
+  ovMedicoSelected = null;
   ovActiveQuickRangeKey = 'hoy';
   const today = erpTodayStr();
   ovViewFrom = today;
