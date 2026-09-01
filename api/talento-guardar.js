@@ -824,14 +824,38 @@ async function accionCrearSolicitudVacaciones(payload, solicitante) {
     comentario: comentario ? String(comentario).trim() : '',
     estado: 'pendiente', fechaSolicitud: new Date().toISOString(),
     resueltoPor: null, fechaResolucion: null, comentarioResolucion: '', periodoCreadoId: null,
+    notificacionEmail: { enviado: false, motivo: null },
   };
-  await guardarSolicitudVacacion(solicitud);
 
-  // Best-effort: el guardado ya quedó confirmado en Redis, el email nunca lo bloquea.
-  leerUsuarios().then(usuarios => {
+  // 01/09/2026 ("agrega el estado 'Email enviado' esperando
+  // autorización"): antes esto era fire-and-forget (se guardaba la
+  // solicitud y no se esperaba el resultado del email, así que el
+  // frontend siempre mostraba "le llegó un email" sin saber si de
+  // verdad llegó -- pasó justo con un pedido real de Mercedes Viqueria
+  // mientras el dominio de Resend todavía terminaba de verificarse: el
+  // envío falló en silencio y nadie se enteró). Ahora SÍ se espera el
+  // resultado antes de guardar/responder -- Resend suele responder en
+  // <1seg, y enviarEmail() nunca tira excepción (ver _talento-email.js),
+  // así que esto no vuelve a la solicitud dependiente de un tercero:
+  // si falla, notificacionEmail.enviado queda en false pero la
+  // solicitud se guarda igual.
+  try {
+    const usuarios = await leerUsuarios();
     const emails = resolverEmailsAprobadores(persona, usuarios);
-    return Promise.all(emails.map(to => enviarEmail(Object.assign({ to }, emailNuevaSolicitud({ persona, solicitud })))));
-  }).catch(() => {});
+    if (!emails.length) {
+      solicitud.notificacionEmail.motivo = 'Sin aprobadores con email configurado.';
+    } else {
+      const resultados = await Promise.all(emails.map(to => enviarEmail(Object.assign({ to }, emailNuevaSolicitud({ persona, solicitud })))));
+      solicitud.notificacionEmail.enviado = resultados.some(r => r && r.ok);
+      if (!solicitud.notificacionEmail.enviado) {
+        solicitud.notificacionEmail.motivo = (resultados.find(r => r && r.error) || {}).error || 'Resend no aceptó el envío.';
+      }
+    }
+  } catch (e) {
+    solicitud.notificacionEmail.motivo = String(e && e.message || e);
+  }
+
+  await guardarSolicitudVacacion(solicitud);
 
   return { status: 200, body: { ok: true, solicitud } };
 }
