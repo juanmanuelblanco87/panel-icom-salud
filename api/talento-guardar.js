@@ -39,7 +39,7 @@ const {
   guardarNotaObjetivo,
 } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
-const { enviarEmail, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta } = require('./_talento-email');
+const { enviarEmail, resolverAprobadores, emailNuevaSolicitud, emailSolicitudResuelta } = require('./_talento-email');
 
 // 12/08/2026 ("en Función dejar 'Otros' para especificar"): esta lista ya
 // NO se usa para validar -- el cliente resuelve "Otros" al texto libre
@@ -841,11 +841,14 @@ async function accionCrearSolicitudVacaciones(payload, solicitante) {
   // solicitud se guarda igual.
   try {
     const usuarios = await leerUsuarios();
-    const emails = resolverEmailsAprobadores(persona, usuarios);
-    if (!emails.length) {
+    // 01/09/2026: resolverAprobadores (no sólo los emails) -- cada
+    // aprobador recibe su PROPIO link firmado a su nombre (rol +
+    // personaId), ver emailNuevaSolicitud/firmarAccionEmail.
+    const aprobadores = resolverAprobadores(persona, usuarios);
+    if (!aprobadores.length) {
       solicitud.notificacionEmail.motivo = 'Sin aprobadores con email configurado.';
     } else {
-      const resultados = await Promise.all(emails.map(to => enviarEmail(Object.assign({ to }, emailNuevaSolicitud({ persona, solicitud })))));
+      const resultados = await Promise.all(aprobadores.map(aprobador => enviarEmail(Object.assign({ to: aprobador.email }, emailNuevaSolicitud({ persona, solicitud, aprobador })))));
       solicitud.notificacionEmail.enviado = resultados.some(r => r && r.ok);
       if (!solicitud.notificacionEmail.enviado) {
         solicitud.notificacionEmail.motivo = (resultados.find(r => r && r.error) || {}).error || 'Resend no aceptó el envío.';
@@ -1188,3 +1191,11 @@ module.exports._testing = {
   puedeCrearSolicitud, esAprobadorDeVacaciones, puedeGestionarPersona, puedeGestionarObjetivo,
   puedeEvaluarCompetencias, esDescendienteDe,
 };
+
+// 01/09/2026 ("boton aprobar y rechazar... que ejecute la accion"):
+// api/talento-accion-email.js reusa ESTAS MISMAS funciones (no
+// duplica la lógica de saldo/idempotencia/permisos) para ejecutar la
+// acción cuando alguien confirma desde el link del email -- la única
+// diferencia con el flujo normal es de dónde sale `solicitante`
+// (token firmado en el email en vez de la sesión logueada).
+module.exports._interno = { accionAprobarSolicitudVacaciones, accionRechazarSolicitudVacaciones, leerSolicitudVacacion, leerPersona };

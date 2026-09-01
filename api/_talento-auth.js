@@ -89,4 +89,54 @@ function requerirSesion(req) {
   return verificarSesion(header.slice('Bearer '.length));
 }
 
-module.exports = { generarSaltYHash, passwordValida, firmarSesion, verificarSesion, requerirSesion };
+// 01/09/2026 ("coloca el boton aprobar y rechazar y que esto te lleve
+// direcamtente a la app y ejecute dicha accion"): token de un solo
+// propósito para el botón Aprobar/Rechazar del email de "nueva
+// solicitud de vacaciones" -- deliberadamente DISTINTO del token de
+// sesión (misma firma HMAC nativa, pero con una key derivada distinta
+// y un campo `tipo` propio) para que un token de este tipo nunca sea
+// aceptado por error donde se espera un token de sesión, ni viceversa.
+//
+// Quien hace click NO tiene que estar logueado -- el payload YA trae
+// la identidad {rol, personaId} de a quién se le mandó ESE email en
+// particular (ver resolverAprobadores en _talento-email.js), así que
+// alcanza con la firma para confiar en ella. La autorización real
+// (¿sigue siendo esta persona aprobadora de ESTA solicitud hoy?) se
+// re-chequea igual en accionAprobarSolicitudVacaciones/
+// accionRechazarSolicitudVacaciones con datos frescos -- el token sólo
+// prueba "a quién se le mandó este link", no "tiene permiso para
+// siempre".
+const TTL_ACCION_EMAIL_SEGUNDOS = 60 * 60 * 24 * 30; // 30 días -- una solicitud de vacaciones puede esperar respuesta un buen rato.
+
+function claveAccionEmail() {
+  return (process.env.TALENTO_SESSION_SECRET || '') + ':accion-email';
+}
+
+function firmarAccionEmail(payload) {
+  const exp = Math.floor(Date.now() / 1000) + TTL_ACCION_EMAIL_SEGUNDOS;
+  const cuerpo = Buffer.from(JSON.stringify(Object.assign({}, payload, { tipo: 'accion-email', exp }))).toString('base64url');
+  const firma = crypto.createHmac('sha256', claveAccionEmail()).update(cuerpo).digest('base64url');
+  return cuerpo + '.' + firma;
+}
+
+function verificarAccionEmail(token) {
+  if (!process.env.TALENTO_SESSION_SECRET) return null;
+  if (!token || typeof token !== 'string') return null;
+  const partes = token.split('.');
+  if (partes.length !== 2) return null;
+  const [cuerpo, firma] = partes;
+  const firmaEsperada = crypto.createHmac('sha256', claveAccionEmail()).update(cuerpo).digest('base64url');
+  const a = Buffer.from(firma), b = Buffer.from(firmaEsperada);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(cuerpo, 'base64url').toString('utf8'));
+  } catch (e) {
+    return null;
+  }
+  if (!payload || payload.tipo !== 'accion-email') return null;
+  if (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload; // {solicitudId, accion, rol, personaId, nombre, exp}
+}
+
+module.exports = { generarSaltYHash, passwordValida, firmarSesion, verificarSesion, requerirSesion, firmarAccionEmail, verificarAccionEmail };
