@@ -1216,7 +1216,7 @@
 
         <div class="erp-card" id="ovEspecialidadCard">
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-            <span>Por Especialidad</span>
+            <span>Por Especialidad Qx</span>
             <span class="erp-count" id="ovEspecialidadFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearEspecialidadFilter()" title="Tocar para quitar el filtro"></span>
           </h2>
           <div class="erp-toolbar">
@@ -1249,8 +1249,40 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Cliente</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
-              <tbody id="ovClienteBody"><tr><td colspan="4" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+              <thead><tr><th>Cliente</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovClienteBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card" id="ovInstitucionCard">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Institución</span>
+            <span class="erp-count" id="ovInstitucionFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearInstitucionFilter()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <span class="erp-count" id="ovInstitucionCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Institución</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovInstitucionBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="erp-card" id="ovMedicoCard">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Médico</span>
+            <span class="erp-count" id="ovMedicoFilterNote" style="display:none;cursor:pointer;color:#1a3d70" onclick="ovClearMedicoFilter()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <span class="erp-count" id="ovMedicoCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Médico</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovMedicoBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1301,8 +1333,8 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>SKU</th><th>Nombre</th><th class="num">Stock Total</th><th class="num">Precio Neto</th><th class="num">Unidades</th><th class="num">Total Neto</th></tr></thead>
-              <tbody id="ovSkuBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
+              <thead><tr><th>SKU</th><th>Nombre</th><th class="num">Cirugías</th><th class="num">Stock Total</th><th class="num">Precio Neto</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <tbody id="ovSkuBody"><tr><td colspan="8" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -7171,6 +7203,12 @@ let ovTipoOperacionSelected = null;
 // clickeable"): row.especialidad (EspecialidadQx del ERP, ej. "COLON"),
 // mismo criterio de selección única que Tipo de Operación.
 let ovEspecialidadSelected = null;
+// 01/09/2026 ("agrega Por Institución y Por Médico, mismo formato que
+// Tipo de Operación"): mismo criterio de selección única (clickeable,
+// filtra el resto de los cuadros) que ovEspecialidadSelected/
+// ovTipoOperacionSelected -- row.institucionNombre/row.medicoNombre.
+let ovInstitucionSelected = null;
+let ovMedicoSelected = null;
 let ovSubgrupoSelectedKey = null;
 let ovSubgrupoSelectedLabel = '';
 let ovProveedorSelected = null;
@@ -7432,6 +7470,8 @@ function ovRowPassesFilters(row, skip){
   if(!skip.cliente && ovClienteSelectedKey && erpNormalizeMarcaKey(row.cliente) !== ovClienteSelectedKey) return false;
   if(!skip.tipoOperacion && ovTipoOperacionSelected && row.tipoOperacion !== ovTipoOperacionSelected) return false;
   if(!skip.especialidad && ovEspecialidadSelected && row.especialidad !== ovEspecialidadSelected) return false;
+  if(!skip.institucion && ovInstitucionSelected && row.institucionNombre !== ovInstitucionSelected) return false;
+  if(!skip.medico && ovMedicoSelected && row.medicoNombre !== ovMedicoSelected) return false;
   if(!skip.clasificacion && ovHasActiveClasificacionFilter() && !ovSkuMatchesClasificacionFilter(row.sku)) return false;
   return true;
 }
@@ -7439,7 +7479,8 @@ function ovRowPassesFilters(row, skip){
 function ovGetFilteredData(){
   if(!OV_VIEW_DATA) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
   const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
-    || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected || ovHasActiveClasificacionFilter();
+    || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
+    || !!ovInstitucionSelected || !!ovMedicoSelected || ovHasActiveClasificacionFilter();
   if(!anyFilter){
     return {bySku: OV_VIEW_DATA.bySku, totals: OV_VIEW_DATA.totals};
   }
@@ -7497,7 +7538,8 @@ function ovComputeGroupOrderCounts(getKey, skip){
 function ovComputeCanalTotals(){
   if(!OV_VIEW_DATA || !OV_VIEW_DATA.byCanal) return {};
   const anyOtherFilter = ovVendInstExcluded.size > 0 || ovVendClienteExcluded.size > 0
-    || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected || ovHasActiveClasificacionFilter();
+    || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
+    || !!ovInstitucionSelected || !!ovMedicoSelected || ovHasActiveClasificacionFilter();
   if(!anyOtherFilter) return OV_VIEW_DATA.byCanal;
   return ovComputeRowGroupTotals(row=>row.canal, {canal:true});
 }
@@ -7506,6 +7548,14 @@ function ovComputeTipoOperacionTotals(){
 }
 function ovComputeEspecialidadTotals(){
   return ovComputeRowGroupTotals(row=>row.especialidad, {especialidad:true});
+}
+// 01/09/2026: mismo criterio que ovComputeEspecialidadTotals, agrupando
+// por row.institucionNombre/row.medicoNombre en vez de row.especialidad.
+function ovComputeInstitucionTotals(){
+  return ovComputeRowGroupTotals(row=>row.institucionNombre, {institucion:true});
+}
+function ovComputeMedicoTotals(){
+  return ovComputeRowGroupTotals(row=>row.medicoNombre, {medico:true});
 }
 function ovComputeVendInstTotals(){
   return ovComputeRowGroupTotals(row=>row.vendedorInstitucion, {vendInst:true});
@@ -7519,8 +7569,14 @@ function ovComputeVendClienteTotals(){
 // procesadas" cuenta órdenes completas, no líneas).
 function ovComputeFilteredOrderCount(){
   if(!OV_VIEW_DATA) return 0;
+  // 01/09/2026: se agregan ovInstitucionSelected/ovMedicoSelected al
+  // gate -- sin esto, filtrar por Institución o Médico (sin ningún otro
+  // filtro activo) dejaba el KPI "# Cirugías" mostrando el total SIN
+  // filtrar (mismo bug que ya se había evitado en ovGetFilteredData/
+  // ovComputeCanalTotals al agregar esos 2 filtros).
   const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
-    || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected;
+    || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
+    || !!ovInstitucionSelected || !!ovMedicoSelected;
   if(!anyFilter) return OV_VIEW_DATA.ordersProcessed || 0;
   const seen = new Set();
   (OV_VIEW_DATA.rows||[]).forEach(row=>{
@@ -7548,13 +7604,20 @@ function ovRenderKpis(){
 
 async function ovRenderSkuTable(){
   const body = document.getElementById('ovSkuBody');
-  const {bySku} = ovGetFilteredData();
+  const {bySku, totals} = ovGetFilteredData();
   if(!OV_VIEW_DATA || !bySku){
-    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="pm-empty">Sin datos.</td></tr>';
     document.getElementById('ovSkuCount').textContent = '';
     return;
   }
   const skuToStock = await erpEnsureSkuToStockCache();
+  // 01/09/2026 ("utilizando el formato de datos de Tipo de Operación... -
+  // Por SKU"): se agregan Cirugías y Peso, sin sacar nada de lo que ya
+  // había (Stock Total/Precio Neto siguen). {} sin skip -- misma
+  // combinación de filtros (incluida Clasificación/Subgrupo) que ya usa
+  // bySku via ovGetFilteredData/ovRowPassesFilters.
+  const cirugias = ovComputeGroupOrderCounts(row=>row.sku, {});
+  const grandTotal = totals.totalNeto;
   const q = (document.getElementById('ovSkuSearch').value||'').trim().toLowerCase();
   let rows = Object.entries(bySku);
   if(q){
@@ -7565,8 +7628,8 @@ async function ovRenderSkuTable(){
   const MAX = 300;
   const shown = rows.slice(0, MAX);
   body.innerHTML = shown.map(([sku, v])=>
-    '<tr><td>'+sku+'</td><td>'+(v.nombre||'—')+'</td><td class="num">'+erpFmtInt(skuToStock[sku]||0)+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td></tr>'
-  ).join('') + (rows.length>MAX ? '<tr><td colspan="6" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
+    '<tr><td>'+sku+'</td><td>'+(v.nombre||'—')+'</td><td class="num">'+erpFmtInt(cirugias[sku]||0)+'</td><td class="num">'+erpFmtInt(skuToStock[sku]||0)+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td><td class="num">'+erpFmtPct(v.totalNeto, grandTotal)+'</td></tr>'
+  ).join('') + (rows.length>MAX ? '<tr><td colspan="8" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
 }
 
 // 31/08/2026 (3ra vuelta, "Aqui deja un boton para descargar el excel"):
@@ -7845,6 +7908,98 @@ function ovRenderEspecialidadTable(){
   }).join('');
 }
 
+// "Por Institución" / "Por Médico" -- 01/09/2026 ("agrega Por
+// Institución y Por Médico, mismo formato que Tipo de Operación"):
+// mismos 2 cuadros clickeables que Especialidad/Tipo de Operación,
+// agrupando por row.institucionNombre/row.medicoNombre.
+function ovToggleInstitucion(label){
+  ovInstitucionSelected = (ovInstitucionSelected === label) ? null : label;
+  ovRenderAll();
+}
+function ovClearInstitucionFilter(){
+  ovInstitucionSelected = null;
+  ovRenderAll();
+}
+function ovRenderInstitucionTable(){
+  const body = document.getElementById('ovInstitucionBody');
+  if(!body) return;
+  const countSpan = document.getElementById('ovInstitucionCount');
+  const filterNote = document.getElementById('ovInstitucionFilterNote');
+  if(!OV_VIEW_DATA){
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  if(filterNote){
+    if(ovInstitucionSelected){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + ovInstitucionSelected + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+  const totals = ovComputeInstitucionTotals();
+  const cirugias = ovComputeGroupOrderCounts(row=>row.institucionNombre, {institucion:true});
+  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' institución' : ' instituciones');
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin órdenes este día.</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = ovInstitucionSelected === r.label;
+    return '<tr onclick="ovToggleInstitucion(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por esta institución (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
+function ovToggleMedico(label){
+  ovMedicoSelected = (ovMedicoSelected === label) ? null : label;
+  ovRenderAll();
+}
+function ovClearMedicoFilter(){
+  ovMedicoSelected = null;
+  ovRenderAll();
+}
+function ovRenderMedicoTable(){
+  const body = document.getElementById('ovMedicoBody');
+  if(!body) return;
+  const countSpan = document.getElementById('ovMedicoCount');
+  const filterNote = document.getElementById('ovMedicoFilterNote');
+  if(!OV_VIEW_DATA){
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  if(filterNote){
+    if(ovMedicoSelected){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + ovMedicoSelected + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+  const totals = ovComputeMedicoTotals();
+  const cirugias = ovComputeGroupOrderCounts(row=>row.medicoNombre, {medico:true});
+  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' médico' : ' médicos');
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin órdenes este día.</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = ovMedicoSelected === r.label;
+    return '<tr onclick="ovToggleMedico(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este médico (tocar de nuevo para quitar el filtro)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+  }).join('');
+}
+
 function ovToggleVendInst(vendedor){
   if(ovVendInstExcluded.has(vendedor)) ovVendInstExcluded.delete(vendedor);
   else ovVendInstExcluded.add(vendedor);
@@ -7914,7 +8069,7 @@ function ovRenderClienteTable(){
   const countSpan = document.getElementById('ovClienteCount');
   const filterNote = document.getElementById('ovClienteFilterNote');
   if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows){
-    body.innerHTML = '<tr><td colspan="4" class="pm-empty">Sin datos.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
     return;
   }
   if(filterNote){
@@ -7927,15 +8082,20 @@ function ovRenderClienteTable(){
     }
   }
   const byCliente = ovComputeRowGroupTotals(row=>row.cliente, {cliente:true});
+  // 01/09/2026 ("utilizando el formato de datos de Tipo de Operación"):
+  // se agrega Cirugías, mismo criterio (órdenes DISTINTAS por sernr) que
+  // el resto de los cuadros -- antes esta tabla sólo tenía Unidades/
+  // Total Neto/Peso, sin Cirugías ni Precio Pr.
+  const cirugias = ovComputeGroupOrderCounts(row=>row.cliente, {cliente:true});
   let rows = Object.entries(byCliente).map(([label, v])=>({
-    key: erpNormalizeMarcaKey(label), label, unidades: v.unidades, totalNeto: v.totalNeto,
+    key: erpNormalizeMarcaKey(label), label, unidades: v.unidades, totalNeto: v.totalNeto, cirugias: cirugias[label]||0,
   }));
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   const q = ovGetActiveClienteQuery();
   if(q) rows = rows.filter(r=>erpNormalizeMarcaKey(r.label).includes(q));
   if(countSpan) countSpan.textContent = rows.length + ' clientes';
   if(!rows.length){
-    body.innerHTML = '<tr><td colspan="4" class="pm-empty">'+(q ? 'Sin clientes que coincidan con la búsqueda.' : 'Sin órdenes este día.')+'</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">'+(q ? 'Sin clientes que coincidan con la búsqueda.' : 'Sin órdenes este día.')+'</td></tr>';
     return;
   }
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
@@ -7943,7 +8103,7 @@ function ovRenderClienteTable(){
     const selected = ovClienteSelectedKey === r.key;
     return '<tr onclick="ovToggleClienteRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este cliente (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
   }).join('');
 }
 
@@ -7988,6 +8148,8 @@ function ovRenderAll(){
   ovRenderClienteTable();
   ovRenderTipoOperacionTable();
   ovRenderEspecialidadTable();
+  ovRenderInstitucionTable();
+  ovRenderMedicoTable();
   ovRenderDetalleOrdenes();
 }
 
