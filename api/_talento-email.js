@@ -221,4 +221,23 @@ function emailRecordatorioObjetivo({ persona, objetivo, diasRestantes }) {
   return { subject: 'Recordatorio: objetivo "' + objetivo.titulo + '" vence ' + cuando, html: wrapEmailHtml(cuerpo) };
 }
 
-module.exports = { enviarEmail, resolverEmailsAprobadores, resolverAprobadores, emailNuevaSolicitud, emailSolicitudResuelta, emailRecordatorioObjetivo };
+// 01/09/2026 ("suma los flujos de envios de email cuando se cargan
+// los Objetivos"): mismo criterio que Vacaciones -- cuando un
+// aprobador (supervisor/gerente/admin) le carga un objetivo nuevo a
+// alguien, esa persona recibe un email (no espera a que se acerque el
+// vencimiento como emailRecordatorioObjetivo arriba, que es sólo el
+// aviso del cron).
+function emailNuevoObjetivo({ persona, objetivo }) {
+  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:#14305a">Nuevo objetivo asignado</p>'
+    + '<p style="margin:0 0 4px">Hola ' + escapeHtml(persona.nombre) + ', se cargó un nuevo objetivo para vos:</p>'
+    + '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:10px 0 18px;font-size:14px">'
+    + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Título</td><td style="padding:2px 0;font-weight:bold">' + escapeHtml(objetivo.titulo) + '</td></tr>'
+    + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Peso</td><td style="padding:2px 0;font-weight:bold">' + objetivo.peso + '%</td></tr>'
+    + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Fecha límite</td><td style="padding:2px 0;font-weight:bold">' + formatearFecha(objetivo.fechaFin) + '</td></tr>'
+    + '</table>'
+    + '<p style="margin:0 0 18px;padding:10px 14px;background:#f8faf8;border-left:3px solid #cfd8d0;border-radius:4px;color:#3a453c">Meta: ' + escapeHtml(objetivo.meta) + '</p>'
+    + '<p style="margin:0">Ingresá a Gestión de Talento (pestaña Objetivos) para revisarlo.</p>';
+  return { subject: 'Nuevo objetivo asignado — ' + objetivo.titulo, html: wrapEmailHtml(cuerpo) };
+}
+
+module.exports = { enviarEmail, resolverEmailsAprobadores, resolverAprobadores, emailNuevaSolicitud, emailSolicitudResuelta, emailRecordatorioObjetivo, emailNuevoObjetivo };

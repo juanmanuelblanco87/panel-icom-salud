@@ -39,7 +39,7 @@ const {
   guardarNotaObjetivo,
 } = require('./_talento-store');
 const { requerirSesion } = require('./_talento-auth');
-const { enviarEmail, resolverAprobadores, emailNuevaSolicitud, emailSolicitudResuelta } = require('./_talento-email');
+const { enviarEmail, resolverAprobadores, emailNuevaSolicitud, emailSolicitudResuelta, emailNuevoObjetivo } = require('./_talento-email');
 
 // 12/08/2026 ("en Función dejar 'Otros' para especificar"): esta lista ya
 // NO se usa para validar -- el cliente resuelve "Otros" al texto libre
@@ -446,6 +446,28 @@ async function accionEliminarPersona(payload, solicitante) {
   return { status: 200, body: { ok: true } };
 }
 
+// 01/09/2026 ("suma los flujos de envios de email cuando se cargan
+// los Objetivos"): mismo patrón awaited+trackeado que
+// notificarResolucionSolicitud/notificarNuevoObjetivo de Vacaciones --
+// no fire-and-forget, no se pierde en silencio si Resend falla.
+async function notificarNuevoObjetivo(persona, objetivo) {
+  const notificacionEmail = { enviado: false, motivo: null };
+  try {
+    const usuarios = await leerUsuarios();
+    const propio = usuarios.find(u => u.personaId === persona.id);
+    if (!propio || !propio.email) {
+      notificacionEmail.motivo = 'La persona no tiene usuario con email configurado.';
+    } else {
+      const resultado = await enviarEmail(Object.assign({ to: propio.email }, emailNuevoObjetivo({ persona, objetivo })));
+      notificacionEmail.enviado = !!(resultado && resultado.ok);
+      if (!notificacionEmail.enviado) notificacionEmail.motivo = (resultado && resultado.error) || 'Resend no aceptó el envío.';
+    }
+  } catch (e) {
+    notificacionEmail.motivo = String(e && e.message || e);
+  }
+  return notificacionEmail;
+}
+
 async function accionCrearObjetivo(payload, solicitante) {
   const { personaId, anio, titulo, meta, peso, fechaFin } = payload || {};
   const persona = await leerPersona(personaId);
@@ -483,6 +505,11 @@ async function accionCrearObjetivo(payload, solicitante) {
     resultado: null,
     recordatoriosEnviados: [],
   };
+  // 01/09/2026 ("suma los flujos de envios de email cuando se cargan
+  // los Objetivos"): a la persona que recibe el objetivo nuevo -- no
+  // fire-and-forget (ver notificarNuevoObjetivo), mismo criterio que
+  // ya se aplicó a Vacaciones.
+  objetivo.notificacionEmail = await notificarNuevoObjetivo(persona, objetivo);
   await guardarObjetivo(objetivo);
   return { status: 200, body: { ok: true, objetivo } };
 }
@@ -1313,4 +1340,4 @@ module.exports._testing = {
 // acción cuando alguien confirma desde el link del email -- la única
 // diferencia con el flujo normal es de dónde sale `solicitante`
 // (token firmado en el email en vez de la sesión logueada).
-module.exports._interno = { accionAprobarSolicitudVacaciones, accionRechazarSolicitudVacaciones, accionSolicitarCancelacionVacaciones, leerSolicitudVacacion, leerPersona };
+module.exports._interno = { accionAprobarSolicitudVacaciones, accionRechazarSolicitudVacaciones, accionSolicitarCancelacionVacaciones, accionCrearObjetivo, leerSolicitudVacacion, leerPersona };
