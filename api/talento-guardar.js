@@ -863,6 +863,34 @@ async function accionCrearSolicitudVacaciones(payload, solicitante) {
   return { status: 200, body: { ok: true, solicitud } };
 }
 
+// 01/09/2026 ("tambien deberia llegar un email a quien solicito las
+// vacaciones para avisar que estan aprobadas"): compartido por
+// accionAprobarSolicitudVacaciones y accionRechazarSolicitudVacaciones
+// -- antes cada una tenía su propio bloque fire-and-forget
+// (leerUsuarios().then(...).catch(()=>{})) para esto, con el mismo
+// riesgo real que ya se encontró y arregló en
+// accionCrearSolicitudVacaciones (un fallo de Resend se perdía en
+// silencio). Devuelve {enviado, motivo} para guardar en la solicitud
+// -- nunca tira excepción (enviarEmail tampoco), así que un problema
+// de Resend nunca puede hacer fallar la aprobación/rechazo en sí.
+async function notificarResolucionSolicitud(persona, actualizada) {
+  const notificacionEmail = { enviado: false, motivo: null };
+  try {
+    const usuarios = await leerUsuarios();
+    const propio = usuarios.find(u => u.personaId === persona.id);
+    if (!propio || !propio.email) {
+      notificacionEmail.motivo = 'La persona no tiene usuario con email configurado.';
+    } else {
+      const resultado = await enviarEmail(Object.assign({ to: propio.email }, emailSolicitudResuelta({ persona, solicitud: actualizada })));
+      notificacionEmail.enviado = !!(resultado && resultado.ok);
+      if (!notificacionEmail.enviado) notificacionEmail.motivo = (resultado && resultado.error) || 'Resend no aceptó el envío.';
+    }
+  } catch (e) {
+    notificacionEmail.motivo = String(e && e.message || e);
+  }
+  return notificacionEmail;
+}
+
 async function accionAprobarSolicitudVacaciones(payload, solicitante) {
   const { solicitudId, comentarioResolucion } = payload || {};
   if (!solicitudId) throw httpError(400, { ok: false, error: 'Falta el id de la solicitud.' });
@@ -909,12 +937,12 @@ async function accionAprobarSolicitudVacaciones(payload, solicitante) {
     fechaResolucion: new Date().toISOString(),
     comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
   });
+  // 01/09/2026 ("tambien deberia llegar un email a quien solicito...
+  // para avisar que estan aprobadas"): igual que con
+  // accionCrearSolicitudVacaciones, esto era fire-and-forget -- mismo
+  // riesgo real de que falle en silencio (ver notificarResolucionSolicitud).
+  actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada);
   await guardarSolicitudVacacion(actualizada);
-
-  leerUsuarios().then(usuarios => {
-    const propio = usuarios.find(u => u.personaId === persona.id);
-    if (propio && propio.email) return enviarEmail(Object.assign({ to: propio.email }, emailSolicitudResuelta({ persona, solicitud: actualizada })));
-  }).catch(() => {});
 
   return { status: 200, body: { ok: true, solicitud: actualizada, periodo } };
 }
@@ -943,12 +971,8 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
     fechaResolucion: new Date().toISOString(),
     comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
   });
+  actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada);
   await guardarSolicitudVacacion(actualizada);
-
-  leerUsuarios().then(usuarios => {
-    const propio = usuarios.find(u => u.personaId === persona.id);
-    if (propio && propio.email) return enviarEmail(Object.assign({ to: propio.email }, emailSolicitudResuelta({ persona, solicitud: actualizada })));
-  }).catch(() => {});
 
   return { status: 200, body: { ok: true, solicitud: actualizada } };
 }
