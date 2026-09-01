@@ -44,6 +44,18 @@ const REMITENTE = process.env.RESEND_EMAIL_DOMAIN
 const APP_BASE_URL = 'https://panel.icomsalud.com.ar';
 const LOGO_URL = APP_BASE_URL + '/email-assets/logo-icomsalud.jpg';
 
+// 01/09/2026 ("verde Icom para el Aprobar y un rojo mas rojo para
+// rechazar"): COLOR_APROBAR sale del propio logo (RGB muestreado
+// directo de email-assets/logo-icomsalud.jpg, el verde de "Icom" en
+// el logotipo -- #92C123) oscurecido a igual matiz hasta cumplir
+// contraste AA (4.5:1) con texto blanco -- el verde original del logo
+// es DEMASIADO claro para texto blanco encima (sólo 2.1:1, casi
+// ilegible). COLOR_RECHAZAR es un rojo más puro/vívido que el ladrillo
+// que se usa en el resto del panel (--danger:#c0422a tiene una base
+// naranja) -- pedido explícito de "un rojo mas rojo".
+const COLOR_APROBAR = '#628217';
+const COLOR_RECHAZAR = '#D50000';
+
 const { firmarAccionEmail } = require('./_talento-auth');
 
 async function enviarEmail({ to, subject, html }) {
@@ -137,7 +149,7 @@ function wrapEmailHtml(innerHtml) {
 
 function botonAccion({ href, color, texto }) {
   return '<a href="' + href + '" style="display:inline-block;background:' + color + ';color:#ffffff;text-decoration:none;'
-    + 'padding:12px 26px;border-radius:6px;font-weight:bold;font-size:14px;margin:4px 8px 4px 0">' + texto + '</a>';
+    + 'padding:12px 26px;border-radius:6px;font-weight:bold;font-size:14px;margin:4px 6px">' + texto + '</a>';
 }
 
 // `aprobador` es UN usuario de resolverAprobadores -- se llama una vez
@@ -155,9 +167,9 @@ function emailNuevaSolicitud({ persona, solicitud, aprobador }) {
     + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Días</td><td style="padding:2px 0;font-weight:bold">' + solicitud.diasSolicitados + '</td></tr>'
     + '</table>'
     + (solicitud.comentario ? '<p style="margin:0 0 18px;padding:10px 14px;background:#f8faf8;border-left:3px solid #cfd8d0;border-radius:4px;color:#3a453c">' + escapeHtml(solicitud.comentario) + '</p>' : '')
-    + '<div style="margin:22px 0 8px">'
-    + botonAccion({ href: urlAprobar, color: '#0F7A5A', texto: '✓ Aprobar' })
-    + botonAccion({ href: urlRechazar, color: '#c0422a', texto: '✕ Rechazar' })
+    + '<div style="margin:22px 0 8px;text-align:center">'
+    + botonAccion({ href: urlAprobar, color: COLOR_APROBAR, texto: '✓ Aprobar' })
+    + botonAccion({ href: urlRechazar, color: COLOR_RECHAZAR, texto: '✕ Rechazar' })
     + '</div>'
     + '<p style="margin:16px 0 0;font-size:12px;color:#8b968d">El botón te lleva a una pantalla de confirmación antes de ejecutar la acción -- también podés hacerlo desde Gestión de Talento (pestaña Vacaciones).</p>';
   return { subject: 'Nueva solicitud de vacaciones — ' + persona.nombre, html: wrapEmailHtml(cuerpo) };
@@ -165,7 +177,7 @@ function emailNuevaSolicitud({ persona, solicitud, aprobador }) {
 
 function emailSolicitudResuelta({ persona, solicitud }) {
   const aprobada = solicitud.estado === 'aprobada';
-  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:' + (aprobada ? '#0F7A5A' : '#c0422a') + '">Tu solicitud fue ' + (aprobada ? 'aprobada' : 'rechazada') + '</p>'
+  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:' + (aprobada ? COLOR_APROBAR : COLOR_RECHAZAR) + '">Tu solicitud fue ' + (aprobada ? 'aprobada' : 'rechazada') + '</p>'
     + '<p style="margin:0 0 4px">Vacaciones del <b>' + formatearFecha(solicitud.fechaInicio) + '</b> al <b>' + formatearFecha(solicitud.fechaFin) + '</b> (' + solicitud.diasSolicitados + ' días).</p>'
     + (solicitud.comentarioResolucion ? '<p style="margin:14px 0 0;padding:10px 14px;background:#f8faf8;border-left:3px solid #cfd8d0;border-radius:4px;color:#3a453c">' + escapeHtml(solicitud.comentarioResolucion) + '</p>' : '');
   return { subject: 'Tu solicitud de vacaciones fue ' + (aprobada ? 'aprobada' : 'rechazada'), html: wrapEmailHtml(cuerpo) };

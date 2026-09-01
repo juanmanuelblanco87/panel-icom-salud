@@ -29,6 +29,13 @@ const { verificarAccionEmail } = require('./_talento-auth');
 const { accionAprobarSolicitudVacaciones, accionRechazarSolicitudVacaciones, leerSolicitudVacacion, leerPersona } = require('./talento-guardar')._interno;
 
 const LOGO_URL = 'https://panel.icomsalud.com.ar/email-assets/logo-icomsalud.jpg';
+// 01/09/2026 ("verde Icom para el Aprobar y un rojo mas rojo para
+// rechazar"): mismos valores que _talento-email.js (ver ahí el
+// comentario de por qué estos hex puntuales) -- se repiten acá en vez
+// de importarse porque este archivo genera una página HTML standalone,
+// no un fragmento de email.
+const COLOR_APROBAR = '#628217';
+const COLOR_RECHAZAR = '#D50000';
 
 function pagina({ titulo, colorTitulo, cuerpoHtml }) {
   return '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -114,14 +121,17 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  const colorAccion = accion === 'aprobar' ? COLOR_APROBAR : COLOR_RECHAZAR;
   res.status(200).send(pagina({
     titulo: accion === 'aprobar' ? 'Confirmar aprobación' : 'Confirmar rechazo',
-    colorTitulo: accion === 'aprobar' ? '#0F7A5A' : '#c0422a',
+    colorTitulo: colorAccion,
     cuerpoHtml: detalle
       + '<p>Hola' + (nombre ? ' ' + nombre : '') + ', confirmá para ' + accionLabel + ' esta solicitud.</p>'
-      + '<button id="btnConfirmar" style="display:inline-block;background:' + (accion === 'aprobar' ? '#0F7A5A' : '#c0422a') + ';color:#ffffff;border:0;'
+      + '<div style="text-align:center">'
+      + '<button id="btnConfirmar" style="display:inline-block;background:' + colorAccion + ';color:#ffffff;border:0;'
       + 'padding:13px 28px;border-radius:6px;font-weight:bold;font-size:14px;cursor:pointer">' + (accion === 'aprobar' ? '✓ Confirmar aprobación' : '✕ Confirmar rechazo') + '</button>'
-      + '<p id="resultado" style="margin-top:16px;font-size:14px"></p>'
+      + '</div>'
+      + '<p id="resultado" style="margin-top:16px;font-size:14px;text-align:center"></p>'
       + '<script>'
       + 'document.getElementById("btnConfirmar").addEventListener("click", async function(){'
       + '  var btn = this, r = document.getElementById("resultado");'
@@ -129,9 +139,9 @@ module.exports = async function handler(req, res) {
       + '  try {'
       + '    var res = await fetch(location.href, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ token: new URLSearchParams(location.search).get("token") }) });'
       + '    var j = await res.json();'
-      + '    if (j.ok) { r.style.color = "#0F7A5A"; r.textContent = "✓ Listo, la solicitud quedó " + (j.estado === "aprobada" ? "aprobada" : "rechazada") + "."; btn.style.display = "none"; }'
-      + '    else { r.style.color = "#c0422a"; r.textContent = j.error || "No se pudo procesar."; btn.disabled = false; btn.style.opacity = "1"; }'
-      + '  } catch (e) { r.style.color = "#c0422a"; r.textContent = "No se pudo conectar. Probá de nuevo."; btn.disabled = false; btn.style.opacity = "1"; }'
+      + '    if (j.ok) { r.style.color = "' + COLOR_APROBAR + '"; r.textContent = "✓ Listo, la solicitud quedó " + (j.estado === "aprobada" ? "aprobada" : "rechazada") + "."; btn.style.display = "none"; }'
+      + '    else { r.style.color = "' + COLOR_RECHAZAR + '"; r.textContent = j.error || "No se pudo procesar."; btn.disabled = false; btn.style.opacity = "1"; }'
+      + '  } catch (e) { r.style.color = "' + COLOR_RECHAZAR + '"; r.textContent = "No se pudo conectar. Probá de nuevo."; btn.disabled = false; btn.style.opacity = "1"; }'
       + '});'
       + '</script>',
   }));
