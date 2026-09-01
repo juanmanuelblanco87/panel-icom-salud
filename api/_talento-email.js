@@ -17,7 +17,18 @@
 // red, se loguea y se sigue de largo. Una solicitud de vacaciones
 // nunca debería fallar por un problema de un servicio de terceros que
 // no tiene nada que ver con si el pedido es válido.
-const REMITENTE = 'ICOM Gestión de Talento <onboarding@resend.dev>';
+//
+// 01/09/2026 (retomando el envío de emails que había quedado pausado):
+// el dominio verificado en Resend es un SUBDOMINIO dedicado
+// (mail.icomsalud.com.ar, en vez de la raíz icomsalud.com.ar) a
+// propósito -- así los registros DNS de Resend (SPF/DKIM) nunca tocan
+// el correo real de la empresa, que usa casillas @icomsalud.com.ar.
+// RESEND_EMAIL_DOMAIN vive en las env vars de Vercel; si algún día
+// falta, cae al remitente de prueba de Resend (onboarding@resend.dev)
+// en vez de romper el envío.
+const REMITENTE = process.env.RESEND_EMAIL_DOMAIN
+  ? 'ICOM Gestión de Talento <notificaciones@' + process.env.RESEND_EMAIL_DOMAIN + '>'
+  : 'ICOM Gestión de Talento <onboarding@resend.dev>';
 
 async function enviarEmail({ to, subject, html }) {
   if (!process.env.RESEND_API_KEY) {
