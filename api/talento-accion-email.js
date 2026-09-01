@@ -56,7 +56,7 @@ function formatearFecha(iso) {
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-const ESTADO_LABEL = { pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada', cancelada: 'Cancelada' };
+const ESTADO_LABEL = { pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada', cancelada: 'Cancelada', cancelacion_pendiente: 'Cancelación pendiente' };
 
 module.exports = async function handler(req, res) {
   // req.query no siempre viene poblado según el runtime -- mismo
@@ -75,7 +75,6 @@ module.exports = async function handler(req, res) {
 
   const { solicitudId, accion, rol, personaId, nombre } = payload;
   const solicitante = { rol, personaId: personaId || null };
-  const accionLabel = accion === 'aprobar' ? 'aprobar' : 'rechazar';
 
   let solicitud, persona;
   try {
@@ -89,6 +88,23 @@ module.exports = async function handler(req, res) {
     res.status(404).send(pagina({ titulo: 'Solicitud no encontrada', colorTitulo: '#c0422a', cuerpoHtml: '<p>Esta solicitud ya no existe.</p>' }));
     return;
   }
+
+  // 01/09/2026 ("una vez aprobada el usuario puede solicitar cancelar
+  // las vacaciones"): el MISMO link/botón sirve para una solicitud
+  // nueva (estado 'pendiente') o para un pedido de cancelación (estado
+  // 'cancelacion_pendiente') -- acá sólo cambian los textos según cuál
+  // es, la ejecución real (POST) ya sabe resolver cada caso adentro de
+  // accionAprobarSolicitudVacaciones/accionRechazarSolicitudVacaciones.
+  const esCancelacion = solicitud.estado === 'cancelacion_pendiente';
+  const accionLabel = esCancelacion
+    ? (accion === 'aprobar' ? 'confirmar la cancelación de' : 'mantener aprobada')
+    : (accion === 'aprobar' ? 'aprobar' : 'rechazar');
+  const tituloConfirmar = esCancelacion
+    ? (accion === 'aprobar' ? 'Confirmar cancelación' : 'Mantener aprobada')
+    : (accion === 'aprobar' ? 'Confirmar aprobación' : 'Confirmar rechazo');
+  const textoBoton = esCancelacion
+    ? (accion === 'aprobar' ? '✓ Confirmar cancelación' : '✕ Mantener aprobada')
+    : (accion === 'aprobar' ? '✓ Confirmar aprobación' : '✕ Confirmar rechazo');
 
   const detalle = '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:10px 0 18px;font-size:14px">'
     + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Colaborador</td><td style="padding:2px 0;font-weight:bold">' + persona.nombre + '</td></tr>'
@@ -113,33 +129,37 @@ module.exports = async function handler(req, res) {
 
   // GET -- pantalla de confirmación, SIN ejecutar nada todavía (ver
   // comentario arriba del archivo, escaneo automático de links).
-  if (solicitud.estado !== 'pendiente') {
+  // 01/09/2026: cancelacion_pendiente es la OTRA vez que estos botones
+  // siguen siendo accionables (además de pendiente) -- cualquier otro
+  // estado ya está resuelto.
+  if (solicitud.estado !== 'pendiente' && solicitud.estado !== 'cancelacion_pendiente') {
     res.status(200).send(pagina({
       titulo: 'Esta solicitud ya fue resuelta', colorTitulo: '#5b6b5e',
-      cuerpoHtml: detalle + '<p>Ya no hace falta ' + accionLabel + 'la -- quedó en estado <b>' + (ESTADO_LABEL[solicitud.estado] || solicitud.estado) + '</b>.</p>',
+      cuerpoHtml: detalle + '<p>Ya no hace falta ' + accionLabel + ' -- quedó en estado <b>' + (ESTADO_LABEL[solicitud.estado] || solicitud.estado) + '</b>.</p>',
     }));
     return;
   }
 
   const colorAccion = accion === 'aprobar' ? COLOR_APROBAR : COLOR_RECHAZAR;
   res.status(200).send(pagina({
-    titulo: accion === 'aprobar' ? 'Confirmar aprobación' : 'Confirmar rechazo',
+    titulo: tituloConfirmar,
     colorTitulo: colorAccion,
     cuerpoHtml: detalle
       + '<p>Hola' + (nombre ? ' ' + nombre : '') + ', confirmá para ' + accionLabel + ' esta solicitud.</p>'
       + '<div style="text-align:center">'
       + '<button id="btnConfirmar" style="display:inline-block;background:' + colorAccion + ';color:#ffffff;border:0;'
-      + 'padding:13px 28px;border-radius:6px;font-weight:bold;font-size:14px;cursor:pointer">' + (accion === 'aprobar' ? '✓ Confirmar aprobación' : '✕ Confirmar rechazo') + '</button>'
+      + 'padding:13px 28px;border-radius:6px;font-weight:bold;font-size:14px;cursor:pointer">' + textoBoton + '</button>'
       + '</div>'
       + '<p id="resultado" style="margin-top:16px;font-size:14px;text-align:center"></p>'
       + '<script>'
+      + 'var ESTADO_LABEL_JS = ' + JSON.stringify(ESTADO_LABEL) + ';'
       + 'document.getElementById("btnConfirmar").addEventListener("click", async function(){'
       + '  var btn = this, r = document.getElementById("resultado");'
       + '  btn.disabled = true; btn.style.opacity = "0.6";'
       + '  try {'
       + '    var res = await fetch(location.href, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ token: new URLSearchParams(location.search).get("token") }) });'
       + '    var j = await res.json();'
-      + '    if (j.ok) { r.style.color = "' + COLOR_APROBAR + '"; r.textContent = "✓ Listo, la solicitud quedó " + (j.estado === "aprobada" ? "aprobada" : "rechazada") + "."; btn.style.display = "none"; }'
+      + '    if (j.ok) { r.style.color = "' + COLOR_APROBAR + '"; r.textContent = "✓ Listo, la solicitud quedó " + (ESTADO_LABEL_JS[j.estado] || j.estado).toLowerCase() + "."; btn.style.display = "none"; }'
       + '    else { r.style.color = "' + COLOR_RECHAZAR + '"; r.textContent = j.error || "No se pudo procesar."; btn.disabled = false; btn.style.opacity = "1"; }'
       + '  } catch (e) { r.style.color = "' + COLOR_RECHAZAR + '"; r.textContent = "No se pudo conectar. Probá de nuevo."; btn.disabled = false; btn.style.opacity = "1"; }'
       + '});'

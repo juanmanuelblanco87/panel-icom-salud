@@ -155,12 +155,24 @@ function botonAccion({ href, color, texto }) {
 // `aprobador` es UN usuario de resolverAprobadores -- se llama una vez
 // por cada destinatario (cada uno recibe SU PROPIO link firmado a su
 // nombre, ver accionCrearSolicitudVacaciones en talento-guardar.js).
-function emailNuevaSolicitud({ persona, solicitud, aprobador }) {
+//
+// 01/09/2026 ("una vez aprobada el usuario puede solicitar cancelar
+// las vacaciones"): `tipo` distingue una solicitud NUEVA de un PEDIDO
+// DE CANCELACIÓN de algo ya aprobado -- en los dos casos el aprobador
+// recibe los mismos 2 botones Aprobar/Rechazar, apuntando al MISMO
+// endpoint (talento-accion-email.js), que ya sabe resolver cada caso
+// según el estado real de la solicitud en ese momento (ver
+// accionAprobarSolicitudVacaciones/accionRechazarSolicitudVacaciones)
+// -- acá sólo cambia el texto para que el email tenga sentido.
+function emailNuevaSolicitud({ persona, solicitud, aprobador, tipo }) {
+  const esCancelacion = tipo === 'cancelacion';
   const base = { solicitudId: solicitud.id, rol: aprobador.rol, personaId: aprobador.personaId || null, nombre: aprobador.nombre };
   const urlAprobar = APP_BASE_URL + '/api/talento-accion-email?token=' + firmarAccionEmail(Object.assign({}, base, { accion: 'aprobar' }));
   const urlRechazar = APP_BASE_URL + '/api/talento-accion-email?token=' + firmarAccionEmail(Object.assign({}, base, { accion: 'rechazar' }));
-  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:#14305a">Nueva solicitud de vacaciones</p>'
-    + '<p style="margin:0 0 4px"><b>' + escapeHtml(persona.nombre) + '</b> pidió vacaciones:</p>'
+  const titulo = esCancelacion ? 'Pedido de cancelación de vacaciones' : 'Nueva solicitud de vacaciones';
+  const verbo = esCancelacion ? 'pidió CANCELAR sus vacaciones ya aprobadas:' : 'pidió vacaciones:';
+  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:#14305a">' + titulo + '</p>'
+    + '<p style="margin:0 0 4px"><b>' + escapeHtml(persona.nombre) + '</b> ' + verbo + '</p>'
     + '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:10px 0 18px;font-size:14px">'
     + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Desde</td><td style="padding:2px 0;font-weight:bold">' + formatearFecha(solicitud.fechaInicio) + '</td></tr>'
     + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Hasta</td><td style="padding:2px 0;font-weight:bold">' + formatearFecha(solicitud.fechaFin) + '</td></tr>'
@@ -168,19 +180,31 @@ function emailNuevaSolicitud({ persona, solicitud, aprobador }) {
     + '</table>'
     + (solicitud.comentario ? '<p style="margin:0 0 18px;padding:10px 14px;background:#f8faf8;border-left:3px solid #cfd8d0;border-radius:4px;color:#3a453c">' + escapeHtml(solicitud.comentario) + '</p>' : '')
     + '<div style="margin:22px 0 8px;text-align:center">'
-    + botonAccion({ href: urlAprobar, color: COLOR_APROBAR, texto: '✓ Aprobar' })
-    + botonAccion({ href: urlRechazar, color: COLOR_RECHAZAR, texto: '✕ Rechazar' })
+    + botonAccion({ href: urlAprobar, color: COLOR_APROBAR, texto: esCancelacion ? '✓ Confirmar cancelación' : '✓ Aprobar' })
+    + botonAccion({ href: urlRechazar, color: COLOR_RECHAZAR, texto: esCancelacion ? '✕ Mantener aprobada' : '✕ Rechazar' })
     + '</div>'
     + '<p style="margin:16px 0 0;font-size:12px;color:#8b968d">El botón te lleva a una pantalla de confirmación antes de ejecutar la acción -- también podés hacerlo desde Gestión de Talento (pestaña Vacaciones).</p>';
-  return { subject: 'Nueva solicitud de vacaciones — ' + persona.nombre, html: wrapEmailHtml(cuerpo) };
+  return { subject: titulo + ' — ' + persona.nombre, html: wrapEmailHtml(cuerpo) };
 }
 
-function emailSolicitudResuelta({ persona, solicitud }) {
-  const aprobada = solicitud.estado === 'aprobada';
-  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:' + (aprobada ? COLOR_APROBAR : COLOR_RECHAZAR) + '">Tu solicitud fue ' + (aprobada ? 'aprobada' : 'rechazada') + '</p>'
+// 01/09/2026 ("una vez aprobada el usuario puede solicitar cancelar"):
+// `tipo` sale explícito de quien llama (notificarResolucionSolicitud
+// en talento-guardar.js) en vez de inferirse de solicitud.estado --
+// hace falta, porque "mantener aprobada" (se rechazó el pedido de
+// cancelación) también termina en estado 'aprobada', igual que una
+// aprobación normal, pero el mensaje correcto es distinto.
+const TEXTOS_RESOLUCION = {
+  aprobada: { titulo: 'Tu solicitud fue aprobada', color: COLOR_APROBAR },
+  rechazada: { titulo: 'Tu solicitud fue rechazada', color: COLOR_RECHAZAR },
+  cancelada: { titulo: 'Tus vacaciones fueron canceladas', color: COLOR_RECHAZAR },
+  cancelacion_rechazada: { titulo: 'Tu pedido de cancelación fue rechazado -- tus vacaciones siguen aprobadas', color: COLOR_APROBAR },
+};
+function emailSolicitudResuelta({ persona, solicitud, tipo }) {
+  const info = TEXTOS_RESOLUCION[tipo] || TEXTOS_RESOLUCION[solicitud.estado] || TEXTOS_RESOLUCION.aprobada;
+  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:' + info.color + '">' + info.titulo + '</p>'
     + '<p style="margin:0 0 4px">Vacaciones del <b>' + formatearFecha(solicitud.fechaInicio) + '</b> al <b>' + formatearFecha(solicitud.fechaFin) + '</b> (' + solicitud.diasSolicitados + ' días).</p>'
     + (solicitud.comentarioResolucion ? '<p style="margin:14px 0 0;padding:10px 14px;background:#f8faf8;border-left:3px solid #cfd8d0;border-radius:4px;color:#3a453c">' + escapeHtml(solicitud.comentarioResolucion) + '</p>' : '');
-  return { subject: 'Tu solicitud de vacaciones fue ' + (aprobada ? 'aprobada' : 'rechazada'), html: wrapEmailHtml(cuerpo) };
+  return { subject: info.titulo, html: wrapEmailHtml(cuerpo) };
 }
 
 // 14/08/2026 ("un contador de días que faltan para el fin del

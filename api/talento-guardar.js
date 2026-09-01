@@ -873,7 +873,7 @@ async function accionCrearSolicitudVacaciones(payload, solicitante) {
 // silencio). Devuelve {enviado, motivo} para guardar en la solicitud
 // -- nunca tira excepción (enviarEmail tampoco), así que un problema
 // de Resend nunca puede hacer fallar la aprobación/rechazo en sí.
-async function notificarResolucionSolicitud(persona, actualizada) {
+async function notificarResolucionSolicitud(persona, actualizada, tipo) {
   const notificacionEmail = { enviado: false, motivo: null };
   try {
     const usuarios = await leerUsuarios();
@@ -881,7 +881,7 @@ async function notificarResolucionSolicitud(persona, actualizada) {
     if (!propio || !propio.email) {
       notificacionEmail.motivo = 'La persona no tiene usuario con email configurado.';
     } else {
-      const resultado = await enviarEmail(Object.assign({ to: propio.email }, emailSolicitudResuelta({ persona, solicitud: actualizada })));
+      const resultado = await enviarEmail(Object.assign({ to: propio.email }, emailSolicitudResuelta({ persona, solicitud: actualizada, tipo })));
       notificacionEmail.enviado = !!(resultado && resultado.ok);
       if (!notificacionEmail.enviado) notificacionEmail.motivo = (resultado && resultado.error) || 'Resend no aceptó el envío.';
     }
@@ -889,6 +889,55 @@ async function notificarResolucionSolicitud(persona, actualizada) {
     notificacionEmail.motivo = String(e && e.message || e);
   }
   return notificacionEmail;
+}
+
+// 01/09/2026 ("una vez aprobada el usuario puede solicitar cancelar
+// las vacaciones"): a diferencia de accionCancelarSolicitudVacaciones
+// (te retractás de algo TODAVÍA pendiente, nada consumido, nadie más
+// se entera), cancelar algo YA APROBADO afecta un período real -- ya
+// consumió saldo, puede estar coordinado con el equipo -- así que
+// pasa por el MISMO circuito de aprobación que la solicitud original,
+// no se borra solo. Reusa el estado 'cancelacion_pendiente' -- ver
+// accionAprobarSolicitudVacaciones/accionRechazarSolicitudVacaciones
+// más abajo, que ya saben resolverlo (mismos botones Aprobar/
+// Rechazar, mismo endpoint, sólo cambia qué significan según el
+// estado en el que estaba la solicitud).
+async function accionSolicitarCancelacionVacaciones(payload, solicitante) {
+  const { solicitudId, comentario } = payload || {};
+  if (!solicitudId) throw httpError(400, { ok: false, error: 'Falta el id de la solicitud.' });
+  const solicitud = await leerSolicitudVacacion(solicitudId);
+  if (!solicitud) throw httpError(404, { ok: false, error: 'La solicitud no existe.' });
+  if (solicitud.personaId !== solicitante.personaId) {
+    throw httpError(403, { ok: false, error: 'Sólo podés pedir cancelar tus propias vacaciones.' });
+  }
+  if (solicitud.estado === 'cancelacion_pendiente') {
+    return { status: 200, body: { ok: true, solicitud } };
+  }
+  if (solicitud.estado !== 'aprobada') {
+    throw httpError(409, { ok: false, error: 'Sólo se puede pedir cancelar una solicitud aprobada.' });
+  }
+
+  const persona = await leerPersona(solicitud.personaId);
+  const actualizada = Object.assign({}, solicitud, {
+    estado: 'cancelacion_pendiente',
+    comentarioCancelacion: comentario ? String(comentario).trim() : '',
+    notificacionEmail: { enviado: false, motivo: null },
+  });
+  try {
+    const usuarios = await leerUsuarios();
+    const aprobadores = resolverAprobadores(persona, usuarios);
+    if (!aprobadores.length) {
+      actualizada.notificacionEmail.motivo = 'Sin aprobadores con email configurado.';
+    } else {
+      const resultados = await Promise.all(aprobadores.map(aprobador => enviarEmail(Object.assign({ to: aprobador.email }, emailNuevaSolicitud({ persona, solicitud: actualizada, aprobador, tipo: 'cancelacion' })))));
+      actualizada.notificacionEmail.enviado = resultados.some(r => r && r.ok);
+      if (!actualizada.notificacionEmail.enviado) actualizada.notificacionEmail.motivo = (resultados.find(r => r && r.error) || {}).error || 'Resend no aceptó el envío.';
+    }
+  } catch (e) {
+    actualizada.notificacionEmail.motivo = String(e && e.message || e);
+  }
+  await guardarSolicitudVacacion(actualizada);
+  return { status: 200, body: { ok: true, solicitud: actualizada } };
 }
 
 async function accionAprobarSolicitudVacaciones(payload, solicitante) {
@@ -905,10 +954,33 @@ async function accionAprobarSolicitudVacaciones(payload, solicitante) {
   if (solicitud.estado === 'rechazada') {
     throw httpError(409, { ok: false, error: 'Esta solicitud ya fue rechazada -- no se puede aprobar. Si corresponde, pedile a la persona que cargue una solicitud nueva.' });
   }
+  if (solicitud.estado === 'cancelada') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue cancelada.' });
+  }
 
   const persona = await leerPersona(solicitud.personaId);
   if (!esAprobadorDeVacaciones(solicitante, persona)) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para aprobar esta solicitud.' });
+  }
+
+  // 01/09/2026 ("una vez aprobada el usuario puede solicitar cancelar
+  // las vacaciones"): "Aprobar" sobre una solicitud en
+  // cancelacion_pendiente significa CONFIRMAR la cancelación -- borra
+  // el período ya cargado (devuelve esos días al saldo) en vez de
+  // crear uno nuevo. Mismo botón/acción que la aprobación normal a
+  // propósito -- ver emailNuevaSolicitud(tipo:'cancelacion') y
+  // accionSolicitarCancelacionVacaciones más arriba.
+  if (solicitud.estado === 'cancelacion_pendiente') {
+    if (solicitud.periodoCreadoId) await eliminarVacacionPeriodo(solicitud.periodoCreadoId);
+    const actualizada = Object.assign({}, solicitud, {
+      estado: 'cancelada', periodoCreadoId: null,
+      resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+      fechaResolucion: new Date().toISOString(),
+      comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
+    });
+    actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada, 'cancelada');
+    await guardarSolicitudVacacion(actualizada);
+    return { status: 200, body: { ok: true, solicitud: actualizada } };
   }
 
   // Se recalcula el saldo con datos frescos -- pudo haber cambiado desde
@@ -941,7 +1013,7 @@ async function accionAprobarSolicitudVacaciones(payload, solicitante) {
   // para avisar que estan aprobadas"): igual que con
   // accionCrearSolicitudVacaciones, esto era fire-and-forget -- mismo
   // riesgo real de que falle en silencio (ver notificarResolucionSolicitud).
-  actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada);
+  actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada, 'aprobada');
   await guardarSolicitudVacacion(actualizada);
 
   return { status: 200, body: { ok: true, solicitud: actualizada, periodo } };
@@ -959,10 +1031,28 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
   if (solicitud.estado === 'aprobada') {
     throw httpError(409, { ok: false, error: 'Esta solicitud ya fue aprobada -- no se puede rechazar. Si hace falta deshacerla, eliminá el período ya cargado desde la pestaña Vacaciones.' });
   }
+  if (solicitud.estado === 'cancelada') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue cancelada.' });
+  }
 
   const persona = await leerPersona(solicitud.personaId);
   if (!esAprobadorDeVacaciones(solicitante, persona)) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para rechazar esta solicitud.' });
+  }
+
+  // 01/09/2026: "Rechazar" sobre cancelacion_pendiente = MANTENER la
+  // aprobación original -- el período ya cargado no se toca, sólo
+  // vuelve a 'aprobada' (se descarta el pedido de cancelación).
+  if (solicitud.estado === 'cancelacion_pendiente') {
+    const actualizada = Object.assign({}, solicitud, {
+      estado: 'aprobada',
+      resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+      fechaResolucion: new Date().toISOString(),
+      comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
+    });
+    actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada, 'cancelacion_rechazada');
+    await guardarSolicitudVacacion(actualizada);
+    return { status: 200, body: { ok: true, solicitud: actualizada } };
   }
 
   const actualizada = Object.assign({}, solicitud, {
@@ -971,7 +1061,7 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
     fechaResolucion: new Date().toISOString(),
     comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
   });
-  actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada);
+  actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada, 'rechazada');
   await guardarSolicitudVacacion(actualizada);
 
   return { status: 200, body: { ok: true, solicitud: actualizada } };
@@ -1158,6 +1248,7 @@ const ACCIONES = {
   guardarCompetencia: accionGuardarCompetencia,
   guardarVacacionPeriodo: accionGuardarVacacionPeriodo,
   crearSolicitudVacaciones: accionCrearSolicitudVacaciones,
+  solicitarCancelacionVacaciones: accionSolicitarCancelacionVacaciones,
   aprobarSolicitudVacaciones: accionAprobarSolicitudVacaciones,
   rechazarSolicitudVacaciones: accionRechazarSolicitudVacaciones,
   cancelarSolicitudVacaciones: accionCancelarSolicitudVacaciones,
@@ -1222,4 +1313,4 @@ module.exports._testing = {
 // acción cuando alguien confirma desde el link del email -- la única
 // diferencia con el flujo normal es de dónde sale `solicitante`
 // (token firmado en el email en vez de la sesión logueada).
-module.exports._interno = { accionAprobarSolicitudVacaciones, accionRechazarSolicitudVacaciones, leerSolicitudVacacion, leerPersona };
+module.exports._interno = { accionAprobarSolicitudVacaciones, accionRechazarSolicitudVacaciones, accionSolicitarCancelacionVacaciones, leerSolicitudVacacion, leerPersona };
