@@ -41,6 +41,9 @@
     },
     "api/alquileres-scrape.js": {
       "maxDuration": 75
+    },
+    "api/alquileres-ai-precio.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

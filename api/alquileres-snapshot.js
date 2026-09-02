@@ -139,12 +139,20 @@ module.exports = async function handler(req, res) {
 
       const historialAsc = (snapshotsPorProducto.get(p.id) || []).slice().sort((a, b) => a.mes.localeCompare(b.mes));
       const mesesSinActualizar = mesesDesdeUltimoCambioDePrecio(historialAsc, precioVigenteOppen, mes);
+      // 01/09/2026 (selector de Período): usosMaximos/precioProductoNuevo
+      // describen el PRODUCTO físico, no el alquiler puntual -- viven en
+      // la config de la fila CANÓNICA del producto (productoBaseId),
+      // igual que en alquileres-data.js (ver configBase ahí). Para la
+      // fila canónica, `p.id === p.productoBaseId`, mismo registro que
+      // antes -- comportamiento sin cambios para lo que ya existía.
+      const configBase = configPorId.get(p.productoBaseId || p.id) || {};
       const configEfectiva = {
-        usosMaximos: config.usosMaximos ?? null,
-        precioProductoNuevo: config.precioProductoNuevo ?? null,
+        usosMaximos: configBase.usosMaximos ?? null,
+        precioProductoNuevo: configBase.precioProductoNuevo ?? null,
         overrideManual: config.overrideManual ?? null,
       };
-      const sugerencia = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, globals);
+      const periodoDiasCanonico = (catalogo.find(c => c.id === (p.productoBaseId || p.id)) || {}).periodoDias || 30;
+      const sugerencia = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, p.periodoDias || 30, periodoDiasCanonico, globals);
 
       await guardarAlquilerSnapshot({
         id: `${p.id}_${mes}`,

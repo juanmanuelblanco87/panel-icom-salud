@@ -53,6 +53,19 @@ async function calcularProductos() {
 
   const productos = catalogo.map(p => {
     const config = configPorId.get(p.id) || {};
+    // 01/09/2026 ("selector de Periodos... los productos son los mismos,
+    // solo cambia el periodo"): cada fila del catálogo pertenece a un
+    // "producto base" (p.productoBaseId -- para la fila canónica es
+    // ella misma). Los campos que describen el PRODUCTO FÍSICO, no el
+    // alquiler puntual (precioProductoNuevo/link/imagen/usosMaximos/
+    // multiplicadorDeposito) se resuelven SIEMPRE desde la config de esa
+    // fila canónica -- evita que 4 filas del mismo producto queden
+    // desincronizadas si alguien edita "Precio producto nuevo" en la
+    // fila equivocada. Para la fila canónica, configBase === config
+    // (mismo registro) -- cero cambio de comportamiento para lo que ya
+    // existía antes de esto.
+    const productoBaseId = p.productoBaseId || p.id;
+    const configBase = productoBaseId === p.id ? config : (configPorId.get(productoBaseId) || {});
     const skuOppen = limpiarSku(config.skuOppen != null ? config.skuOppen : p.skuOppen);
 
     const historialAsc = (snapshotsPorProducto.get(p.id) || []).slice().sort((a, b) => a.mes.localeCompare(b.mes));
@@ -75,18 +88,27 @@ async function calcularProductos() {
     // null, sin necesidad de una rama aparte acá).
     const mesesSinActualizar = ultimoSnapshot ? mesesDesdeUltimoCambioDePrecio(historialAsc, precioVigenteOppen, mes) : null;
 
+    // usosMaximos/multiplicadorDeposito/precioProductoNuevo/link/imagen
+    // salen de configBase (producto físico, compartido entre las 4
+    // filas del mismo producto) -- precioMercado/linkMercado/
+    // overrideManual siguen siendo genuinamente por período (la
+    // competencia cobra distinto por día que por mes, y el override
+    // manual es una decisión puntual de ESA fila), salen de `config`
+    // (la propia fila).
     const configEfectiva = {
-      usosMaximos: config.usosMaximos ?? null,
-      multiplicadorDeposito: config.multiplicadorDeposito ?? 1.5,
-      precioProductoNuevo: config.precioProductoNuevo ?? null,
-      linkProductoNuevo: config.linkProductoNuevo ?? null,
-      imagenProductoNuevo: config.imagenProductoNuevo ?? null,
+      usosMaximos: configBase.usosMaximos ?? null,
+      multiplicadorDeposito: configBase.multiplicadorDeposito ?? 1.5,
+      precioProductoNuevo: configBase.precioProductoNuevo ?? null,
+      linkProductoNuevo: configBase.linkProductoNuevo ?? null,
+      imagenProductoNuevo: configBase.imagenProductoNuevo ?? null,
       precioMercado: config.precioMercado ?? null,
       linkMercado: config.linkMercado ?? null,
       overrideManual: config.overrideManual ?? null,
     };
 
-    const { sugerido, metodo, costoPorUso, margenPct, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho } = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, globals);
+    const filaCanonica = catalogo.find(c => c.id === productoBaseId);
+    const periodoDiasCanonico = (filaCanonica && filaCanonica.periodoDias) || 30;
+    const { sugerido, metodo, costoPorUso, margenPct, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho } = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, p.periodoDias || 30, periodoDiasCanonico, globals);
     // 27/08/2026 ("los depositos el redondeo siempre termina en 000"):
     // antes redondeaba al entero más cercano sin más -- como `sugerido`
     // ya viene con el patrón psicológico "terminado en 99" (ver round()
@@ -104,7 +126,21 @@ async function calcularProductos() {
       nombre: p.nombre,
       categoria: p.categoria || 'Otros',
       periodo: p.periodo,
+      periodoDias: p.periodoDias || 30,
+      // 01/09/2026 (selector de Período): productoBaseId agrupa las
+      // filas de un mismo producto; esCanonica le dice al cliente en
+      // qué fila mostrar editables los campos compartidos
+      // (precioProductoNuevo/link/imagen/usosMaximos/
+      // multiplicadorDeposito) -- en las demás van de sólo lectura.
+      // skuSugerido: código derivado del nomenclador (sku base=30D +
+      // sufijo -01/-07/-15), sólo informativo, para que Ortopedia sepa
+      // qué código dar de alta en Oppen -- nunca se trata como
+      // confirmado (ver skuConfirmado, que sigue dependiendo 100% de
+      // que haya un skuOppen real cargado).
+      productoBaseId,
+      esCanonica: productoBaseId === p.id,
       skuOppen,
+      skuSugerido: p.skuSugerido || null,
       skuConfirmado: !!skuOppen,
       skuVerificado: !!p.skuVerificado,
       precioVigenteOppen,

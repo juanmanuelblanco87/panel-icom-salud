@@ -119,15 +119,30 @@ const TOPE_PCT_DEL_NUEVO = 0.35; // "que el costo del alquiler no supere el 35% 
 // snapshot, sin que cambie nada del negocio.
 const MESES_MIN_DEFAULT = 3;
 
+// 01/09/2026 ("selector de Periodos... los productos son los mismos,
+// solo cambia el periodo" + "arma logicas para re-calcular el costeo y
+// el precio de alquiler/deposito en funcion del periodo"): calcularSugerencia
+// pasa a recibir el período que se está cotizando (periodoDias) y el
+// período del que salió `config.usosMaximos` (periodoDiasCanonico, el de
+// la fila "base" del producto -- ver configBase en alquileres-data.js).
+// `usosMaximos` SIGUE significando exactamente lo mismo que antes
+// ("cuántos alquileres a SU período aguanta el producto", cargado en la
+// fila canónica) -- acá adentro se reinterpreta en días de vida útil
+// totales, sin pedirle a nadie que vuelva a cargar nada.
+//
 // config: { usosMaximos, precioProductoNuevo, precioMercado, overrideManual }
 // precioVigenteOppen: number|null (derivado de Oppen, ver alquileres-data.js)
 // mesesSinActualizar: number|null (ver mesesDesdeUltimoCambioDePrecio)
+// periodoDias: 1|7|15|30 -- duración del período que se está cotizando (fila actual)
+// periodoDiasCanonico: 1|7|15|30 -- duración del período de la fila base (de donde sale usosMaximos)
 // g: { monthlyPct, redondeo, gmObjetivoPct, costoAdministrativo }
-function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
+function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, periodoDias, periodoDiasCanonico, g) {
   const redondeo = (g && g.redondeo) || 100;
   const gmObjetivoPct = (g && g.gmObjetivoPct != null) ? g.gmObjetivoPct : GM_DEFAULT_PCT;
   const costoAdministrativo = (g && g.costoAdministrativo != null) ? g.costoAdministrativo : COSTO_ADMINISTRATIVO_DEFAULT;
   const mesesMinInflacion = (g && g.mesesMinInflacion != null) ? g.mesesMinInflacion : MESES_MIN_DEFAULT;
+  const diasCotizados = periodoDias || 30;
+  const diasCanonico = periodoDiasCanonico || 30;
 
   // Juan Manuel, 25/08/2026 ("Agrega el costo y margen al lado de
   // periodo"): costoPorUso se calcula SIEMPRE (aunque el método
@@ -146,8 +161,21 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
   // administración). Sólo se suma cuando YA hay un costo de producto
   // (usosMaximos + precioProductoNuevo cargados) -- "se suma AL costo
   // de producto", no reemplaza la necesidad de esos datos.
-  const costoProductoPorUso = (config && config.usosMaximos > 0 && config.precioProductoNuevo > 0)
-    ? (config.precioProductoNuevo * FRACCION_COSTO_DEL_NUEVO) / config.usosMaximos
+  //
+  // 01/09/2026 (selector de Período): `vidaUtilDias` reinterpreta
+  // usosMaximos (cargado a SU período canónico, ej. 20 alquileres
+  // mensuales) en días totales de vida útil del producto físico (20*30 =
+  // 600 días) -- de ahí sale un costo POR DÍA, que se multiplica por la
+  // duración del período que se está cotizando. costoAdministrativo NO
+  // se escala por período a propósito: es un costo fijo por operación
+  // de entrega/retiro/limpieza, se paga igual si el alquiler dura 1 día
+  // o 30 -- efecto buscado (no un bug): en un alquiler diario ese fijo
+  // pesa mucho más proporcionalmente, así que el piso sale más caro por
+  // día que en uno mensual, igual que en cualquier mercado real de
+  // alquileres (tarifa diaria > prorrateo de la mensual).
+  const vidaUtilDias = (config && config.usosMaximos > 0) ? config.usosMaximos * diasCanonico : null;
+  const costoProductoPorUso = (vidaUtilDias != null && config.precioProductoNuevo > 0)
+    ? (config.precioProductoNuevo * FRACCION_COSTO_DEL_NUEVO / vidaUtilDias) * diasCotizados
     : null;
   const costoPorUso = costoProductoPorUso != null ? costoProductoPorUso + costoAdministrativo : null;
   function conMargen(resultado) {
@@ -192,8 +220,12 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, g) {
   const techoCompetencia = (config && config.precioMercado > 0)
     ? round(config.precioMercado * (1 - DESCUENTO_VS_COMPETENCIA), redondeo)
     : null;
+  // 01/09/2026: TOPE_PCT_DEL_NUEVO ("no superar el 35% del producto
+  // nuevo") estaba calibrado pensando en un mes -- se prorratea a la
+  // duración del período que se está cotizando (ej. a 7 días, el tope
+  // pasa a ser 35% * 7/30 del precio del producto nuevo).
   const techoReposicion = (config && config.precioProductoNuevo > 0)
-    ? round(config.precioProductoNuevo * TOPE_PCT_DEL_NUEVO, redondeo)
+    ? round(config.precioProductoNuevo * TOPE_PCT_DEL_NUEVO * (diasCotizados / 30), redondeo)
     : null;
   const techos = [techoCompetencia, techoReposicion].filter(v => v != null);
   const techo = techos.length ? Math.min(...techos) : null;
