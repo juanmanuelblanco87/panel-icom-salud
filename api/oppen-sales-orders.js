@@ -431,7 +431,10 @@ module.exports = async function handler(req, res) {
   try {
     // 02/09/2026 (ver api/_oppen-lock.js): sólo 1 pedido a oppen.io a la
     // vez en todo el deploy -- espera acá su turno antes de tocar nada.
-    const lockToken = await adquirirLockOppen(LOCK_MAX_WAIT_MS);
+    // ?prioridad=baja cede el turno apenas hay una consulta directa del
+    // usuario esperando -- ver adquirirLockOppen.
+    const prioridadReq = new URL(req.url, 'http://x').searchParams.get('prioridad');
+    const lockToken = await adquirirLockOppen(LOCK_MAX_WAIT_MS, prioridadReq);
     if (!lockToken) {
       res.status(503).json({ ok: false, error: 'oppen.io está recibiendo muchos pedidos a la vez -- probá de nuevo en unos segundos.' });
       return;
