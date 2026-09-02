@@ -3679,16 +3679,32 @@ function erpBuildIcomPieChartHtml(totalsByLabel, opts){
   const order = opts.order !== undefined ? opts.order : ICOM_PIE_ORDER;
   const colorFor = opts.colorFor || ((label)=> ICOM_PIE_COLORS[label] || '#9aa0a6');
   const iconFor = opts.iconFor || erpCanalIcon;
-  const rows = Object.entries(totalsByLabel).filter(([,totalNeto])=>totalNeto > 0);
-  if(!rows.length) return null;
-  const total = rows.reduce((s,[,totalNeto])=>s + totalNeto, 0);
-  // Orden fijo (Minorista, Movilidad, Cirugía Estética, Cirugía General) --
+  const allRows = Object.entries(totalsByLabel);
+  if(!allRows.length) return null;
+  // 02/09/2026 ("cirugia estetica no esta restando en el grafico de
+  // torta... ya que tuvo devoluciones" -- "deberia estar restando"):
+  // un total NEGATIVO (más devoluciones que ventas del día en esa
+  // unidad) no se puede dibujar como porción de torta -- pero SIGUE
+  // restando del NETO real (mismo criterio que ya usa el KPI "Total
+  // Neto" de arriba, ver erpRenderKpis/erpRemapDataForIcomView). Antes
+  // esta función descartaba cualquier unidad con total <= 0 tanto de
+  // la torta COMO del total mostrado abajo -- ese total terminaba
+  // MAYOR que el neto real, exactamente por la devolución que debería
+  // haber restado (nunca se notaba porque hasta ahora ninguna unidad
+  // había cerrado el día en negativo). `rows`/`total` (dibujo, sólo
+  // unidades positivas) quedan separados de `allRows`/`totalNeto`
+  // (leyenda + "Total:" de abajo, TODAS las unidades, coincide con el
+  // KPI). Orden fijo (Minorista, Movilidad, Cirugía Estética, Cirugía General) --
   // nunca reordenado por valor, así el color siempre identifica a la misma
   // unidad sin importar cuál sea más grande hoy. Cualquier canal fuera de
   // ICOM_PIE_ORDER (no debería pasar tras el remap, pero por las dudas) se
   // agrega al final con gris neutro. Si opts.order es null (Dashboard nuevo,
   // dimensiones sin un orden fijo posible -- Institución/Visitador varían),
   // se ordena directo por valor descendente.
+  const rows = allRows.filter(([,totalNeto])=>totalNeto > 0);
+  if(!rows.length) return null;
+  const total = rows.reduce((s,[,totalNeto])=>s + totalNeto, 0); // sólo define el tamaño de las porciones
+  const totalNetoReal = allRows.reduce((s,[,totalNeto])=>s + totalNeto, 0); // TODAS las unidades -- el que se muestra abajo, coincide con el KPI
   let ordered;
   if(order){
     ordered = order.map(label => rows.find(([c])=>c === label)).filter(Boolean);
@@ -3775,13 +3791,34 @@ function erpBuildIcomPieChartHtml(totalsByLabel, opts){
   // de la leyenda 200px->170px) -- esto le da margen de sobra: probado sin
   // saltar de línea hasta con la card en ~1000px de ancho de ventana (antes
   // rompía ya en ~1100px), y sigue siendo perfectamente legible.
-  const legendCells = slices.map(s=>
-      '<span style="width:12px;height:12px;border-radius:3px;background:'+s.color+'"></span>'
-    + '<span style="font-size:12px;text-align:center">'+iconFor(s.canal)+'</span>'
-    + '<span style="font-size:11px;color:#333">'+s.canal+'</span>'
-    + '<span style="font-size:11px;font-weight:700;color:#1a3d70;text-align:right;white-space:nowrap">'+erpFmtMoney(s.totalNeto)+'</span>'
-    + '<span style="font-size:10px;color:#888;text-align:right">'+Math.round(s.frac*100)+'%</span>'
-  ).join('');
+  // 02/09/2026 ("el grafico de torta lo debe mostrar sin participacion
+  // dentro del dibujo pero con datos negativos en el cuadro de la
+  // derecha, no?" -- confirmado, exactamente ese criterio): la leyenda
+  // pasa a listar TODAS las unidades (allRows), no sólo las que tienen
+  // porción dibujada (slices) -- una unidad sin porción (total <= 0)
+  // se muestra igual, con su monto real (negativo si tuvo más
+  // devoluciones que ventas), en rojo, con un swatch hueco (sin
+  // color de porción, porque no participa del dibujo) y sin %% (no
+  // participa de ningún reparto).
+  let orderedAll;
+  if(order){
+    orderedAll = order.map(label => allRows.find(([c])=>c === label)).filter(Boolean);
+    allRows.forEach(r=>{ if(!order.includes(r[0])) orderedAll.push(r); });
+  }else{
+    orderedAll = allRows.slice().sort((a,b)=>b[1]-a[1]);
+  }
+  const legendCells = orderedAll.map(([canal, totalNeto])=>{
+    const slice = slices.find(x=>x.canal===canal);
+    const noParticipa = !slice;
+    const montoStr = (totalNeto<0?'-':'') + erpFmtMoney(Math.abs(totalNeto));
+    return (noParticipa
+        ? '<span style="width:12px;height:12px;border-radius:3px;border:1px dashed var(--danger);box-sizing:border-box"></span>'
+        : '<span style="width:12px;height:12px;border-radius:3px;background:'+slice.color+'"></span>')
+      + '<span style="font-size:12px;text-align:center">'+iconFor(canal)+'</span>'
+      + '<span style="font-size:11px;color:'+(noParticipa?'var(--danger)':'#333')+'">'+canal+'</span>'
+      + '<span style="font-size:11px;font-weight:700;color:'+(noParticipa?'var(--danger)':'#1a3d70')+';text-align:right;white-space:nowrap">'+montoStr+'</span>'
+      + '<span style="font-size:10px;color:#888;text-align:right">'+(noParticipa?'—':Math.round(slice.frac*100)+'%')+'</span>';
+  }).join('');
   const legend = '<div style="display:grid;grid-template-columns:12px 20px 1fr auto auto;column-gap:7px;row-gap:8px;align-items:center">'
     + legendCells + '</div>';
 
@@ -3792,8 +3829,12 @@ function erpBuildIcomPieChartHtml(totalsByLabel, opts){
   // 29/07/2026: "los totales de abajo deberian estar centrados en su
   // cuadro" -- se agrega text-align:center (antes quedaba pegado a la
   // izquierda).
+  // 02/09/2026: usa `totalNetoReal` (TODAS las unidades, incluidas las
+  // negativas) -- antes usaba `total` (sólo positivas, el que define
+  // el tamaño de las porciones), que quedaba mayor que el neto real
+  // apenas alguna unidad cerraba el día en negativo.
   const totalRow = '<div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee;font-size:13px;color:#333;text-align:center">'
-    + '<strong style="color:#1a3d70">Total:</strong> '+erpFmtMoney(total)
+    + '<strong style="color:#1a3d70">Total:</strong> '+erpFmtMoney(totalNetoReal)
     + '</div>';
 
   // Juan Manuel, 29/07/2026 (2do pedido, mismo día): "el cuadro de la
