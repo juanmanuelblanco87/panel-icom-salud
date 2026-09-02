@@ -72,14 +72,6 @@
 // }
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 
-// 02/09/2026 -- ver api/_oppen-lock.js (comentario grande ahí, y el
-// mismo uso en api/oppen-invoices.js): sólo 1 pedido a oppen.io a la
-// vez, en TODO el deploy, sin importar qué iframe/pestaña/usuario lo
-// originó -- SalesOrder pega contra la MISMA conexión de oppen.io que
-// Invoice, así que comparten el mismo lock (una sola clave en Redis).
-const { adquirirLockOppen, liberarLockOppen } = require('./_oppen-lock');
-const LOCK_MAX_WAIT_MS = 50000;
-
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
 
@@ -429,14 +421,6 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
   try {
-    // 02/09/2026 (ver api/_oppen-lock.js): sólo 1 pedido a oppen.io a la
-    // vez en todo el deploy -- espera acá su turno antes de tocar nada.
-    const lockToken = await adquirirLockOppen(LOCK_MAX_WAIT_MS);
-    if (!lockToken) {
-      res.status(503).json({ ok: false, error: 'oppen.io está recibiendo muchos pedidos a la vez -- probá de nuevo en unos segundos.' });
-      return;
-    }
-    try {
     const token = await getToken();
     const url = new URL(req.url, 'http://x');
     const fromDate = url.searchParams.get('from') || firstDayOfCurrentMonth();
@@ -639,9 +623,6 @@ module.exports = async function handler(req, res) {
       byEspecialidad,
       rows,
     });
-    } finally {
-      await liberarLockOppen(lockToken);
-    }
   } catch (err) {
     console.error('oppen-sales-orders error:', err);
     res.status(500).json({ ok: false, error: String(err.message || err) });

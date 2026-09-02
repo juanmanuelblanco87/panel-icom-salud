@@ -98,12 +98,6 @@
 // devolvió 200 con datos reales de facturas.
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 
-// 02/09/2026 -- ver api/_oppen-lock.js (comentario grande ahí): sólo 1
-// pedido a oppen.io a la vez, en TODO el deploy, sin importar qué
-// iframe/pestaña/usuario lo originó.
-const { adquirirLockOppen, liberarLockOppen } = require('./_oppen-lock');
-const LOCK_MAX_WAIT_MS = 50000; // deja ~10s de margen dentro del maxDuration:60 (vercel.json) para el trabajo real, una vez conseguido el lock
-
 // Cache de token en memoria del proceso serverless. Sobrevive entre invocaciones
 // mientras la instancia esté "warm" (típico en polls frecuentes cada 5 min).
 let cachedToken = null;
@@ -519,15 +513,6 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
   try {
-    // 02/09/2026 (ver api/_oppen-lock.js): sólo 1 pedido a oppen.io a la
-    // vez en todo el deploy -- espera acá su turno antes de tocar nada
-    // de oppen.io (incluida la autenticación de abajo).
-    const lockToken = await adquirirLockOppen(LOCK_MAX_WAIT_MS);
-    if (!lockToken) {
-      res.status(503).json({ ok: false, error: 'oppen.io está recibiendo muchos pedidos a la vez -- probá de nuevo en unos segundos.' });
-      return;
-    }
-    try {
     const token = await getToken();
     // Por defecto, mes en curso. Se puede pedir un rango puntual (para
     // recuperar un mes ya cerrado, ej. si se perdió el IndexedDB al mudar de
@@ -819,9 +804,6 @@ module.exports = async function handler(req, res) {
       byTipoOperacion,
       rows,
     });
-    } finally {
-      await liberarLockOppen(lockToken);
-    }
   } catch (err) {
     console.error('oppen-invoices error:', err);
     res.status(500).json({ ok: false, error: String(err.message || err) });
