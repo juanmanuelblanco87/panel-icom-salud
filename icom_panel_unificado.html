@@ -1059,6 +1059,17 @@
           <div id="erpCanalPills" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"></div>
         </div>
 
+        <!-- 01/09/2026 ("Debajo de Unidad de Negocio agregemos Ordenes de
+             Venta de Cirugia... totalizador de #Cirugias x unidad de
+             negocios de Cirugia General y Cirugia Estetica"): exclusiva de
+             la vista ICOM agregada, mismo gating que erpIcomPieCard (ver
+             erpUpdateChannelSpecificUI) -- sólo esas 2 unidades tienen
+             Órdenes de Venta reales en Oppen. -->
+        <div class="erp-card" id="erpIcomCirugiaOrdenesCard" style="display:none;padding-bottom:14px">
+          <h2>Órdenes de Venta de Cirugía <span style="font-weight:400;color:#999;font-size:11.5px">— cantidad de órdenes (no facturas) por unidad, según el rango de fechas de arriba</span></h2>
+          <div id="erpIcomCirugiaOrdenesCards" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"></div>
+        </div>
+
         <div class="erp-card" id="erpMacroCard" style="display:none">
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
             <span>Por Macro Categoría</span>
@@ -3325,6 +3336,14 @@ async function erpFetchViewData(fromStr, toStr){
     // muestre como si "canal" fuera la unidad.
     if(targetChannel === 'icom') data = erpRemapDataForIcomView(data);
     ERP_VIEW_DATA = data;
+    // 01/09/2026: Órdenes de Venta de Cirugía es una fuente APARTE
+    // (oppen-sales-orders.js, no oppen-invoices.js) -- se dispara sin
+    // await, en paralelo, para no atrasar el render de Facturas de
+    // arriba (ver erpFetchIcomCirugiaOrdenes).
+    if(targetChannel === 'icom'){
+      ERP_ICOM_CIRUGIA_ORDENES = null; // vuelve a "Cargando…" hasta que responda el rango nuevo
+      erpFetchIcomCirugiaOrdenes(fromStr, toStr);
+    }
     erpRenderAll();
     erpSetStatus('OK', 'ok');
     const overlay = document.getElementById('erpFirstLoadOverlay');
@@ -4901,6 +4920,7 @@ function erpRenderIcomYearPieChart(){
 function erpRemapDataForIcomView(data){
   const byCanal = {};
   const byCanalSku = {};
+  const sernrsVistos = new Set();
   const rows = (data.rows || []).map(r=>{
     const unit = r.unidadNegocio;
     if(!unit) return Object.assign({}, r, {canal: null}); // IOMA u otro caso sin clasificar -- no se le asigna pill
@@ -4912,13 +4932,110 @@ function erpRemapDataForIcomView(data){
     if(!byCanalSku[label][r.sku]) byCanalSku[label][r.sku] = {unidades:0, totalNeto:0};
     byCanalSku[label][r.sku].unidades += (r.u||0);
     byCanalSku[label][r.sku].totalNeto += (r.f||0);
+    if(r.sernr != null) sernrsVistos.add(r.sernr);
     return Object.assign({}, r, {canal: label});
   });
   const invoicesByCanal = {};
   Object.entries(data.byUnidadNegocio || {}).forEach(([unit, v])=>{
     invoicesByCanal[ICOM_UNIT_LABELS[unit] || unit] = v.facturas || 0;
   });
-  return Object.assign({}, data, {rows, byCanal, byCanalSku, invoicesByCanal});
+  // 01/09/2026 ("el total neto de arriba no esta excluyendo IOMA"): los
+  // KPIs de arriba (Total Neto/Unidades/Facturas procesadas) leían
+  // data.totals/data.invoicesProcessed TAL CUAL vinieron del servidor --
+  // esos SÍ suman las facturas de IOMA (unidadNegocio null, ver comentario
+  // grande arriba), a diferencia de byCanal/invoicesByCanal (recién
+  // armados acá arriba, que las excluyen a propósito). Mismo número real
+  // (facturación de ICOM), 2 criterios distintos de qué queda adentro --
+  // se recalculan totals/invoicesProcessed a partir de byCanal/sernrsVistos
+  // (ya excluidos de IOMA) para que el KPI de arriba coincida con la suma
+  // de la torta/pills de abajo.
+  const totals = Object.values(byCanal).reduce((a,v)=>({unidades:a.unidades+v.unidades, totalNeto:a.totalNeto+v.totalNeto}), {unidades:0, totalNeto:0});
+  return Object.assign({}, data, {rows, byCanal, byCanalSku, invoicesByCanal, totals, invoicesProcessed: sernrsVistos.size});
+}
+
+// 01/09/2026 ("Debajo de Unidad de Negocio agregemos Ordenes de Venta de
+// Cirugia... el totalizador de #Cirugias x unidad de negocios de Cirugia
+// General y Cirugia Estetica... funciona en cascada segun las fechas
+// seleccionadas arriba igual que el resto"): "Ventas en Vivo" (Facturas,
+// api/oppen-invoices.js) y "Órdenes de Venta" (api/oppen-sales-orders.js,
+// la misma entidad que ya usa Monitor OV) son 2 fuentes DISTINTAS en
+// Oppen -- esta card pide la segunda, en paralelo a la de Facturas, sólo
+// en la vista ICOM agregada. Mismo patrón de chunking mensual secuencial
+// que erpFetchViewData/ovFetchSalesOrdersChunk, pero SIN filtro de unidad
+// (mismo criterio que erpInvoicesUrl para 'icom': se pide todo mezclado,
+// acá se suma por unidad del lado del cliente) -- byUnidadNegocio[unidad].ordenes
+// ya viene contado en el SERVIDOR (una orden válida = un sernr, ver
+// oppen-sales-orders.js), no hace falta deduplicar sernr acá.
+let ERP_ICOM_CIRUGIA_ORDENES = null; // {cirugia_general, cirugia_estetica} -- null mientras carga o si falló
+function erpIcomSalesOrdersUrl(params){
+  const sp = new URLSearchParams(params || {});
+  return '/api/oppen-sales-orders?' + sp.toString();
+}
+async function erpFetchIcomCirugiaOrdenesChunk(c, attempt){
+  attempt = attempt || 1;
+  try{
+    const res = await erpFetchConTimeout(erpIcomSalesOrdersUrl({from:c.from, to:c.to}), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
+    const d = await res.json();
+    if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
+    return d;
+  }catch(e){
+    if(attempt < 2){
+      await new Promise(r=>setTimeout(r, 1500));
+      return erpFetchIcomCirugiaOrdenesChunk(c, attempt+1);
+    }
+    throw new Error((e.message || 'Error desconocido del proxy') + ' (rango '+c.from+' a '+c.to+')');
+  }
+}
+// Se dispara sin await desde erpFetchViewData (fire-and-forget) para no
+// atrasar el render de Facturas -- mismo guard "cambió de canal mientras
+// tanto" que el resto de los fetch de esta pantalla.
+async function erpFetchIcomCirugiaOrdenes(fromStr, toStr){
+  const targetChannel = currentChannel;
+  try{
+    const chunks = erpDateChunksForRange(fromStr, toStr);
+    const totales = {cirugia_general: 0, cirugia_estetica: 0};
+    for(let i=0;i<chunks.length;i++){
+      const d = await erpFetchIcomCirugiaOrdenesChunk(chunks[i]);
+      if(targetChannel !== currentChannel) return;
+      const byUnidad = d.byUnidadNegocio || {};
+      totales.cirugia_general += (byUnidad.cirugia_general && byUnidad.cirugia_general.ordenes) || 0;
+      totales.cirugia_estetica += (byUnidad.cirugia_estetica && byUnidad.cirugia_estetica.ordenes) || 0;
+    }
+    if(targetChannel !== currentChannel) return;
+    ERP_ICOM_CIRUGIA_ORDENES = totales;
+  }catch(e){
+    if(targetChannel !== currentChannel) return;
+    console.error('Error consultando /api/oppen-sales-orders (Órdenes de Venta de Cirugía, vista ICOM):', e);
+    ERP_ICOM_CIRUGIA_ORDENES = null;
+  }
+  if(targetChannel === currentChannel) erpRenderIcomCirugiaOrdenesCards();
+}
+// Mismo estilo visual EXACTO que erpRenderCanalPills (border/radio/
+// padding/tipografía) -- pedido explícito "las cards deben ser igual a
+// la de arriba" -- pero sin checkbox/click (no es un filtro, es un
+// totalizador de sólo lectura) y sin monto en pesos (sólo cuenta
+// órdenes). Reusa ICOM_UNIT_ICONS/ICOM_UNIT_LABELS para la misma
+// identidad visual que sus pills hermanas de "Facturación por Unidad de
+// Negocio".
+function erpRenderIcomCirugiaOrdenesCards(){
+  const wrap = document.getElementById('erpIcomCirugiaOrdenesCards');
+  if(!wrap) return;
+  if(ERP_ICOM_CIRUGIA_ORDENES == null){
+    wrap.innerHTML = '<span class="pm-empty">Cargando…</span>';
+    return;
+  }
+  const unidades = [
+    {key:'cirugia_general', label: ICOM_UNIT_LABELS.cirugia_general},
+    {key:'cirugia_estetica', label: ICOM_UNIT_LABELS.cirugia_estetica},
+  ];
+  wrap.innerHTML = unidades.map(u=>{
+    const n = ERP_ICOM_CIRUGIA_ORDENES[u.key] || 0;
+    return '<div style="border:2px solid #1a3d70;border-radius:14px;padding:10px 16px;min-width:150px;background:#eef3fb">'
+      + '<div style="font-size:12.5px;font-weight:700;color:#1a3d70;white-space:nowrap">'+erpCanalIcon(u.label)+' '+u.label+'</div>'
+      + '<div style="font-size:15px;font-weight:700;color:#1a3d70;margin-top:2px">'+erpFmtInt(n)+'</div>'
+      + '<div style="font-size:10.5px;color:#888;margin-top:1px">'+(n===1?'orden':'órdenes')+'</div>'
+      + '</div>';
+  }).join('');
 }
 
 // Se llama cada vez que switchChannel() cambia a una unidad con "Ventas en
@@ -4950,6 +5067,10 @@ function erpUpdateChannelSpecificUI(channel){
   const isIcom = channel === 'icom';
   const pieCard = document.getElementById('erpIcomPieCard');
   if(pieCard) pieCard.style.display = isIcom ? '' : 'none';
+  // 01/09/2026: "Órdenes de Venta de Cirugía" -- mismo gating, exclusivo
+  // de la vista ICOM agregada (ver erpFetchIcomCirugiaOrdenes).
+  const cirugiaOrdenesCard = document.getElementById('erpIcomCirugiaOrdenesCard');
+  if(cirugiaOrdenesCard) cirugiaOrdenesCard.style.display = isIcom ? '' : 'none';
   // Juan Manuel, 27/07/2026: "Entre peso por unidad de negocio y unidades
   // de negocio, necesito armar un grafico de barras con todos los meses
   // del año" -- mismo gating que la torta, exclusivo de la vista ICOM.
@@ -4957,8 +5078,13 @@ function erpUpdateChannelSpecificUI(channel){
   if(monthlyChartCard) monthlyChartCard.style.display = isIcom ? '' : 'none';
   const canalesTitle = document.getElementById('erpCanalesTitle');
   if(canalesTitle){
+    // 01/09/2026 ("Cambiemos el titulo de 'Unidades de Negocio' por
+    // 'Facturación por Unidad de Negocio'"): sólo el texto del título
+    // cambia -- sigue siendo el mismo card/pills de siempre (erpCanalPills
+    // remapeado por unidad, ver erpRemapDataForIcomView), sólo en la
+    // vista ICOM agregada.
     canalesTitle.innerHTML = isIcom
-      ? 'Unidades de Negocio <span style="font-weight:400;color:#999;font-size:11.5px">— tocá una para incluirla/excluirla de todo lo de abajo</span>'
+      ? 'Facturación por Unidad de Negocio <span style="font-weight:400;color:#999;font-size:11.5px">— tocá una para incluirla/excluirla de todo lo de abajo</span>'
       : 'Canales <span style="font-weight:400;color:#999;font-size:11.5px">— tocá uno para incluirlo/excluirlo de todo lo de abajo</span>';
   }
 
@@ -6348,6 +6474,7 @@ function erpRenderAll(){
   // Juan Manuel, 27/07/2026: gráfico de torta solo en la vista ICOM (ver
   // erpUpdateChannelSpecificUI, que muestra/oculta #erpIcomPieCard).
   if(currentChannel === 'icom'){
+    erpRenderIcomCirugiaOrdenesCards();
     erpRenderIcomPieChart();
     // Gráfico de barras mensual (Ene-Dic, peso % por unidad) + torta chica
     // de acumulado del año + barrita de progreso -- usan datos propios
