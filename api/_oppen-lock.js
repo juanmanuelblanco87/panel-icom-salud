@@ -39,68 +39,24 @@ const LOCK_KEY = 'oppen:lock';
 const LOCK_TTL_SECONDS = 75;
 const POLL_MS = 400;
 
-// 02/09/2026 ("Dejo de funcionar por completo, no trae ni 1 dia" /
-// "queda clavado ahi" -- con captura del backfill de fondo
-// "Actualizando meses… 8 de 9" tapando por completo "Hoy"): el lock por
-// sí solo evita que oppen.io se caiga por sobrecarga, pero es JUSTO
-// (FIFO) -- una tanda de 9 pedidos de fondo (backfill mensual, cosmético,
-// nadie lo está mirando en el momento) competía en pie de igualdad
-// contra la consulta que el usuario tiene la pantalla esperando en ese
-// instante, y con 9 turnos por delante la espera de este último se
-// volvía inaceptable. Fix: 2 prioridades -- 'baja' (fondo/automático:
-// backfill mensual, polling, autocuración de meses cerrados) SIEMPRE
-// cede el turno apenas hay una 'alta' (consulta directa del usuario)
-// esperando -- ni siquiera intenta competir por el lock ese round,
-// vuelve más tarde. 'alta' es el default (cualquier pedido que no se
-// marque explícitamente 'baja' se sigue tratando como antes).
-const WAITING_ALTA_KEY = 'oppen:esperando_alta';
-// Red de seguridad -- si una función 'alta' se cuelga/la matan (Vercel,
-// límite de maxDuration) justo entre el incr() y el decr() del finally,
-// este contador quedaría incrementado para siempre y 'baja' cedería el
-// turno eternamente aunque ya no haya ninguna 'alta' real esperando. Se
-// refresca el TTL en cada incr() -- mientras SIGA habiendo altas
-// esperando de verdad, se sigue refrescando solo; si se corta la racha
-// (con o sin fuga), el contador entero se resetea a los 90s de la
-// última vez que alguien empezó a esperar.
-const WAITING_ALTA_TTL_SECONDS = 90;
-
 function generarToken() {
   return Date.now() + '-' + Math.random().toString(36).slice(2);
 }
 
 // Espera activamente (polling corto) hasta poder tomar el lock, o hasta
 // agotar maxWaitMs -- quien llama debe dejarse margen propio dentro de
-// su maxDuration (ver los usos actuales: esperan hasta 50s de los 60s
+// su maxDuration (ver los 2 usos actuales: esperan hasta 50s de los 60s
 // disponibles, dejando 10s de margen para el trabajo real). Devuelve un
 // token (para liberar SOLO el lock propio, ver liberarLockOppen) o null
 // si no se pudo conseguir a tiempo.
-// prioridad: 'alta' (default, consulta directa del usuario) o 'baja'
-// (fondo/automático) -- ver comentario grande arriba.
-async function adquirirLockOppen(maxWaitMs, prioridad) {
-  const esAlta = prioridad !== 'baja';
+async function adquirirLockOppen(maxWaitMs) {
   const token = generarToken();
   const deadline = Date.now() + maxWaitMs;
-  try {
-    if (esAlta) {
-      await redis.incr(WAITING_ALTA_KEY);
-      await redis.expire(WAITING_ALTA_KEY, WAITING_ALTA_TTL_SECONDS);
-    }
-    for (;;) {
-      if (!esAlta) {
-        // 'baja' cede el turno apenas hay alguna 'alta' esperando --
-        // ni intenta el SET, para no ganarle la carrera cuando el lock
-        // se libere. Se trata como "no lo conseguí este round" (quien
-        // llama decide si reintentar más tarde, no bloquea nada).
-        const esperandoAlta = await redis.get(WAITING_ALTA_KEY);
-        if (Number(esperandoAlta) > 0) return null;
-      }
-      const ok = await redis.set(LOCK_KEY, token, { nx: true, ex: LOCK_TTL_SECONDS });
-      if (ok) return token;
-      if (Date.now() >= deadline) return null;
-      await new Promise(r => setTimeout(r, POLL_MS));
-    }
-  } finally {
-    if (esAlta) await redis.decr(WAITING_ALTA_KEY).catch(() => {});
+  for (;;) {
+    const ok = await redis.set(LOCK_KEY, token, { nx: true, ex: LOCK_TTL_SECONDS });
+    if (ok) return token;
+    if (Date.now() >= deadline) return null;
+    await new Promise(r => setTimeout(r, POLL_MS));
   }
 }
 

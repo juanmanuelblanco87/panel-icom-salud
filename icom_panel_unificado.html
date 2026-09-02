@@ -2934,10 +2934,7 @@ async function erpFetchNowImpl(){
     // min es EXCLUSIVO de Minorista (Seguimiento/Dashboard/Forecast dependen
     // de él vía erpBroadcastToApps más abajo, y esos 3 son, por ahora,
     // conceptos propios de Minorista).
-    // prioridad:'baja' -- poll automático de fondo (cada 5 min), no una
-    // consulta que el usuario esté esperando en este instante -- ver
-    // api/_oppen-lock.js.
-    const res = await erpFetchConTimeout(erpInvoicesUrl({prioridad:'baja'}, 'minorista'), {cache:'no-store'});
+    const res = await erpFetchConTimeout(erpInvoicesUrl({}, 'minorista'), {cache:'no-store'});
     const data = await res.json();
     if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
     ERP_DATA = data;
@@ -3321,14 +3318,7 @@ async function erpFetchInvoicesChunk(c, unit, attempt, bustCache, soloUnidadNego
   attempt = attempt || 1;
   try{
     const params = {from:c.from, to:c.to};
-    // 02/09/2026 ("Dejo de funcionar por completo, no trae ni 1 dia" con
-    // el backfill de "Peso por Unidad de Negocio — por mes" tapando la
-    // consulta del usuario -- ver api/_oppen-lock.js): soloUnidadNegocio
-    // hoy SÓLO lo usa ese backfill de fondo (erpFetchIcomMonthlyWeightsImpl,
-    // ver comentario grande arriba) -- nunca la consulta principal de
-    // Ventas en Vivo -- así que sirve como señal gratis de "esto es de
-    // fondo, cedé el turno si hay una consulta directa esperando".
-    if(soloUnidadNegocio){ params.soloUnidadNegocio = '1'; params.prioridad = 'baja'; }
+    if(soloUnidadNegocio) params.soloUnidadNegocio = '1';
     const res = await erpFetchConTimeout(erpInvoicesUrl(params, unit, bustCache), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
     const d = await res.json();
     if(!d.ok) throw new Error(d.error || 'Error desconocido del proxy');
@@ -6628,12 +6618,7 @@ function erpPopulateBackfillMonths(){
 // ── Helpers reutilizables: traer un mes puntual del ERP y empujarlo a las
 // tres apps. Usados tanto por el botón manual (erpBackfillMonth) como por la
 // auto-recuperación silenciosa que corre sola al loguearse.
-// prioridad (nuevo 02/09/2026, ver api/_oppen-lock.js): default 'baja'
-// -- el uso más frecuente de esta función, por lejos, es la
-// auto-recuperación silenciosa de fondo (erpAutoHealClosedMonths, corre
-// sola al loguearse) -- erpBackfillMonth (el botón manual, el usuario
-// clickeó y está esperando) pasa 'alta' explícito.
-async function erpFetchMonthRows(y, m, prioridad){
+async function erpFetchMonthRows(y, m){
   const from = y+'-'+m+'-01';
   const lastDay = new Date(parseInt(y,10), parseInt(m,10), 0).getDate();
   const to = y+'-'+m+'-'+String(lastDay).padStart(2,'0');
@@ -6642,7 +6627,7 @@ async function erpFetchMonthRows(y, m, prioridad){
   // Mismo timeout extendido que erpFetchViewData/erpFetchInvoicesChunk (ver
   // ERP_INVOICES_RANGE_TIMEOUT_MS) -- es el mismo endpoint paginando un mes
   // calendario completo, el mismo riesgo de superar los 25s por defecto.
-  const res = await erpFetchConTimeout(erpInvoicesUrl({from:from, to:to, prioridad:(prioridad||'baja')}, 'minorista'), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
+  const res = await erpFetchConTimeout(erpInvoicesUrl({from:from, to:to}, 'minorista'), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
   const data = await res.json();
   if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
   return data;
@@ -6654,7 +6639,7 @@ async function erpFetchMonthRows(y, m, prioridad){
 async function erpFetchMonthRowsWithRetry(y, m, attempt){
   attempt = attempt || 1;
   try{
-    return await erpFetchMonthRows(y, m); // siempre 'baja' -- sólo la usa la auto-recuperación de fondo
+    return await erpFetchMonthRows(y, m);
   }catch(e){
     if(attempt < 2){
       await new Promise(r=>setTimeout(r, 1500));
@@ -6975,7 +6960,7 @@ async function erpBackfillMonth(){
 
   msgEl.textContent = 'Consultando ERP para '+val+'…';
   try{
-    const data = await erpFetchMonthRows(y, m, 'alta'); // botón manual -- el usuario lo pidió y está esperando, no cede el turno
+    const data = await erpFetchMonthRows(y, m);
     if(!Array.isArray(data.rows) || !data.rows.length){
       msgEl.textContent = 'El ERP no devolvió facturas para ese mes.';
       return;
