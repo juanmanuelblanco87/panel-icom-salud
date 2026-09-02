@@ -42,21 +42,27 @@ function limpiarSku(sku) {
 // Datos comunes a las 2 pasadas de abajo (config resuelta, precio
 // vigente de Oppen, meses sin actualizar) -- una función pura por fila,
 // para no recalcular lo mismo 2 veces con criterios que puedan divergir.
-function datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes) {
+// mensualIdPorProductoBase: Map productoBaseId -> id de SU fila Mensual
+// (ver comentario grande más abajo).
+function datosDeFila(p, mensualIdPorProductoBase, configPorId, snapshotsPorProducto, mes) {
   const config = configPorId.get(p.id) || {};
-  // 01/09/2026 ("selector de Periodos... los productos son los mismos,
-  // solo cambia el periodo"): cada fila del catálogo pertenece a un
-  // "producto base" (p.productoBaseId -- para la fila canónica es ella
-  // misma). Los campos que describen el PRODUCTO FÍSICO, no el
-  // alquiler puntual (precioProductoNuevo/link/imagen/usosMaximos/
-  // multiplicadorDeposito) se resuelven SIEMPRE desde la config de esa
-  // fila canónica -- evita que 4 filas del mismo producto queden
-  // desincronizadas si alguien edita "Precio producto nuevo" en la
-  // fila equivocada. Para la fila canónica, configBase === config
-  // (mismo registro) -- cero cambio de comportamiento para lo que ya
-  // existía antes de esto.
   const productoBaseId = p.productoBaseId || p.id;
-  const configBase = productoBaseId === p.id ? config : (configPorId.get(productoBaseId) || {});
+  // 02/09/2026 ("Estos 3 no me los deja configurar desde el mensual...
+  // permitelo siempre desde el mensual" / "el mensual manda"): para los
+  // 2-3 productos que ya existían ANTES del selector de Período con
+  // período canónico "dia" (los nebulizadores -- su sku real de Oppen
+  // vive en la fila Diaria, no en la Mensual, que para ellos es una
+  // fila NUEVA generada), `productoBaseId` sigue siendo el id de esa
+  // fila Diaria vieja -- si la config compartida se resolviera contra
+  // `productoBaseId` (como hasta ahora), la fila Mensual de esos 3
+  // productos jamás podría editar Usos máx./Precio prod. nuevo (esos
+  // campos vivirían en la config de la fila Diaria, inaccesible desde
+  // Mensual). Fix: la config compartida SIEMPRE se resuelve contra la
+  // fila MENSUAL del producto (mensualIdPorProductoBase), sin importar
+  // cuál haya sido el período canónico original -- "el mensual manda"
+  // aplica también acá, no sólo al precio.
+  const idFilaMensual = mensualIdPorProductoBase.get(productoBaseId) || productoBaseId;
+  const configBase = idFilaMensual === p.id ? config : (configPorId.get(idFilaMensual) || {});
   const skuOppen = limpiarSku(config.skuOppen != null ? config.skuOppen : p.skuOppen);
 
   const historialAsc = (snapshotsPorProducto.get(p.id) || []).slice().sort((a, b) => a.mes.localeCompare(b.mes));
@@ -96,9 +102,11 @@ function datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes) {
     overrideManual: config.overrideManual ?? null,
   };
 
-  const filaCanonica = catalogoPorId.get(productoBaseId);
-  const periodoDiasCanonico = (filaCanonica && filaCanonica.periodoDias) || 30;
-  return { productoBaseId, configEfectiva, skuOppen, precioVigenteOppen, desatendido, mesesSinActualizar, ultimoSnapshot, periodoDiasCanonico };
+  // 02/09/2026 ("el mensual manda"): usosMaximos se entra SIEMPRE
+  // pensando en la fila Mensual (30 días) -- ya no depende de cuál
+  // haya sido el período canónico original del producto en Oppen (ver
+  // comentario grande de arriba, mismo criterio).
+  return { productoBaseId, configEfectiva, skuOppen, precioVigenteOppen, desatendido, mesesSinActualizar, ultimoSnapshot, periodoDiasCanonico: 30 };
 }
 
 async function calcularProductos() {
@@ -106,7 +114,12 @@ async function calcularProductos() {
     leerCatalogoCompleto(), leerAlquilerConfigs(), leerAlquileresGlobals(), leerAlquilerSnapshots(),
   ]);
   const configPorId = new Map(configs.map(c => [c.id, c]));
-  const catalogoPorId = new Map(catalogo.map(c => [c.id, c]));
+  // 02/09/2026 ("el mensual manda" -- ver comentario grande en
+  // datosDeFila): id de la fila Mensual de cada producto, para
+  // resolver la config compartida SIEMPRE contra ella, sin importar
+  // cuál haya sido el período canónico original de ese producto.
+  const mensualIdPorProductoBase = new Map();
+  catalogo.forEach(p => { if (p.periodo === 'mes') mensualIdPorProductoBase.set(p.productoBaseId || p.id, p.id); });
   const snapshotsPorProducto = new Map();
   snapshots.forEach(s => {
     if (!snapshotsPorProducto.has(s.productoId)) snapshotsPorProducto.set(s.productoId, []);
@@ -128,7 +141,7 @@ async function calcularProductos() {
   const mensualSugeridoPorProducto = new Map();
   catalogo.forEach(p => {
     if (p.periodo !== 'mes') return;
-    const d = datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes);
+    const d = datosDeFila(p, mensualIdPorProductoBase, configPorId, snapshotsPorProducto, mes);
     const r = calcularSugerencia(d.configEfectiva, d.precioVigenteOppen, d.mesesSinActualizar, 30, d.periodoDiasCanonico, globals);
     mensualSugeridoPorProducto.set(d.productoBaseId, r.sugerido);
   });
@@ -142,7 +155,7 @@ async function calcularProductos() {
   // cualquier período (mismo criterio "una persona en el medio" del
   // resto del módulo).
   const productos = catalogo.map(p => {
-    const d = datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes);
+    const d = datosDeFila(p, mensualIdPorProductoBase, configPorId, snapshotsPorProducto, mes);
     // 02/09/2026 ("El deposito para otras periodos... sigue siendo el
     // deposito de Mensual ya que no esta atado a tiempo sino a un
     // seguro del daño del producto"): el depósito describe el RIESGO
@@ -213,13 +226,20 @@ async function calcularProductos() {
       // qué fila mostrar editables los campos compartidos
       // (precioProductoNuevo/link/imagen/usosMaximos/
       // multiplicadorDeposito) -- en las demás van de sólo lectura.
+      // 02/09/2026 ("el mensual manda" -- ver comentario grande en
+      // datosDeFila): esCanonica pasa a significar "es la fila
+      // Mensual" (periodo==='mes'), no "es la fila que ya existía
+      // antes del selector de Período" -- para los 2-3 productos con
+      // período canónico ORIGINAL "dia" (nebulizadores), antes esto
+      // dejaba su fila Mensual de sólo lectura (imposible cargar Usos
+      // máx./Precio prod. nuevo desde ahí).
       // skuSugerido: código derivado del nomenclador (sku base=30D +
       // sufijo -01/-07/-15), sólo informativo, para que Ortopedia sepa
       // qué código dar de alta en Oppen -- nunca se trata como
       // confirmado (ver skuConfirmado, que sigue dependiendo 100% de
       // que haya un skuOppen real cargado).
       productoBaseId: d.productoBaseId,
-      esCanonica: d.productoBaseId === p.id,
+      esCanonica: p.periodo === 'mes',
       skuOppen: d.skuOppen,
       skuSugerido: p.skuSugerido || null,
       skuConfirmado: !!d.skuOppen,

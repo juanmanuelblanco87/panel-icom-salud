@@ -102,6 +102,15 @@ module.exports = async function handler(req, res) {
       leerCatalogoCompleto(), leerAlquilerConfigs(), leerAlquileresGlobals(), leerAlquilerSnapshots(),
     ]);
     const configPorId = new Map(configs.map(c => [c.id, c]));
+    // 02/09/2026 ("el mensual manda"): usosMaximos/precioProductoNuevo
+    // se cargan SIEMPRE desde la fila Mensual del producto, no desde la
+    // fila que históricamente tenía id===productoBaseId -- para los
+    // 2-3 nebulizadores cuyo período canónico original era "dia", eso
+    // dejaba su config atada a una fila Diaria que nadie carga desde
+    // que existe el selector de Período. Mismo mapa que
+    // alquileres-data.js (mensualIdPorProductoBase).
+    const mensualIdPorProductoBase = new Map();
+    catalogo.forEach(p => { if (p.periodo === 'mes') mensualIdPorProductoBase.set(p.productoBaseId || p.id, p.id); });
     const snapshotsPorProducto = new Map();
     snapshotsPrevios.forEach(s => {
       if (!snapshotsPorProducto.has(s.productoId)) snapshotsPorProducto.set(s.productoId, []);
@@ -134,17 +143,21 @@ module.exports = async function handler(req, res) {
       const mesesSinActualizar = mesesDesdeUltimoCambioDePrecio(historialAsc, precioVigenteOppen, mes);
       // 01/09/2026 (selector de Período): usosMaximos/precioProductoNuevo
       // describen el PRODUCTO físico, no el alquiler puntual -- viven en
-      // la config de la fila CANÓNICA del producto (productoBaseId),
-      // igual que en alquileres-data.js (ver configBase ahí). Para la
-      // fila canónica, `p.id === p.productoBaseId`, mismo registro que
-      // antes -- comportamiento sin cambios para lo que ya existía.
-      const configBase = configPorId.get(p.productoBaseId || p.id) || {};
+      // la config de la fila Mensual del producto, igual que en
+      // alquileres-data.js (ver configBase ahí).
+      // 02/09/2026 ("el mensual manda"): resuelto vía
+      // mensualIdPorProductoBase en vez de productoBaseId===id -- ver
+      // comentario junto a su construcción, arriba.
+      const idFilaMensual = mensualIdPorProductoBase.get(p.productoBaseId || p.id) || p.productoBaseId || p.id;
+      const configBase = configPorId.get(idFilaMensual) || {};
       const configEfectiva = {
         usosMaximos: configBase.usosMaximos ?? null,
         precioProductoNuevo: configBase.precioProductoNuevo ?? null,
         overrideManual: config.overrideManual ?? null,
       };
-      const periodoDiasCanonico = (catalogo.find(c => c.id === (p.productoBaseId || p.id)) || {}).periodoDias || 30;
+      // 02/09/2026: usosMaximos ya se carga siempre asumiendo cadencia
+      // Mensual (30 días) -- ver mismo cambio en alquileres-data.js.
+      const periodoDiasCanonico = 30;
       // 01/09/2026 ("el precio que manda es el mensual, desde ahi se
       // re-calculan automaticamente el resto"): a diferencia de
       // alquileres-data.js, acá NO se replica el esquema de 2 pasadas
