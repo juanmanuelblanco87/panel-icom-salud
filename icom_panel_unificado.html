@@ -3309,12 +3309,19 @@ async function erpFetchViewData(fromStr, toStr){
     const chunks = erpDateChunksForRange(fromStr, toStr);
     let data;
     if(chunks.length <= 1){
-      // Rango de ≤1 mes calendario: un solo pedido, exactamente como antes
-      // (mismo comportamiento ya probado, cero cambios para el caso común
-      // salvo el timeout -- ver ERP_INVOICES_RANGE_TIMEOUT_MS más arriba).
-      const res = await erpFetchConTimeout(erpInvoicesUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
-      data = await res.json();
-      if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
+      // Rango de ≤1 mes calendario: un solo pedido -- pero, a diferencia de
+      // antes, vía erpFetchInvoicesChunk (mismo helper que ya usa el camino
+      // de rangos largos), para heredar gratis su reintento automático (1
+      // vez, con 1.5s de espera). 02/09/2026 ("Error: Unexpected token 'A',
+      // 'An error o'... is not valid JSON" en la vista ICOM con un mes
+      // calendario completo -- la consulta MÁS pesada de esta pantalla, las
+      // 4 unidades mezcladas sin filtrar): antes este camino no reintentaba
+      // NADA -- un solo timeout de oppen.io (>60s, maxDuration de
+      // api/oppen-invoices.js) hacía que Vercel devolviera su propia página
+      // de error genérica en HTML, no JSON, y esa falla se mostraba de una
+      // sola vez sin volver a intentar -- inconsistente con el camino de
+      // rangos largos, que sí reintenta por chunk.
+      data = await erpFetchInvoicesChunk({from:fromStr, to:toStr}, targetChannel);
     }else{
       // Secuencial, NO Promise.all — ver comentario arriba (7 pedidos en
       // paralelo tumbaron la conexión a la base de oppen.io en producción).
@@ -3375,9 +3382,10 @@ async function erpFetchCompareData(fromStr, toStr){
     const chunks = erpDateChunksForRange(fromStr, toStr);
     let data;
     if(chunks.length <= 1){
-      const res = await erpFetchConTimeout(erpInvoicesUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
-      data = await res.json();
-      if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
+      // 02/09/2026: mismo fix que erpFetchViewData (ver comentario grande
+      // ahí) -- vía erpFetchInvoicesChunk para heredar su reintento
+      // automático en vez de un solo pedido sin reintento.
+      data = await erpFetchInvoicesChunk({from:fromStr, to:toStr}, targetChannel);
     }else{
       const results = [];
       for(let i=0;i<chunks.length;i++){
@@ -7589,9 +7597,11 @@ async function ovFetchViewData(fromStr, toStr){
     const chunks = erpDateChunksForRange(fromStr, toStr);
     let data;
     if(chunks.length <= 1){
-      const res = await erpFetchConTimeout(ovSalesOrdersUrl({from:fromStr, to:toStr}, targetChannel), {cache:'no-store'}, ERP_INVOICES_RANGE_TIMEOUT_MS);
-      data = await res.json();
-      if(!data.ok) throw new Error(data.error || 'Error desconocido del proxy');
+      // 02/09/2026: mismo fix que erpFetchViewData (ver comentario grande
+      // ahí) -- vía ovFetchSalesOrdersChunk para heredar su reintento
+      // automático (1 vez, 1.5s de espera) en vez de un solo pedido sin
+      // reintento -- mismo bug, mismo patrón, clon deliberado de esa función.
+      data = await ovFetchSalesOrdersChunk({from:fromStr, to:toStr}, targetChannel);
     }else{
       const results = [];
       for(let i=0;i<chunks.length;i++){
