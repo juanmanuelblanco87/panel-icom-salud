@@ -2872,7 +2872,39 @@ const ERP_FETCH_TIMEOUT_MS = 25000; // 25s -- generoso para una sola página/inv
 // había hecho acá (Ventas en Vivo, motor separado en el shell) -- se usa el
 // mismo valor (65s) por el mismo motivo, no un valor propio inventado.
 const ERP_INVOICES_RANGE_TIMEOUT_MS = 65000;
-async function erpFetchConTimeout(url, opts, timeoutMs){
+// 02/09/2026 ("Error: Unexpected token 'A', 'An error o'..." / "tarda
+// demasiado" / "ni siquiera corre para una sola unidad de negocio"):
+// varios features de esta pantalla (backfill mensual de fondo que corre
+// solo al entrar a ICOM -- ver erpFetchIcomMonthlyWeightsImpl --, la
+// consulta manual de un rango, Órdenes de Venta de Cirugía, el polling
+// de erpFetchNow) pegan cada uno por su cuenta contra oppen-invoices/
+// oppen-sales-orders -- que a su vez pegan, ambos, contra la MISMA
+// conexión de oppen.io. Ya evitábamos mandar varios pedidos en paralelo
+// DENTRO de un mismo feature (chunks secuenciales, nunca Promise.all,
+// ver comentario grande junto a erpFetchInvoicesChunk -- confirmado en
+// producción que en paralelo tumba la conexión) pero nada impedía que 2
+// features DISTINTOS corrieran su propia secuencia al mismo tiempo.
+// Confirmado en los logs de producción: decenas de pedidos a
+// oppen-invoices cayendo en el mismo segundo, y al menos un caso de
+// oppen.io cerrando la conexión a mitad de respuesta (SocketError
+// "other side closed") -- consistente con oppen.io recibiendo más
+// pedidos concurrentes de los que banca. Esta cola asegura que sólo
+// haya 1 pedido pesado a oppen.io en vuelo por vez DESDE ESTE
+// NAVEGADOR, sin importar de qué feature venga -- el resto espera su
+// turno en orden de llegada, en vez de pisarse.
+let erpColaOppenPromise = Promise.resolve();
+function erpEsUrlOppenPesada(url){
+  return /\/api\/oppen-(invoices|sales-orders)(\?|$)/.test(url);
+}
+function erpEnColaOppen(fn){
+  const resultado = erpColaOppenPromise.then(fn, fn); // corre igual aunque el anterior de la cola haya fallado
+  // Encadenamos la cola sobre una versión que absorbe el error SÓLO para
+  // no dejarla trabada en "rechazada" para siempre -- quien llamó a
+  // erpEnColaOppen igual recibe `resultado` (con su error real, si lo hubo).
+  erpColaOppenPromise = resultado.catch(()=>{});
+  return resultado;
+}
+async function erpFetchConTimeoutImpl(url, opts, timeoutMs){
   const ctrl = new AbortController();
   const ms = timeoutMs || ERP_FETCH_TIMEOUT_MS;
   const timer = setTimeout(()=>ctrl.abort(), ms);
@@ -2884,6 +2916,10 @@ async function erpFetchConTimeout(url, opts, timeoutMs){
   }finally{
     clearTimeout(timer);
   }
+}
+function erpFetchConTimeout(url, opts, timeoutMs){
+  if(erpEsUrlOppenPesada(url)) return erpEnColaOppen(()=>erpFetchConTimeoutImpl(url, opts, timeoutMs));
+  return erpFetchConTimeoutImpl(url, opts, timeoutMs);
 }
 
 let erpFetchNowPromise = null;

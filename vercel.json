@@ -9,6 +9,9 @@
     "api/oppen-invoices.js": {
       "maxDuration": 60
     },
+    "api/oppen-sales-orders.js": {
+      "maxDuration": 60
+    },
     "api/actualizar-ventas-12m.js": {
       "maxDuration": 30
     },
