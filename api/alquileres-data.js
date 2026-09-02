@@ -123,6 +123,12 @@ async function calcularProductos() {
   // Parámetros globales (ver accionGuardarGlobals), default sensato en
   // _alquileres-formula.js.
   const factores = { 1: globals.factorDiario, 7: globals.factorSemanal, 15: globals.factorQuincenal, 30: 1 };
+  // 02/09/2026 ("no puede tener menos margen alquilando por dia que
+  // por mes" + "la logica del ratio incremental debe quedar
+  // configurable"): margen mínimo garantizado por período, también
+  // editable -- ver derivarSugeridoDesdeMensual/GM_*_DEFAULT en
+  // _alquileres-formula.js.
+  const gmPorPeriodo = { 1: globals.gmDiario, 7: globals.gmSemanal, 15: globals.gmQuincenal };
 
   // PASADA 1: precio Mensual de cada producto -- la ÚNICA fila que
   // corre la fórmula completa de piso+techo+inflación (o manual),
@@ -146,6 +152,15 @@ async function calcularProductos() {
   // resto del módulo).
   const productos = catalogo.map(p => {
     const d = datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes);
+    // 02/09/2026 ("El deposito para otras periodos... sigue siendo el
+    // deposito de Mensual ya que no esta atado a tiempo sino a un
+    // seguro del daño del producto"): el depósito describe el RIESGO
+    // del producto físico (mismo criterio que usosMaximos/
+    // precioProductoNuevo, ver configBase), no el alquiler puntual --
+    // se calcula SIEMPRE sobre el precio Mensual, nunca sobre el
+    // sugerido de la fila (ver `deposito` más abajo), disponible acá
+    // arriba para las 4 filas por igual.
+    const mensualSugerido = mensualSugeridoPorProducto.get(d.productoBaseId);
     let sugerencia;
     if (p.periodo === 'mes') {
       sugerencia = calcularSugerencia(d.configEfectiva, d.precioVigenteOppen, d.mesesSinActualizar, 30, d.periodoDiasCanonico, globals);
@@ -155,22 +170,37 @@ async function calcularProductos() {
       const costoAdministrativo = globals.costoAdministrativo ?? 1000;
       // costoPorUso queda como dato de referencia (para margenPct y
       // para que la tabla siga mostrando "cuánto cuesta de verdad
-      // proveer este alquiler") -- ya NO define el precio de estas 3
-      // filas, sólo Mensual.
+      // proveer este alquiler").
       const costoPorUsoBruto = calcularCostoPorUso(d.configEfectiva, p.periodoDias || 30, d.periodoDiasCanonico, costoAdministrativo);
-      const mensualSugerido = mensualSugeridoPorProducto.get(d.productoBaseId);
-      const sugerido = derivarSugeridoDesdeMensual(mensualSugerido, p.periodoDias || 30, factores);
+      const periodoDiasFila = p.periodoDias || 30;
+      const factorFila = factores[periodoDiasFila] ?? 1;
+      const gmFila = gmPorPeriodo[periodoDiasFila];
+      const sugerido = derivarSugeridoDesdeMensual(mensualSugerido, periodoDiasFila, factores, costoPorUsoBruto, gmFila);
+      // 02/09/2026 ("no puede tener menos margen alquilando por dia que
+      // por mes"): el precio final es el MAYOR entre el derivado por
+      // factor del mensual y el piso de margen mínimo de este período
+      // (ver derivarSugeridoDesdeMensual) -- acá se recalcula el mismo
+      // piso SOLO para poder mostrar cuál de los 2 ganó en el panel
+      // "Método usado" del cliente, igual que ya hace Mensual con
+      // pisoCostoMargen/techo*.
+      const porFactor = mensualSugerido != null ? (mensualSugerido / 30) * factorFila * periodoDiasFila : null;
+      const pisoMargenPeriodo = (costoPorUsoBruto != null && gmFila != null && gmFila < 100)
+        ? costoPorUsoBruto / (1 - gmFila / 100)
+        : null;
+      const ganoPiso = pisoMargenPeriodo != null && (porFactor == null || pisoMargenPeriodo >= porFactor);
       sugerencia = {
         sugerido,
-        metodo: mensualSugerido != null ? 'derivado del mensual' : 'sin datos',
+        metodo: mensualSugerido == null ? 'sin datos' : (ganoPiso ? 'piso costo + margen (período)' : 'derivado del mensual'),
         mesesSinActualizar: d.mesesSinActualizar,
-        pisoCostoMargen: null, ajustadoInflacion: null, techoCompetencia: null, techoReposicion: null, limitadoPorTecho: false,
+        pisoCostoMargen: pisoMargenPeriodo != null ? roundCosto(pisoMargenPeriodo) : null,
+        ajustadoInflacion: null, techoCompetencia: null, techoReposicion: null, limitadoPorTecho: false,
         costoPorUso: roundCosto(costoPorUsoBruto),
         margenPct: (costoPorUsoBruto != null && sugerido > 0) ? ((sugerido - costoPorUsoBruto) / sugerido) * 100 : null,
         // 01/09/2026: sólo para transparencia en el panel "Método usado"
         // del cliente -- de dónde salió el número (mensual × factor).
         mensualSugerido: mensualSugerido ?? null,
-        factorAplicado: factores[p.periodoDias || 30] ?? null,
+        factorAplicado: factorFila,
+        gmPeriodoAplicado: gmFila ?? null,
       };
     }
 
@@ -181,7 +211,10 @@ async function calcularProductos() {
     // (ej. sugerido=17.999 * 1.5 = 26.998,5 -> $26.999). El depósito no
     // es un precio de venta, no tiene sentido que termine en 99 -- se
     // redondea aparte, siempre al millar más cercano.
-    const deposito = sugerencia.sugerido != null ? Math.round((sugerencia.sugerido * (d.configEfectiva.multiplicadorDeposito || 0)) / 1000) * 1000 : null;
+    // 02/09/2026: sobre `mensualSugerido`, NUNCA sobre `sugerencia.sugerido`
+    // de la fila -- el depósito es el mismo en las 4 filas de un mismo
+    // producto (ver comentario grande de arriba).
+    const deposito = mensualSugerido != null ? Math.round((mensualSugerido * (d.configEfectiva.multiplicadorDeposito || 0)) / 1000) * 1000 : null;
     const deltaPct = d.precioVigenteOppen && sugerencia.sugerido != null
       ? ((sugerencia.sugerido - d.precioVigenteOppen) / d.precioVigenteOppen) * 100
       : null;

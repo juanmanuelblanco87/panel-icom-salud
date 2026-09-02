@@ -6,6 +6,10 @@
 // pero no guardar cambios (confirmado con el usuario).
 const { requerirSesion } = require('./_talento-auth');
 const { guardarAlquilerConfig, guardarAlquileresGlobals } = require('./_alquileres-store');
+const {
+  FACTOR_DIARIO_DEFAULT, FACTOR_SEMANAL_DEFAULT, FACTOR_QUINCENAL_DEFAULT,
+  GM_DIARIO_DEFAULT, GM_SEMANAL_DEFAULT, GM_QUINCENAL_DEFAULT,
+} = require('./_alquileres-formula');
 
 function httpError(status, mensaje) {
   const e = new Error(mensaje);
@@ -89,9 +93,18 @@ async function accionGuardarGlobals(payload, solicitante) {
     // cliente"): factores de derivación Diario/Semanal/Quincenal desde
     // el precio mensual (multiplican la tarifa diaria implícita del
     // mensual) -- ver derivarSugeridoDesdeMensual en _alquileres-formula.js.
-    factorDiario: numOrNull(payload.factorDiario) ?? 1.8,
-    factorSemanal: numOrNull(payload.factorSemanal) ?? 1.35,
-    factorQuincenal: numOrNull(payload.factorQuincenal) ?? 1.15,
+    factorDiario: numOrNull(payload.factorDiario) ?? FACTOR_DIARIO_DEFAULT,
+    factorSemanal: numOrNull(payload.factorSemanal) ?? FACTOR_SEMANAL_DEFAULT,
+    factorQuincenal: numOrNull(payload.factorQuincenal) ?? FACTOR_QUINCENAL_DEFAULT,
+    // 02/09/2026 ("chequea los margenes... no puede tener menos margen
+    // alquilando por dia que por mes" + "la logica del ratio incremental
+    // debe quedar configurable en criterios generales"): margen mínimo
+    // garantizado por período (gana el que pida más entre esto y el
+    // factor de arriba) -- ver GM_*_DEFAULT/derivarSugeridoDesdeMensual
+    // en _alquileres-formula.js.
+    gmDiario: numOrNull(payload.gmDiario) ?? GM_DIARIO_DEFAULT,
+    gmSemanal: numOrNull(payload.gmSemanal) ?? GM_SEMANAL_DEFAULT,
+    gmQuincenal: numOrNull(payload.gmQuincenal) ?? GM_QUINCENAL_DEFAULT,
     actualizadoPor: { rol: solicitante.rol, usuario: solicitante.usuario },
     fecha: new Date().toISOString(),
   };

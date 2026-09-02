@@ -6,7 +6,10 @@
 // el prefijo de clave ('alquileres' en vez de 'talento') ya namespacea
 // todo, no hace falta una base nueva.
 const { Redis } = require('@upstash/redis');
-const { FACTOR_DIARIO_DEFAULT, FACTOR_SEMANAL_DEFAULT, FACTOR_QUINCENAL_DEFAULT } = require('./_alquileres-formula');
+const {
+  FACTOR_DIARIO_DEFAULT, FACTOR_SEMANAL_DEFAULT, FACTOR_QUINCENAL_DEFAULT,
+  GM_DIARIO_DEFAULT, GM_SEMANAL_DEFAULT, GM_QUINCENAL_DEFAULT,
+} = require('./_alquileres-formula');
 
 const redis = new Redis({
   url: process.env.TALENTO_KV_REST_API_URL,
@@ -83,9 +86,19 @@ async function leerAlquileresGlobals() {
   if (g && g.factorDiario == null) g.factorDiario = FACTOR_DIARIO_DEFAULT;
   if (g && g.factorSemanal == null) g.factorSemanal = FACTOR_SEMANAL_DEFAULT;
   if (g && g.factorQuincenal == null) g.factorQuincenal = FACTOR_QUINCENAL_DEFAULT;
+  // 02/09/2026 ("chequea los margenes... no puede tener menos margen
+  // alquilando por dia que por mes" + "la logica del ratio incremental
+  // debe quedar configurable en criterios generales"): margen mínimo
+  // garantizado por período (piso costo/(1-gm%), gana el que pida más
+  // entre esto y el factor) -- ver GM_*_DEFAULT/derivarSugeridoDesdeMensual
+  // en _alquileres-formula.js. Mismo criterio de migración.
+  if (g && g.gmDiario == null) g.gmDiario = GM_DIARIO_DEFAULT;
+  if (g && g.gmSemanal == null) g.gmSemanal = GM_SEMANAL_DEFAULT;
+  if (g && g.gmQuincenal == null) g.gmQuincenal = GM_QUINCENAL_DEFAULT;
   return g || {
     monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50, costoAdministrativo: 1000, mesesMinInflacion: 3,
     factorDiario: FACTOR_DIARIO_DEFAULT, factorSemanal: FACTOR_SEMANAL_DEFAULT, factorQuincenal: FACTOR_QUINCENAL_DEFAULT,
+    gmDiario: GM_DIARIO_DEFAULT, gmSemanal: GM_SEMANAL_DEFAULT, gmQuincenal: GM_QUINCENAL_DEFAULT,
   };
 }
 async function guardarAlquileresGlobals(g) {
