@@ -152,6 +152,17 @@ module.exports = async function handler(req, res) {
         overrideManual: config.overrideManual ?? null,
       };
       const periodoDiasCanonico = (catalogo.find(c => c.id === (p.productoBaseId || p.id)) || {}).periodoDias || 30;
+      // 01/09/2026 ("el precio que manda es el mensual, desde ahi se
+      // re-calculan automaticamente el resto"): a diferencia de
+      // alquileres-data.js, acá NO se replica el esquema de 2 pasadas
+      // (Mensual primero, Diario/Semanal/Quincenal derivados) -- este
+      // `precioSugerido` es un dato puramente HISTÓRICO (se guarda,
+      // pero ningún otro archivo lo vuelve a leer; alquileres-data.js
+      // sólo usa `precioVigenteOppen` del snapshot) y este cron sólo
+      // corre para filas que YA tienen sku real + facturas en la
+      // ventana -- hoy, en la práctica, sólo la fila canónica de cada
+      // producto. No vale la pena la complejidad de las 2 pasadas para
+      // un valor que nadie vuelve a consultar.
       const sugerencia = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, p.periodoDias || 30, periodoDiasCanonico, globals);
 
       await guardarAlquilerSnapshot({

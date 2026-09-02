@@ -83,6 +83,15 @@ async function accionGuardarGlobals(payload, solicitante) {
     // meses, precioVigenteOppen NO compite como piso -- ver
     // _alquileres-formula.js.
     mesesMinInflacion: numOrNull(payload.mesesMinInflacion) ?? 3,
+    // 01/09/2026 ("el precio que manda es el mensual, desde ahi se
+    // re-calculan automaticamente el resto" + "cuantos menos dias
+    // alquilen mas rentable... mas honeroso -precio unitario- para el
+    // cliente"): factores de derivación Diario/Semanal/Quincenal desde
+    // el precio mensual (multiplican la tarifa diaria implícita del
+    // mensual) -- ver derivarSugeridoDesdeMensual en _alquileres-formula.js.
+    factorDiario: numOrNull(payload.factorDiario) ?? 1.8,
+    factorSemanal: numOrNull(payload.factorSemanal) ?? 1.35,
+    factorQuincenal: numOrNull(payload.factorQuincenal) ?? 1.15,
     actualizadoPor: { rol: solicitante.rol, usuario: solicitante.usuario },
     fecha: new Date().toISOString(),
   };

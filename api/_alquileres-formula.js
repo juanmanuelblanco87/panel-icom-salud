@@ -52,9 +52,21 @@
 // múltiplo más cercano" (ej. $5.234 -> $5.000) a precios psicológicos
 // terminados en 99 (ej. $5.234 -> $4.999, con inc=1000) -- se redondea
 // al múltiplo más cercano de `inc` y se le resta 1.
+//
+// 01/09/2026 ("en alquileres diarios estas sugiriendo alquilar a -1"):
+// bug real confirmado -- `inc` (redondeo, un parámetro GLOBAL calibrado
+// para precios de escala mensual, ej. $1000) es demasiado grueso para
+// un valor chico como un alquiler diario. Si Math.round(v/inc)*inc daba
+// 0 (v menor a medio `inc`), el "-1" de más arriba lo dejaba en -$1 --
+// un precio negativo sin sentido. Guard: si el redondeo al múltiplo más
+// grueso se come el valor entero, se cae a redondear al entero más
+// cercano sin el patrón "99" (ese patrón psicológico tampoco tiene
+// sentido en números tan chicos).
 function round(v, inc) {
   if (v == null || !inc) return v;
-  return Math.round(v / inc) * inc - 1;
+  const r = Math.round(v / inc) * inc;
+  if (r <= 0) return v > 0 ? Math.max(1, Math.round(v)) : v;
+  return r - 1;
 }
 
 function mesActual() {
@@ -119,30 +131,96 @@ const TOPE_PCT_DEL_NUEVO = 0.35; // "que el costo del alquiler no supere el 35% 
 // snapshot, sin que cambie nada del negocio.
 const MESES_MIN_DEFAULT = 3;
 
-// 01/09/2026 ("selector de Periodos... los productos son los mismos,
-// solo cambia el periodo" + "arma logicas para re-calcular el costeo y
-// el precio de alquiler/deposito en funcion del periodo"): calcularSugerencia
-// pasa a recibir el período que se está cotizando (periodoDias) y el
-// período del que salió `config.usosMaximos` (periodoDiasCanonico, el de
-// la fila "base" del producto -- ver configBase en alquileres-data.js).
-// `usosMaximos` SIGUE significando exactamente lo mismo que antes
-// ("cuántos alquileres a SU período aguanta el producto", cargado en la
-// fila canónica) -- acá adentro se reinterpreta en días de vida útil
-// totales, sin pedirle a nadie que vuelva a cargar nada.
-//
+// 01/09/2026 (2do rediseño, "invierte los botones... el precio que
+// 'manda' es el mensual, desde ahi se re-calculan automaticamente el
+// resto" + "cuantos menos dias alquilen mas rentable debe ser para
+// ICOM y mas honeroso -precio unitario- para el cliente"): la 1ra
+// versión de "selector de Período" evaluaba piso/techo/inflación de
+// forma INDEPENDIENTE en cada período, sólo escalando costo/techo por
+// los días -- con montos chicos y un `redondeo` calibrado para precios
+// mensuales, esto degeneraba en resultados sin sentido (ver el fix de
+// `round()` más arriba, "-1"). Rediseño: sólo el período MENSUAL corre
+// la fórmula completa de piso+techo+inflación (siempre a 30 días, sea o
+// no el período canónico del producto en Oppen) -- Diario/Semanal/
+// Quincenal se DERIVAN de ese precio mensual con un factor > 1 por
+// período (editable en Parámetros globales, ver FACTOR_*_DEFAULT):
+// encarece el precio POR DÍA cuanto más corto el alquiler, a propósito
+// -- más rentable para ICOM, más honeroso para el cliente, mismo
+// criterio que cualquier mercado real de alquileres. Ver
+// derivarSugeridoDesdeMensual más abajo (usado desde alquileres-data.js/
+// alquileres-snapshot.js) -- calcularSugerencia en sí queda para
+// MENSUAL (y para "manual", que gana en cualquier período).
+const FACTOR_DIARIO_DEFAULT = 1.8;
+const FACTOR_SEMANAL_DEFAULT = 1.35;
+const FACTOR_QUINCENAL_DEFAULT = 1.15;
+// Mapa por DÍAS del período (no por nombre) -- mismo dato que
+// `periodoDias` en el catálogo, evita otro nivel de traducción.
+const FACTOR_POR_PERIODO_DIAS_DEFAULT = { 1: FACTOR_DIARIO_DEFAULT, 7: FACTOR_SEMANAL_DEFAULT, 15: FACTOR_QUINCENAL_DEFAULT, 30: 1 };
+
+// Costo real por uso (informativo -- SIEMPRE se calcula, sea cual sea
+// el método que termine definiendo el precio, ver comentario junto a
+// conMargen más abajo) -- extraído de calcularSugerencia para poder
+// reusarlo también en las filas DERIVADAS (Diario/Semanal/Quincenal),
+// que ya no pasan por calcularSugerencia pero igual necesitan un costo
+// de referencia propio para mostrar margenPct.
+// `vidaUtilDias` reinterpreta usosMaximos (cargado pensando en SU
+// período canónico, ej. 20 alquileres mensuales) en días totales de
+// vida útil del producto físico (20*30 = 600 días) -- de ahí sale un
+// costo POR DÍA, multiplicado por la duración del período pedido.
+// costoAdministrativo NO se escala por período a propósito: es un
+// costo fijo por operación de entrega/retiro/limpieza, se paga igual
+// si el alquiler dura 1 día o 30.
+function calcularCostoPorUso(config, periodoDias, periodoDiasCanonico, costoAdministrativo) {
+  const diasCotizados = periodoDias || 30;
+  const diasCanonico = periodoDiasCanonico || 30;
+  const vidaUtilDias = (config && config.usosMaximos > 0) ? config.usosMaximos * diasCanonico : null;
+  const costoProductoPorUso = (vidaUtilDias != null && config.precioProductoNuevo > 0)
+    ? (config.precioProductoNuevo * FRACCION_COSTO_DEL_NUEVO / vidaUtilDias) * diasCotizados
+    : null;
+  return costoProductoPorUso != null ? costoProductoPorUso + (costoAdministrativo || 0) : null;
+}
+
+// 01/09/2026 (encontrado probando con números reales, "chequea que en
+// alquileres diarios estas sugiriendo alquilar a -1"): el `redondeo`
+// GLOBAL (calibrado para precios de escala MENSUAL, ej. $1000) es
+// demasiado grueso para valores Diario/Semanal/Quincenal, que son
+// naturalmente mucho más chicos -- aplicado tal cual, el ruido del
+// redondeo terminaba siendo del mismo orden de magnitud que la prima
+// del 20-80% que estos factores buscan reflejar, y en algunos casos
+// invertía el orden esperado (Semanal terminaba pareciendo más barato
+// por día que Quincenal, pura casualidad del redondeo, no de la
+// fórmula). Estos 3 períodos SIEMPRE redondean fino ($100), sin
+// importar qué `redondeo` haya elegido el usuario para Mensual --
+// mantiene la precisión relativa de la prima por período, que es
+// justamente lo que hay que preservar acá.
+const REDONDEO_DERIVADO = 100;
+
+// mensualSugerido: number|null -- el `sugerido` YA resuelto de la fila
+// Mensual de este producto (piso+techo+inflación, o manual -- lo que
+// haya ganado ahí, ver calcularSugerencia). periodoDias: 1|7|15 (nunca
+// 30 -- Mensual no se deriva de sí mismo). factores: { 1, 7, 15 } (ver
+// FACTOR_POR_PERIODO_DIAS_DEFAULT) -- multiplicador sobre la tarifa
+// DIARIA implícita del mensual (mensual/30). Devuelve null si todavía
+// no hay precio mensual del que partir (producto sin costear).
+function derivarSugeridoDesdeMensual(mensualSugerido, periodoDias, factores) {
+  if (mensualSugerido == null) return null;
+  const factor = (factores && factores[periodoDias] != null) ? factores[periodoDias] : (FACTOR_POR_PERIODO_DIAS_DEFAULT[periodoDias] || 1);
+  const precioPorDia = (mensualSugerido / 30) * factor;
+  return round(precioPorDia * periodoDias, REDONDEO_DERIVADO);
+}
+
 // config: { usosMaximos, precioProductoNuevo, precioMercado, overrideManual }
 // precioVigenteOppen: number|null (derivado de Oppen, ver alquileres-data.js)
 // mesesSinActualizar: number|null (ver mesesDesdeUltimoCambioDePrecio)
-// periodoDias: 1|7|15|30 -- duración del período que se está cotizando (fila actual)
-// periodoDiasCanonico: 1|7|15|30 -- duración del período de la fila base (de donde sale usosMaximos)
+// periodoDias/periodoDiasCanonico: ver calcularCostoPorUso -- en la
+// práctica esta función sólo se llama con periodoDias=30 (Mensual,
+// ver comentario grande de arriba) o para "manual" en cualquier período.
 // g: { monthlyPct, redondeo, gmObjetivoPct, costoAdministrativo }
 function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, periodoDias, periodoDiasCanonico, g) {
   const redondeo = (g && g.redondeo) || 100;
   const gmObjetivoPct = (g && g.gmObjetivoPct != null) ? g.gmObjetivoPct : GM_DEFAULT_PCT;
   const costoAdministrativo = (g && g.costoAdministrativo != null) ? g.costoAdministrativo : COSTO_ADMINISTRATIVO_DEFAULT;
   const mesesMinInflacion = (g && g.mesesMinInflacion != null) ? g.mesesMinInflacion : MESES_MIN_DEFAULT;
-  const diasCotizados = periodoDias || 30;
-  const diasCanonico = periodoDiasCanonico || 30;
 
   // Juan Manuel, 25/08/2026 ("Agrega el costo y margen al lado de
   // periodo"): costoPorUso se calcula SIEMPRE (aunque el método
@@ -152,32 +230,7 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, peri
   // margenPct se calcula al final, contra el `sugerido` DEFINITIVO (ya
   // topeado si correspondía) -- es el margen REAL que se obtiene al
   // precio que efectivamente se va a cobrar, no el objetivo teórico.
-  //
-  // 25/08/2026 (2do pedido, "Agrega un costo Administrativo que se
-  // suma al costo de producto"): costoAdministrativo es un parámetro
-  // GLOBAL (uno solo para toda la operación, editable en Parámetros
-  // globales -- no por producto), pensado para cubrir gastos que el
-  // 50%-del-precio-nuevo no captura (entrega/retiro, limpieza,
-  // administración). Sólo se suma cuando YA hay un costo de producto
-  // (usosMaximos + precioProductoNuevo cargados) -- "se suma AL costo
-  // de producto", no reemplaza la necesidad de esos datos.
-  //
-  // 01/09/2026 (selector de Período): `vidaUtilDias` reinterpreta
-  // usosMaximos (cargado a SU período canónico, ej. 20 alquileres
-  // mensuales) en días totales de vida útil del producto físico (20*30 =
-  // 600 días) -- de ahí sale un costo POR DÍA, que se multiplica por la
-  // duración del período que se está cotizando. costoAdministrativo NO
-  // se escala por período a propósito: es un costo fijo por operación
-  // de entrega/retiro/limpieza, se paga igual si el alquiler dura 1 día
-  // o 30 -- efecto buscado (no un bug): en un alquiler diario ese fijo
-  // pesa mucho más proporcionalmente, así que el piso sale más caro por
-  // día que en uno mensual, igual que en cualquier mercado real de
-  // alquileres (tarifa diaria > prorrateo de la mensual).
-  const vidaUtilDias = (config && config.usosMaximos > 0) ? config.usosMaximos * diasCanonico : null;
-  const costoProductoPorUso = (vidaUtilDias != null && config.precioProductoNuevo > 0)
-    ? (config.precioProductoNuevo * FRACCION_COSTO_DEL_NUEVO / vidaUtilDias) * diasCotizados
-    : null;
-  const costoPorUso = costoProductoPorUso != null ? costoProductoPorUso + costoAdministrativo : null;
+  const costoPorUso = calcularCostoPorUso(config, periodoDias, periodoDiasCanonico, costoAdministrativo);
   function conMargen(resultado) {
     const margenPct = (costoPorUso != null && resultado.sugerido > 0)
       ? ((resultado.sugerido - costoPorUso) / resultado.sugerido) * 100
@@ -220,12 +273,8 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, peri
   const techoCompetencia = (config && config.precioMercado > 0)
     ? round(config.precioMercado * (1 - DESCUENTO_VS_COMPETENCIA), redondeo)
     : null;
-  // 01/09/2026: TOPE_PCT_DEL_NUEVO ("no superar el 35% del producto
-  // nuevo") estaba calibrado pensando en un mes -- se prorratea a la
-  // duración del período que se está cotizando (ej. a 7 días, el tope
-  // pasa a ser 35% * 7/30 del precio del producto nuevo).
   const techoReposicion = (config && config.precioProductoNuevo > 0)
-    ? round(config.precioProductoNuevo * TOPE_PCT_DEL_NUEVO * (diasCotizados / 30), redondeo)
+    ? round(config.precioProductoNuevo * TOPE_PCT_DEL_NUEVO, redondeo)
     : null;
   const techos = [techoCompetencia, techoReposicion].filter(v => v != null);
   const techo = techos.length ? Math.min(...techos) : null;
@@ -249,5 +298,7 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, peri
 module.exports = {
   round, mesActual, mesesEntre, inflacionCompuesta,
   mesesDesdeUltimoCambioDePrecio, calcularSugerencia,
-  GM_DEFAULT_PCT, MESES_MIN_DEFAULT,
+  calcularCostoPorUso, derivarSugeridoDesdeMensual,
+  GM_DEFAULT_PCT, MESES_MIN_DEFAULT, REDONDEO_DERIVADO,
+  FACTOR_DIARIO_DEFAULT, FACTOR_SEMANAL_DEFAULT, FACTOR_QUINCENAL_DEFAULT,
 };

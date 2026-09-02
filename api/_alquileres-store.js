@@ -6,6 +6,7 @@
 // el prefijo de clave ('alquileres' en vez de 'talento') ya namespacea
 // todo, no hace falta una base nueva.
 const { Redis } = require('@upstash/redis');
+const { FACTOR_DIARIO_DEFAULT, FACTOR_SEMANAL_DEFAULT, FACTOR_QUINCENAL_DEFAULT } = require('./_alquileres-formula');
 
 const redis = new Redis({
   url: process.env.TALENTO_KV_REST_API_URL,
@@ -74,7 +75,18 @@ async function leerAlquileresGlobals() {
   // 27/08/2026 ("mismo criterio para todos inicialmente, recién mes
   // 2/3/4 corregir por inflación"): mismo criterio de migración.
   if (g && g.mesesMinInflacion == null) g.mesesMinInflacion = 3;
-  return g || { monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50, costoAdministrativo: 1000, mesesMinInflacion: 3 };
+  // 01/09/2026 ("el precio que manda es el mensual, desde ahi se
+  // re-calculan automaticamente el resto" -- selector de Período):
+  // factores de derivación Diario/Semanal/Quincenal desde el precio
+  // mensual, ver FACTOR_*_DEFAULT en _alquileres-formula.js. Mismo
+  // criterio de migración que el resto de estos campos.
+  if (g && g.factorDiario == null) g.factorDiario = FACTOR_DIARIO_DEFAULT;
+  if (g && g.factorSemanal == null) g.factorSemanal = FACTOR_SEMANAL_DEFAULT;
+  if (g && g.factorQuincenal == null) g.factorQuincenal = FACTOR_QUINCENAL_DEFAULT;
+  return g || {
+    monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50, costoAdministrativo: 1000, mesesMinInflacion: 3,
+    factorDiario: FACTOR_DIARIO_DEFAULT, factorSemanal: FACTOR_SEMANAL_DEFAULT, factorQuincenal: FACTOR_QUINCENAL_DEFAULT,
+  };
 }
 async function guardarAlquileresGlobals(g) {
   await redis.set(GLOBALS_KEY, g);

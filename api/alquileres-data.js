@@ -26,7 +26,10 @@ const fs = require('fs');
 const path = require('path');
 const { requerirSesion } = require('./_talento-auth');
 const { leerAlquilerConfigs, leerAlquileresGlobals, leerAlquilerSnapshots } = require('./_alquileres-store');
-const { calcularSugerencia, mesesDesdeUltimoCambioDePrecio, mesActual } = require('./_alquileres-formula');
+const {
+  calcularSugerencia, calcularCostoPorUso, derivarSugeridoDesdeMensual, round,
+  mesesDesdeUltimoCambioDePrecio, mesActual,
+} = require('./_alquileres-formula');
 
 function leerCatalogo() {
   const raw = fs.readFileSync(path.join(__dirname, '..', 'data', 'alquileres_catalogo.json'), 'utf8');
@@ -38,12 +41,75 @@ function limpiarSku(sku) {
   return s || null;
 }
 
+// Datos comunes a las 2 pasadas de abajo (config resuelta, precio
+// vigente de Oppen, meses sin actualizar) -- una función pura por fila,
+// para no recalcular lo mismo 2 veces con criterios que puedan divergir.
+function datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes) {
+  const config = configPorId.get(p.id) || {};
+  // 01/09/2026 ("selector de Periodos... los productos son los mismos,
+  // solo cambia el periodo"): cada fila del catálogo pertenece a un
+  // "producto base" (p.productoBaseId -- para la fila canónica es ella
+  // misma). Los campos que describen el PRODUCTO FÍSICO, no el
+  // alquiler puntual (precioProductoNuevo/link/imagen/usosMaximos/
+  // multiplicadorDeposito) se resuelven SIEMPRE desde la config de esa
+  // fila canónica -- evita que 4 filas del mismo producto queden
+  // desincronizadas si alguien edita "Precio producto nuevo" en la
+  // fila equivocada. Para la fila canónica, configBase === config
+  // (mismo registro) -- cero cambio de comportamiento para lo que ya
+  // existía antes de esto.
+  const productoBaseId = p.productoBaseId || p.id;
+  const configBase = productoBaseId === p.id ? config : (configPorId.get(productoBaseId) || {});
+  const skuOppen = limpiarSku(config.skuOppen != null ? config.skuOppen : p.skuOppen);
+
+  const historialAsc = (snapshotsPorProducto.get(p.id) || []).slice().sort((a, b) => a.mes.localeCompare(b.mes));
+  const ultimoSnapshot = historialAsc[historialAsc.length - 1] || null;
+  // 25/08/2026 ("en los productos que no encuentre creados en Oppen
+  // pintalos de otro color... y coloca el precio de la tabla
+  // original"): sin snapshot todavía (Oppen nunca encontró facturas
+  // para este sku en la ventana escaneada), se cae al precio de
+  // referencia del prototipo original -- mejor un número real (aunque
+  // desactualizado) que "s/d" en toda la tabla mientras se junta
+  // historial propio. `desatendido:true` es la señal para que el
+  // cliente lo pinte distinto -- "este precio no viene de una factura
+  // real reciente, needs revisión".
+  const desatendido = !ultimoSnapshot;
+  const precioVigenteOppen = ultimoSnapshot ? ultimoSnapshot.precioVigenteOppen : (p.precioReferenciaOriginal ?? null);
+  // mesesSinActualizar sigue dependiendo del historial real -- el
+  // precio de referencia no tiene una fecha de origen conocida, así
+  // que NUNCA alimenta el ajuste por inflación (calcularSugerencia ya
+  // devuelve ajustadoInflacion:null si mesesSinActualizar es null, sin
+  // necesidad de una rama aparte acá).
+  const mesesSinActualizar = ultimoSnapshot ? mesesDesdeUltimoCambioDePrecio(historialAsc, precioVigenteOppen, mes) : null;
+
+  // usosMaximos/multiplicadorDeposito/precioProductoNuevo/link/imagen
+  // salen de configBase (producto físico, compartido entre las 4 filas
+  // del mismo producto) -- precioMercado/linkMercado/overrideManual
+  // siguen siendo genuinamente por período (la competencia cobra
+  // distinto por día que por mes, y el override manual es una decisión
+  // puntual de ESA fila), salen de `config` (la propia fila).
+  const configEfectiva = {
+    usosMaximos: configBase.usosMaximos ?? null,
+    multiplicadorDeposito: configBase.multiplicadorDeposito ?? 1.5,
+    precioProductoNuevo: configBase.precioProductoNuevo ?? null,
+    linkProductoNuevo: configBase.linkProductoNuevo ?? null,
+    imagenProductoNuevo: configBase.imagenProductoNuevo ?? null,
+    precioMercado: config.precioMercado ?? null,
+    linkMercado: config.linkMercado ?? null,
+    overrideManual: config.overrideManual ?? null,
+  };
+
+  const filaCanonica = catalogoPorId.get(productoBaseId);
+  const periodoDiasCanonico = (filaCanonica && filaCanonica.periodoDias) || 30;
+  return { productoBaseId, configEfectiva, skuOppen, precioVigenteOppen, desatendido, mesesSinActualizar, ultimoSnapshot, periodoDiasCanonico };
+}
+
 async function calcularProductos() {
   const catalogo = leerCatalogo();
   const [configs, globals, snapshots] = await Promise.all([
     leerAlquilerConfigs(), leerAlquileresGlobals(), leerAlquilerSnapshots(),
   ]);
   const configPorId = new Map(configs.map(c => [c.id, c]));
+  const catalogoPorId = new Map(catalogo.map(c => [c.id, c]));
   const snapshotsPorProducto = new Map();
   snapshots.forEach(s => {
     if (!snapshotsPorProducto.has(s.productoId)) snapshotsPorProducto.set(s.productoId, []);
@@ -51,64 +117,63 @@ async function calcularProductos() {
   });
   const mes = mesActual();
 
+  // 01/09/2026 ("el precio que 'manda' es el mensual, desde ahi se
+  // re-calculan automaticamente el resto"): factores de derivación
+  // Diario/Semanal/Quincenal desde el precio Mensual -- editables en
+  // Parámetros globales (ver accionGuardarGlobals), default sensato en
+  // _alquileres-formula.js.
+  const factores = { 1: globals.factorDiario, 7: globals.factorSemanal, 15: globals.factorQuincenal, 30: 1 };
+
+  // PASADA 1: precio Mensual de cada producto -- la ÚNICA fila que
+  // corre la fórmula completa de piso+techo+inflación (o manual),
+  // siempre a 30 días, sea o no el período canónico del producto en
+  // Oppen (ver comentario grande junto a calcularSugerencia).
+  const mensualSugeridoPorProducto = new Map();
+  catalogo.forEach(p => {
+    if (p.periodo !== 'mes') return;
+    const d = datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes);
+    const r = calcularSugerencia(d.configEfectiva, d.precioVigenteOppen, d.mesesSinActualizar, 30, d.periodoDiasCanonico, globals);
+    mensualSugeridoPorProducto.set(d.productoBaseId, r.sugerido);
+  });
+
+  // PASADA 2: las 4 filas de cada producto. Mensual reusa el mismo
+  // cálculo de la pasada 1 (se vuelve a correr acá -- es una función
+  // pura, más simple que guardar el objeto completo de la pasada 1
+  // aparte). Diario/Semanal/Quincenal se DERIVAN del mensual (ver
+  // derivarSugeridoDesdeMensual), salvo que tengan su propio precio
+  // manual cargado para ESA fila puntual, que sigue ganando en
+  // cualquier período (mismo criterio "una persona en el medio" del
+  // resto del módulo).
   const productos = catalogo.map(p => {
-    const config = configPorId.get(p.id) || {};
-    // 01/09/2026 ("selector de Periodos... los productos son los mismos,
-    // solo cambia el periodo"): cada fila del catálogo pertenece a un
-    // "producto base" (p.productoBaseId -- para la fila canónica es
-    // ella misma). Los campos que describen el PRODUCTO FÍSICO, no el
-    // alquiler puntual (precioProductoNuevo/link/imagen/usosMaximos/
-    // multiplicadorDeposito) se resuelven SIEMPRE desde la config de esa
-    // fila canónica -- evita que 4 filas del mismo producto queden
-    // desincronizadas si alguien edita "Precio producto nuevo" en la
-    // fila equivocada. Para la fila canónica, configBase === config
-    // (mismo registro) -- cero cambio de comportamiento para lo que ya
-    // existía antes de esto.
-    const productoBaseId = p.productoBaseId || p.id;
-    const configBase = productoBaseId === p.id ? config : (configPorId.get(productoBaseId) || {});
-    const skuOppen = limpiarSku(config.skuOppen != null ? config.skuOppen : p.skuOppen);
+    const d = datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes);
+    let sugerencia;
+    if (p.periodo === 'mes') {
+      sugerencia = calcularSugerencia(d.configEfectiva, d.precioVigenteOppen, d.mesesSinActualizar, 30, d.periodoDiasCanonico, globals);
+    } else if (d.configEfectiva.overrideManual != null) {
+      sugerencia = calcularSugerencia(d.configEfectiva, d.precioVigenteOppen, d.mesesSinActualizar, p.periodoDias || 30, d.periodoDiasCanonico, globals);
+    } else {
+      const costoAdministrativo = globals.costoAdministrativo ?? 1000;
+      // costoPorUso queda como dato de referencia (para margenPct y
+      // para que la tabla siga mostrando "cuánto cuesta de verdad
+      // proveer este alquiler") -- ya NO define el precio de estas 3
+      // filas, sólo Mensual.
+      const costoPorUsoBruto = calcularCostoPorUso(d.configEfectiva, p.periodoDias || 30, d.periodoDiasCanonico, costoAdministrativo);
+      const mensualSugerido = mensualSugeridoPorProducto.get(d.productoBaseId);
+      const sugerido = derivarSugeridoDesdeMensual(mensualSugerido, p.periodoDias || 30, factores);
+      sugerencia = {
+        sugerido,
+        metodo: mensualSugerido != null ? 'derivado del mensual' : 'sin datos',
+        mesesSinActualizar: d.mesesSinActualizar,
+        pisoCostoMargen: null, ajustadoInflacion: null, techoCompetencia: null, techoReposicion: null, limitadoPorTecho: false,
+        costoPorUso: costoPorUsoBruto != null ? round(costoPorUsoBruto, globals.redondeo || 100) : null,
+        margenPct: (costoPorUsoBruto != null && sugerido > 0) ? ((sugerido - costoPorUsoBruto) / sugerido) * 100 : null,
+        // 01/09/2026: sólo para transparencia en el panel "Método usado"
+        // del cliente -- de dónde salió el número (mensual × factor).
+        mensualSugerido: mensualSugerido ?? null,
+        factorAplicado: factores[p.periodoDias || 30] ?? null,
+      };
+    }
 
-    const historialAsc = (snapshotsPorProducto.get(p.id) || []).slice().sort((a, b) => a.mes.localeCompare(b.mes));
-    const ultimoSnapshot = historialAsc[historialAsc.length - 1] || null;
-    // 25/08/2026 ("en los productos que no encuentre creados en Oppen
-    // pintalos de otro color... y coloca el precio de la tabla
-    // original"): sin snapshot todavía (Oppen nunca encontró facturas
-    // para este sku en la ventana escaneada), se cae al precio de
-    // referencia del prototipo original -- mejor un número real
-    // (aunque desactualizado) que "s/d" en toda la tabla mientras se
-    // junta historial propio. `desatendido:true` es la señal para que
-    // el cliente lo pinte distinto -- "este precio no viene de una
-    // factura real reciente, needs revisión".
-    const desatendido = !ultimoSnapshot;
-    const precioVigenteOppen = ultimoSnapshot ? ultimoSnapshot.precioVigenteOppen : (p.precioReferenciaOriginal ?? null);
-    // mesesSinActualizar sigue dependiendo del historial real -- el
-    // precio de referencia no tiene una fecha de origen conocida, así
-    // que NUNCA alimenta el ajuste por inflación (calcularSugerencia
-    // ya devuelve ajustadoInflacion:null si mesesSinActualizar es
-    // null, sin necesidad de una rama aparte acá).
-    const mesesSinActualizar = ultimoSnapshot ? mesesDesdeUltimoCambioDePrecio(historialAsc, precioVigenteOppen, mes) : null;
-
-    // usosMaximos/multiplicadorDeposito/precioProductoNuevo/link/imagen
-    // salen de configBase (producto físico, compartido entre las 4
-    // filas del mismo producto) -- precioMercado/linkMercado/
-    // overrideManual siguen siendo genuinamente por período (la
-    // competencia cobra distinto por día que por mes, y el override
-    // manual es una decisión puntual de ESA fila), salen de `config`
-    // (la propia fila).
-    const configEfectiva = {
-      usosMaximos: configBase.usosMaximos ?? null,
-      multiplicadorDeposito: configBase.multiplicadorDeposito ?? 1.5,
-      precioProductoNuevo: configBase.precioProductoNuevo ?? null,
-      linkProductoNuevo: configBase.linkProductoNuevo ?? null,
-      imagenProductoNuevo: configBase.imagenProductoNuevo ?? null,
-      precioMercado: config.precioMercado ?? null,
-      linkMercado: config.linkMercado ?? null,
-      overrideManual: config.overrideManual ?? null,
-    };
-
-    const filaCanonica = catalogo.find(c => c.id === productoBaseId);
-    const periodoDiasCanonico = (filaCanonica && filaCanonica.periodoDias) || 30;
-    const { sugerido, metodo, costoPorUso, margenPct, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho } = calcularSugerencia(configEfectiva, precioVigenteOppen, mesesSinActualizar, p.periodoDias || 30, periodoDiasCanonico, globals);
     // 27/08/2026 ("los depositos el redondeo siempre termina en 000"):
     // antes redondeaba al entero más cercano sin más -- como `sugerido`
     // ya viene con el patrón psicológico "terminado en 99" (ver round()
@@ -116,9 +181,9 @@ async function calcularProductos() {
     // (ej. sugerido=17.999 * 1.5 = 26.998,5 -> $26.999). El depósito no
     // es un precio de venta, no tiene sentido que termine en 99 -- se
     // redondea aparte, siempre al millar más cercano.
-    const deposito = sugerido != null ? Math.round((sugerido * (configEfectiva.multiplicadorDeposito || 0)) / 1000) * 1000 : null;
-    const deltaPct = precioVigenteOppen && sugerido != null
-      ? ((sugerido - precioVigenteOppen) / precioVigenteOppen) * 100
+    const deposito = sugerencia.sugerido != null ? Math.round((sugerencia.sugerido * (d.configEfectiva.multiplicadorDeposito || 0)) / 1000) * 1000 : null;
+    const deltaPct = d.precioVigenteOppen && sugerencia.sugerido != null
+      ? ((sugerencia.sugerido - d.precioVigenteOppen) / d.precioVigenteOppen) * 100
       : null;
 
     return {
@@ -137,17 +202,17 @@ async function calcularProductos() {
       // qué código dar de alta en Oppen -- nunca se trata como
       // confirmado (ver skuConfirmado, que sigue dependiendo 100% de
       // que haya un skuOppen real cargado).
-      productoBaseId,
-      esCanonica: productoBaseId === p.id,
-      skuOppen,
+      productoBaseId: d.productoBaseId,
+      esCanonica: d.productoBaseId === p.id,
+      skuOppen: d.skuOppen,
       skuSugerido: p.skuSugerido || null,
-      skuConfirmado: !!skuOppen,
+      skuConfirmado: !!d.skuOppen,
       skuVerificado: !!p.skuVerificado,
-      precioVigenteOppen,
-      desatendido,
-      ultimoSnapshotMes: ultimoSnapshot ? ultimoSnapshot.mes : null,
-      config: configEfectiva,
-      sugerencia: { sugerido, metodo, costoPorUso, margenPct, pisoCostoMargen, ajustadoInflacion, techoCompetencia, techoReposicion, limitadoPorTecho, deposito, deltaPct, mesesSinActualizar },
+      precioVigenteOppen: d.precioVigenteOppen,
+      desatendido: d.desatendido,
+      ultimoSnapshotMes: d.ultimoSnapshot ? d.ultimoSnapshot.mes : null,
+      config: d.configEfectiva,
+      sugerencia: Object.assign({}, sugerencia, { deposito, deltaPct }),
     };
   });
 
