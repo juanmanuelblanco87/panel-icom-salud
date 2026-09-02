@@ -174,29 +174,17 @@ const FACTOR_QUINCENAL_DEFAULT = 1.5;
 // `periodoDias` en el catálogo, evita otro nivel de traducción.
 const FACTOR_POR_PERIODO_DIAS_DEFAULT = { 1: FACTOR_DIARIO_DEFAULT, 7: FACTOR_SEMANAL_DEFAULT, 15: FACTOR_QUINCENAL_DEFAULT, 30: 1 };
 
-// 02/09/2026 ("chequea los margenes, hay algo que esta mal... no puede
-// tener menos margen alquilando por dia que por mes"): bug real
-// confirmado -- el factor de arriba multiplica la tarifa DIARIA
-// implícita del mensual (ya de por sí chica), pero el COSTO por día de
-// un alquiler corto está dominado por costoAdministrativo (fijo, se
-// paga igual a 1 día que a 30) -- un factor moderado sobre una base
-// chica nunca alcanza a cubrir ese costo fijo, así que el margen
-// terminaba siendo muy NEGATIVO en Diario (ej. -915% en un caso real),
-// exactamente al revés de lo esperado.
-//
-// Fix: además del factor (que sigue siendo el driver principal --
-// "el mensual manda"), cada período corto tiene su propio margen
-// objetivo (gm) MÍNIMO garantizado, mayor cuanto más corto el alquiler
-// -- mismo criterio de "piso" que ya usa Mensual (costo / (1-gm%)),
-// pero con un gm más alto. El precio final es el MAYOR entre el
-// derivado por factor y este piso -- nunca se sugiere por debajo del
-// margen mínimo de ese período, sea cual sea el resultado del factor.
-// Ambos (factores Y estos 3 gm) son editables en Parámetros globales
-// ("la logica del ratio incremental debe quedar configurable").
-const GM_DIARIO_DEFAULT = 85;
-const GM_SEMANAL_DEFAULT = 72;
-const GM_QUINCENAL_DEFAULT = 60;
-const GM_POR_PERIODO_DIAS_DEFAULT = { 1: GM_DIARIO_DEFAULT, 7: GM_SEMANAL_DEFAULT, 15: GM_QUINCENAL_DEFAULT };
+// 02/09/2026 ("chequea los margenes... no puede tener menos margen
+// alquilando por dia que por mes" -- luego, mismo día: "El factor por
+// periodo esta bien, pero quita el margen asegurado porque traba la
+// formula del factor"): se había agregado un piso de margen mínimo
+// por período (costo/(1-gm%), el mayor entre esto y el factor) para
+// garantizar la ordenación de márgenes -- pedido explícito de sacarlo,
+// el piso terminaba "compitiendo" con el factor y ganándole casi
+// siempre (tapaba el efecto del factor, que es el que el usuario
+// quiere controlar directamente). Vuelve a ser SÓLO el factor -- el
+// usuario ajusta el margen resultante subiendo el factor a mano si
+// hace falta (ver la columna Costo/Margen de la tabla).
 
 // Costo real por uso (informativo -- SIEMPRE se calcula, sea cual sea
 // el método que termine definiendo el precio, ver comentario junto a
@@ -241,26 +229,13 @@ const REDONDEO_DERIVADO = 100;
 // haya ganado ahí, ver calcularSugerencia). periodoDias: 1|7|15 (nunca
 // 30 -- Mensual no se deriva de sí mismo). factores: { 1, 7, 15 } (ver
 // FACTOR_POR_PERIODO_DIAS_DEFAULT) -- multiplicador sobre la tarifa
-// DIARIA implícita del mensual (mensual/30). costoPorUso/gmPeriodo: el
-// piso de margen mínimo garantizado para ESTE período (ver comentario
-// grande junto a GM_DIARIO_DEFAULT) -- se gana el que pida MÁS de los
-// 2 (mismo criterio que el resto del módulo: "el que más cuida a ICOM
-// gana"). Devuelve null si todavía no hay precio mensual del que
-// partir (producto sin costear).
-function derivarSugeridoDesdeMensual(mensualSugerido, periodoDias, factores, costoPorUso, gmPeriodo) {
+// DIARIA implícita del mensual (mensual/30). Devuelve null si todavía
+// no hay precio mensual del que partir (producto sin costear).
+function derivarSugeridoDesdeMensual(mensualSugerido, periodoDias, factores) {
   if (mensualSugerido == null) return null;
   const factor = (factores && factores[periodoDias] != null) ? factores[periodoDias] : (FACTOR_POR_PERIODO_DIAS_DEFAULT[periodoDias] || 1);
   const precioPorDia = (mensualSugerido / 30) * factor;
-  const porFactor = precioPorDia * periodoDias;
-
-  const gm = gmPeriodo != null ? gmPeriodo : (GM_POR_PERIODO_DIAS_DEFAULT[periodoDias] != null ? GM_POR_PERIODO_DIAS_DEFAULT[periodoDias] : 0);
-  const pisoMargenPeriodo = (costoPorUso != null && gm != null && gm < 100)
-    ? costoPorUso / (1 - gm / 100)
-    : null;
-
-  const candidatos = [porFactor, pisoMargenPeriodo].filter(v => v != null);
-  const base = candidatos.length ? Math.max(...candidatos) : porFactor;
-  return round(base, REDONDEO_DERIVADO);
+  return round(precioPorDia * periodoDias, REDONDEO_DERIVADO);
 }
 
 // config: { usosMaximos, precioProductoNuevo, precioMercado, overrideManual }
@@ -355,5 +330,4 @@ module.exports = {
   calcularCostoPorUso, derivarSugeridoDesdeMensual,
   GM_DEFAULT_PCT, MESES_MIN_DEFAULT, REDONDEO_DERIVADO,
   FACTOR_DIARIO_DEFAULT, FACTOR_SEMANAL_DEFAULT, FACTOR_QUINCENAL_DEFAULT,
-  GM_DIARIO_DEFAULT, GM_SEMANAL_DEFAULT, GM_QUINCENAL_DEFAULT,
 };

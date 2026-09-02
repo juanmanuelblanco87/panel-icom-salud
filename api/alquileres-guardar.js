@@ -5,11 +5,14 @@
 // Ortopedia -- el resto de los roles puede leer vía alquileres-data.js
 // pero no guardar cambios (confirmado con el usuario).
 const { requerirSesion } = require('./_talento-auth');
-const { guardarAlquilerConfig, guardarAlquileresGlobals } = require('./_alquileres-store');
+const {
+  guardarAlquilerConfig, guardarAlquileresGlobals,
+  leerAlquilerCatalogoCustom, guardarAlquilerCatalogoCustom, marcarProductoEliminado,
+} = require('./_alquileres-store');
 const {
   FACTOR_DIARIO_DEFAULT, FACTOR_SEMANAL_DEFAULT, FACTOR_QUINCENAL_DEFAULT,
-  GM_DIARIO_DEFAULT, GM_SEMANAL_DEFAULT, GM_QUINCENAL_DEFAULT,
 } = require('./_alquileres-formula');
+const { leerCatalogoCompleto, leerCatalogoEstatico, generarFilasProductoNuevo } = require('./_alquileres-catalogo');
 
 function httpError(status, mensaje) {
   const e = new Error(mensaje);
@@ -96,15 +99,6 @@ async function accionGuardarGlobals(payload, solicitante) {
     factorDiario: numOrNull(payload.factorDiario) ?? FACTOR_DIARIO_DEFAULT,
     factorSemanal: numOrNull(payload.factorSemanal) ?? FACTOR_SEMANAL_DEFAULT,
     factorQuincenal: numOrNull(payload.factorQuincenal) ?? FACTOR_QUINCENAL_DEFAULT,
-    // 02/09/2026 ("chequea los margenes... no puede tener menos margen
-    // alquilando por dia que por mes" + "la logica del ratio incremental
-    // debe quedar configurable en criterios generales"): margen mínimo
-    // garantizado por período (gana el que pida más entre esto y el
-    // factor de arriba) -- ver GM_*_DEFAULT/derivarSugeridoDesdeMensual
-    // en _alquileres-formula.js.
-    gmDiario: numOrNull(payload.gmDiario) ?? GM_DIARIO_DEFAULT,
-    gmSemanal: numOrNull(payload.gmSemanal) ?? GM_SEMANAL_DEFAULT,
-    gmQuincenal: numOrNull(payload.gmQuincenal) ?? GM_QUINCENAL_DEFAULT,
     actualizadoPor: { rol: solicitante.rol, usuario: solicitante.usuario },
     fecha: new Date().toISOString(),
   };
@@ -112,9 +106,71 @@ async function accionGuardarGlobals(payload, solicitante) {
   return globals;
 }
 
+// 02/09/2026 ("deja la opción de sumar un nuevo producto de alquiler o
+// eliminar un existente"): genera las 4 filas de período (Mensual
+// canónico + Diario/Semanal/Quincenal derivados, ver
+// generarFilasProductoNuevo en _alquileres-catalogo.js) y las agrega a
+// la colección custom en Redis -- el catálogo estático (los 27
+// productos originales) nunca se toca. `nombre` es sólo el nombre del
+// PRODUCTO (sin "Alquiler Mensual" -- se antepone acá, mismo patrón
+// que ya usan las 27 filas originales).
+async function accionAgregarProducto(payload, solicitante) {
+  const nombre = String(payload.nombre || '').trim();
+  if (!nombre) throw httpError(400, 'Falta el nombre del producto.');
+  const categoria = payload.categoria ? String(payload.categoria).trim() : 'Otros';
+  const skuOppen = payload.skuOppen ? String(payload.skuOppen).trim() : null;
+
+  const estatico = leerCatalogoEstatico();
+  const custom = await leerAlquilerCatalogoCustom();
+  const idsExistentes = new Set(estatico.concat(custom).map(p => p.id));
+  const filas = generarFilasProductoNuevo(nombre, categoria, skuOppen, idsExistentes);
+
+  const nuevoCustom = custom.concat(filas);
+  await guardarAlquilerCatalogoCustom(nuevoCustom);
+
+  // Config inicial opcional (usosMaximos/precioProductoNuevo/
+  // multiplicadorDeposito) -- si se cargó algo, se guarda de una vez en
+  // la fila canónica (Mensual), mismo patrón que accionGuardarConfig,
+  // para no obligar a un 2do paso ("agregar" y después "editar") si el
+  // usuario ya tiene esos datos a mano.
+  const filaCanonica = filas.find(f => f.periodo === 'mes');
+  if (numOrNull(payload.usosMaximos) != null || numOrNull(payload.precioProductoNuevo) != null) {
+    await guardarAlquilerConfig({
+      id: filaCanonica.id,
+      skuOppen: skuOppen,
+      usosMaximos: numOrNull(payload.usosMaximos),
+      multiplicadorDeposito: numOrNull(payload.multiplicadorDeposito) ?? 1.5,
+      precioProductoNuevo: numOrNull(payload.precioProductoNuevo),
+      linkProductoNuevo: null, imagenProductoNuevo: null,
+      precioMercado: null, linkMercado: null, overrideManual: null,
+      actualizadoPor: { rol: solicitante.rol, usuario: solicitante.usuario },
+      fecha: new Date().toISOString(),
+    });
+  }
+
+  return { productoBaseId: filaCanonica.productoBaseId, filas };
+}
+
+// Baja BLANDA -- ver marcarProductoEliminado/comentario grande en
+// _alquileres-store.js. `productoBaseId`, no `id` de una fila puntual
+// -- se da de baja el producto entero (sus 4 períodos juntos), nunca
+// uno solo (no tendría sentido tener 3 de 4 períodos de un producto).
+async function accionEliminarProducto(payload) {
+  const productoBaseId = String(payload.productoBaseId || '').trim();
+  if (!productoBaseId) throw httpError(400, 'Falta el productoBaseId.');
+  const catalogo = await leerCatalogoCompleto();
+  if (!catalogo.some(p => (p.productoBaseId || p.id) === productoBaseId)) {
+    throw httpError(404, 'Producto no encontrado (¿ya estaba eliminado?).');
+  }
+  await marcarProductoEliminado(productoBaseId);
+  return { productoBaseId };
+}
+
 const ACCIONES = {
   guardarConfig: accionGuardarConfig,
   guardarGlobals: accionGuardarGlobals,
+  agregarProducto: accionAgregarProducto,
+  eliminarProducto: accionEliminarProducto,
 };
 
 async function handler(req, res) {

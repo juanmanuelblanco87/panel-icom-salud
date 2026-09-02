@@ -32,16 +32,10 @@
 const { requerirSesion } = require('./_talento-auth');
 const { puedeEditarAlquileres } = require('./alquileres-guardar');
 const { leerAlquilerConfigs, leerAlquileresGlobals, guardarAlquilerSnapshot, leerAlquilerSnapshots } = require('./_alquileres-store');
+const { leerCatalogoCompleto } = require('./_alquileres-catalogo');
 const { mesActual, mesesDesdeUltimoCambioDePrecio, calcularSugerencia } = require('./_alquileres-formula');
-const fs = require('fs');
-const path = require('path');
 
 const DIAS_VENTANA_PRECIO_VIGENTE = 30;
-
-function leerCatalogo() {
-  const raw = fs.readFileSync(path.join(__dirname, '..', 'data', 'alquileres_catalogo.json'), 'utf8');
-  return JSON.parse(raw);
-}
 
 function limpiarSku(sku) {
   const s = String(sku || '').trim().replace(/^0+/, '');
@@ -104,9 +98,8 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const catalogo = leerCatalogo();
-    const [configs, globals, snapshotsPrevios] = await Promise.all([
-      leerAlquilerConfigs(), leerAlquileresGlobals(), leerAlquilerSnapshots(),
+    const [catalogo, configs, globals, snapshotsPrevios] = await Promise.all([
+      leerCatalogoCompleto(), leerAlquilerConfigs(), leerAlquileresGlobals(), leerAlquilerSnapshots(),
     ]);
     const configPorId = new Map(configs.map(c => [c.id, c]));
     const snapshotsPorProducto = new Map();

@@ -8,7 +8,6 @@
 const { Redis } = require('@upstash/redis');
 const {
   FACTOR_DIARIO_DEFAULT, FACTOR_SEMANAL_DEFAULT, FACTOR_QUINCENAL_DEFAULT,
-  GM_DIARIO_DEFAULT, GM_SEMANAL_DEFAULT, GM_QUINCENAL_DEFAULT,
 } = require('./_alquileres-formula');
 
 const redis = new Redis({
@@ -86,27 +85,60 @@ async function leerAlquileresGlobals() {
   if (g && g.factorDiario == null) g.factorDiario = FACTOR_DIARIO_DEFAULT;
   if (g && g.factorSemanal == null) g.factorSemanal = FACTOR_SEMANAL_DEFAULT;
   if (g && g.factorQuincenal == null) g.factorQuincenal = FACTOR_QUINCENAL_DEFAULT;
-  // 02/09/2026 ("chequea los margenes... no puede tener menos margen
-  // alquilando por dia que por mes" + "la logica del ratio incremental
-  // debe quedar configurable en criterios generales"): margen mínimo
-  // garantizado por período (piso costo/(1-gm%), gana el que pida más
-  // entre esto y el factor) -- ver GM_*_DEFAULT/derivarSugeridoDesdeMensual
-  // en _alquileres-formula.js. Mismo criterio de migración.
-  if (g && g.gmDiario == null) g.gmDiario = GM_DIARIO_DEFAULT;
-  if (g && g.gmSemanal == null) g.gmSemanal = GM_SEMANAL_DEFAULT;
-  if (g && g.gmQuincenal == null) g.gmQuincenal = GM_QUINCENAL_DEFAULT;
   return g || {
     monthlyPct: 0, redondeo: 100, gmObjetivoPct: 50, costoAdministrativo: 1000, mesesMinInflacion: 3,
     factorDiario: FACTOR_DIARIO_DEFAULT, factorSemanal: FACTOR_SEMANAL_DEFAULT, factorQuincenal: FACTOR_QUINCENAL_DEFAULT,
-    gmDiario: GM_DIARIO_DEFAULT, gmSemanal: GM_SEMANAL_DEFAULT, gmQuincenal: GM_QUINCENAL_DEFAULT,
   };
 }
 async function guardarAlquileresGlobals(g) {
   await redis.set(GLOBALS_KEY, g);
 }
 
+// 02/09/2026 ("deja la opción de sumar un nuevo producto de alquiler o
+// eliminar un existente"): el catálogo "de fábrica" (data/
+// alquileres_catalogo.json) sigue siendo estático y git-tracked -- NO
+// se reescribe desde acá (los 27 productos originales, con su
+// historial real de Oppen, quedan intactos como fuente de verdad).
+// Productos NUEVOS y bajas se guardan en Redis, aparte, y
+// alquileres-data.js/alquileres-snapshot.js mezclan las 3 fuentes al
+// leer (estático + custom, menos eliminados) -- mismo criterio de
+// "capa editable encima de un archivo estático" que ya usa el resto
+// del proyecto (ver design/tokens.css vs. overrides puntuales en otros
+// módulos).
+//
+// -- Productos custom (agregados a mano) -- las 4 filas de período de
+// cada producto agregado, TODAS juntas en un solo blob (igual que
+// `globals`) -- es una lista chica, manejada sólo por admin/gerente
+// Ortopedia, no hace falta 1 clave por fila.
+const CATALOGO_CUSTOM_KEY = `${PREFIJO}:catalogoCustom`;
+async function leerAlquilerCatalogoCustom() {
+  const filas = await redis.get(CATALOGO_CUSTOM_KEY);
+  return Array.isArray(filas) ? filas : [];
+}
+async function guardarAlquilerCatalogoCustom(filas) {
+  await redis.set(CATALOGO_CUSTOM_KEY, filas);
+}
+
+// -- Productos eliminados -- baja BLANDA: un SET de productoBaseId
+// (nunca de `id` de fila puntual -- se da de baja el producto entero,
+// sus 4 períodos juntos). Sirve tanto para ocultar un producto del
+// catálogo estático como uno custom -- alquileres-data.js filtra
+// contra este SET al armar la lista final, sin importar de qué fuente
+// venga la fila. No borra config/snapshot ya guardados (quedan
+// huérfanos pero inofensivos -- reversible a mano si hiciera falta).
+const ELIMINADOS_KEY = `${PREFIJO}:eliminados`;
+async function leerAlquilerProductosEliminados() {
+  const ids = await redis.smembers(ELIMINADOS_KEY);
+  return new Set(ids || []);
+}
+async function marcarProductoEliminado(productoBaseId) {
+  await redis.sadd(ELIMINADOS_KEY, productoBaseId);
+}
+
 module.exports = {
   leerAlquilerConfigs, leerAlquilerConfig, guardarAlquilerConfig,
   leerAlquilerSnapshots, guardarAlquilerSnapshot,
   leerAlquileresGlobals, guardarAlquileresGlobals,
+  leerAlquilerCatalogoCustom, guardarAlquilerCatalogoCustom,
+  leerAlquilerProductosEliminados, marcarProductoEliminado,
 };

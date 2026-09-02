@@ -13,8 +13,12 @@
 // el último snapshot de cada producto es el "precio vigente" que se
 // muestra, nunca se re-deriva de Oppen en este path.
 //
-// Cruza 3 fuentes, todas rápidas (sin red externa):
-//  1. data/alquileres_catalogo.json -- catálogo de productos.
+// Cruza 4 fuentes, todas rápidas (sin red externa):
+//  1. data/alquileres_catalogo.json + productos custom/eliminados
+//     (Redis) -- ver api/_alquileres-catalogo.js. 02/09/2026 ("deja la
+//     opción de sumar un nuevo producto de alquiler o eliminar un
+//     existente"): el archivo estático sigue siendo la fuente de los
+//     27 productos originales -- altas/bajas viven aparte, en Redis.
 //  2. api/_alquileres-store.js (Redis) -- config por producto +
 //     parámetros globales.
 //  3. api/_alquileres-store.js (Redis) -- historial de snapshots, del
@@ -22,19 +26,13 @@
 //     deriva mesesSinActualizar (cuántos meses lleva ese precio sin
 //     cambiar, ver _alquileres-formula.js) para el ajuste por
 //     inflación.
-const fs = require('fs');
-const path = require('path');
 const { requerirSesion } = require('./_talento-auth');
 const { leerAlquilerConfigs, leerAlquileresGlobals, leerAlquilerSnapshots } = require('./_alquileres-store');
+const { leerCatalogoCompleto } = require('./_alquileres-catalogo');
 const {
   calcularSugerencia, calcularCostoPorUso, derivarSugeridoDesdeMensual, roundCosto,
   mesesDesdeUltimoCambioDePrecio, mesActual,
 } = require('./_alquileres-formula');
-
-function leerCatalogo() {
-  const raw = fs.readFileSync(path.join(__dirname, '..', 'data', 'alquileres_catalogo.json'), 'utf8');
-  return JSON.parse(raw);
-}
 
 function limpiarSku(sku) {
   const s = String(sku || '').trim().replace(/^0+/, '');
@@ -104,9 +102,8 @@ function datosDeFila(p, catalogoPorId, configPorId, snapshotsPorProducto, mes) {
 }
 
 async function calcularProductos() {
-  const catalogo = leerCatalogo();
-  const [configs, globals, snapshots] = await Promise.all([
-    leerAlquilerConfigs(), leerAlquileresGlobals(), leerAlquilerSnapshots(),
+  const [catalogo, configs, globals, snapshots] = await Promise.all([
+    leerCatalogoCompleto(), leerAlquilerConfigs(), leerAlquileresGlobals(), leerAlquilerSnapshots(),
   ]);
   const configPorId = new Map(configs.map(c => [c.id, c]));
   const catalogoPorId = new Map(catalogo.map(c => [c.id, c]));
@@ -123,12 +120,6 @@ async function calcularProductos() {
   // Parámetros globales (ver accionGuardarGlobals), default sensato en
   // _alquileres-formula.js.
   const factores = { 1: globals.factorDiario, 7: globals.factorSemanal, 15: globals.factorQuincenal, 30: 1 };
-  // 02/09/2026 ("no puede tener menos margen alquilando por dia que
-  // por mes" + "la logica del ratio incremental debe quedar
-  // configurable"): margen mínimo garantizado por período, también
-  // editable -- ver derivarSugeridoDesdeMensual/GM_*_DEFAULT en
-  // _alquileres-formula.js.
-  const gmPorPeriodo = { 1: globals.gmDiario, 7: globals.gmSemanal, 15: globals.gmQuincenal };
 
   // PASADA 1: precio Mensual de cada producto -- la ÚNICA fila que
   // corre la fórmula completa de piso+techo+inflación (o manual),
@@ -174,25 +165,18 @@ async function calcularProductos() {
       const costoPorUsoBruto = calcularCostoPorUso(d.configEfectiva, p.periodoDias || 30, d.periodoDiasCanonico, costoAdministrativo);
       const periodoDiasFila = p.periodoDias || 30;
       const factorFila = factores[periodoDiasFila] ?? 1;
-      const gmFila = gmPorPeriodo[periodoDiasFila];
-      const sugerido = derivarSugeridoDesdeMensual(mensualSugerido, periodoDiasFila, factores, costoPorUsoBruto, gmFila);
-      // 02/09/2026 ("no puede tener menos margen alquilando por dia que
-      // por mes"): el precio final es el MAYOR entre el derivado por
-      // factor del mensual y el piso de margen mínimo de este período
-      // (ver derivarSugeridoDesdeMensual) -- acá se recalcula el mismo
-      // piso SOLO para poder mostrar cuál de los 2 ganó en el panel
-      // "Método usado" del cliente, igual que ya hace Mensual con
-      // pisoCostoMargen/techo*.
-      const porFactor = mensualSugerido != null ? (mensualSugerido / 30) * factorFila * periodoDiasFila : null;
-      const pisoMargenPeriodo = (costoPorUsoBruto != null && gmFila != null && gmFila < 100)
-        ? costoPorUsoBruto / (1 - gmFila / 100)
-        : null;
-      const ganoPiso = pisoMargenPeriodo != null && (porFactor == null || pisoMargenPeriodo >= porFactor);
+      // 02/09/2026 ("El factor por periodo esta bien, pero quita el
+      // margen asegurado porque traba la formula del factor"): vuelve
+      // a ser SÓLO el factor -- sin piso de margen mínimo compitiendo
+      // (lo tapaba casi siempre). costoPorUso/margenPct siguen
+      // mostrándose igual, como referencia -- el usuario ajusta el
+      // margen resultante subiendo el factor a mano si hace falta.
+      const sugerido = derivarSugeridoDesdeMensual(mensualSugerido, periodoDiasFila, factores);
       sugerencia = {
         sugerido,
-        metodo: mensualSugerido == null ? 'sin datos' : (ganoPiso ? 'piso costo + margen (período)' : 'derivado del mensual'),
+        metodo: mensualSugerido == null ? 'sin datos' : 'derivado del mensual',
         mesesSinActualizar: d.mesesSinActualizar,
-        pisoCostoMargen: pisoMargenPeriodo != null ? roundCosto(pisoMargenPeriodo) : null,
+        pisoCostoMargen: null,
         ajustadoInflacion: null, techoCompetencia: null, techoReposicion: null, limitadoPorTecho: false,
         costoPorUso: roundCosto(costoPorUsoBruto),
         margenPct: (costoPorUsoBruto != null && sugerido > 0) ? ((sugerido - costoPorUsoBruto) / sugerido) * 100 : null,
@@ -200,7 +184,6 @@ async function calcularProductos() {
         // del cliente -- de dónde salió el número (mensual × factor).
         mensualSugerido: mensualSugerido ?? null,
         factorAplicado: factorFila,
-        gmPeriodoAplicado: gmFila ?? null,
       };
     }
 
