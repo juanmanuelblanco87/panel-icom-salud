@@ -27,7 +27,7 @@ const path = require('path');
 const { requerirSesion } = require('./_talento-auth');
 const { leerAlquilerConfigs, leerAlquileresGlobals, leerAlquilerSnapshots } = require('./_alquileres-store');
 const {
-  calcularSugerencia, calcularCostoPorUso, derivarSugeridoDesdeMensual, round,
+  calcularSugerencia, calcularCostoPorUso, derivarSugeridoDesdeMensual, roundCosto,
   mesesDesdeUltimoCambioDePrecio, mesActual,
 } = require('./_alquileres-formula');
 
@@ -165,7 +165,7 @@ async function calcularProductos() {
         metodo: mensualSugerido != null ? 'derivado del mensual' : 'sin datos',
         mesesSinActualizar: d.mesesSinActualizar,
         pisoCostoMargen: null, ajustadoInflacion: null, techoCompetencia: null, techoReposicion: null, limitadoPorTecho: false,
-        costoPorUso: costoPorUsoBruto != null ? round(costoPorUsoBruto, globals.redondeo || 100) : null,
+        costoPorUso: roundCosto(costoPorUsoBruto),
         margenPct: (costoPorUsoBruto != null && sugerido > 0) ? ((sugerido - costoPorUsoBruto) / sugerido) * 100 : null,
         // 01/09/2026: sólo para transparencia en el panel "Método usado"
         // del cliente -- de dónde salió el número (mensual × factor).

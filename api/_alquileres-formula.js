@@ -69,6 +69,18 @@ function round(v, inc) {
   return r - 1;
 }
 
+// 02/09/2026 ("El costo en alquileres no deberia quedar redondeado en
+// .999 deberia ser el exacto"): round() de arriba está pensado para el
+// PRECIO de venta (terminación psicológica ".999", pensada para que el
+// cliente la vea) -- costoPorUso es un dato interno (cuánto cuesta de
+// verdad proveer el alquiler), no un precio que se le muestra al
+// cliente, no tiene sentido "deflactarlo" -- se redondea al peso más
+// cercano, exacto, sin el "-1".
+function roundCosto(v) {
+  if (v == null) return v;
+  return Math.round(v);
+}
+
 function mesActual() {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -235,7 +247,7 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, peri
     const margenPct = (costoPorUso != null && resultado.sugerido > 0)
       ? ((resultado.sugerido - costoPorUso) / resultado.sugerido) * 100
       : null;
-    return Object.assign({ costoPorUso: costoPorUso != null ? round(costoPorUso, redondeo) : null, margenPct }, resultado);
+    return Object.assign({ costoPorUso: roundCosto(costoPorUso), margenPct }, resultado);
   }
 
   if (config && config.overrideManual != null) {
@@ -296,7 +308,7 @@ function calcularSugerencia(config, precioVigenteOppen, mesesSinActualizar, peri
 }
 
 module.exports = {
-  round, mesActual, mesesEntre, inflacionCompuesta,
+  round, roundCosto, mesActual, mesesEntre, inflacionCompuesta,
   mesesDesdeUltimoCambioDePrecio, calcularSugerencia,
   calcularCostoPorUso, derivarSugeridoDesdeMensual,
   GM_DEFAULT_PCT, MESES_MIN_DEFAULT, REDONDEO_DERIVADO,
