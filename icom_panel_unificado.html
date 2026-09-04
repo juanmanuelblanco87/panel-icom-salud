@@ -563,8 +563,16 @@
            lee data-channels) ya lo oculta/muestra solo, y switchChannel
            ya sabe volver a "Ventas en Vivo" si el pane activo no
            matchea la unidad nueva (mismo mecanismo que ya usan
-           Stocks/Seguimiento/Forecast, ver comentario ahi). -->
-      <div class="sb-item" data-pane="monitor_ov" data-channels="cirugia_general,cirugia_estetica" onclick="switchPane('monitor_ov')">
+           Stocks/Seguimiento/Forecast, ver comentario ahi).
+           04/09/2026 ("Agregar el Monitor de OV tambien en movilidad,
+           copia el de cirugia estetica"): se suma "movilidad" a la
+           lista -- todo lo demás de Monitor OV (KPIs, tablas, el
+           switch ovSwitchToChannelView de abajo) ya está escrito
+           genérico por canal, no hizo falta tocar nada más para que
+           Movilidad se comporte igual que Cirugía Estética (sin el
+           filtro fijo Clase=CR/Tipo=Ethicon, que es exclusivo de
+           Cirugía General -- ver ovAplicarFiltroFijo). -->
+      <div class="sb-item" data-pane="monitor_ov" data-channels="cirugia_general,cirugia_estetica,movilidad" onclick="switchPane('monitor_ov')">
         <span class="sb-icon">📋</span> <span class="sb-label">Monitor OV</span>
       </div>
       <div class="sb-item" data-pane="dashboard" data-channels="minorista,movilidad,cirugia_estetica,cirugia_general" onclick="switchPane('dashboard')">
@@ -1063,10 +1071,13 @@
              Venta de Cirugia... totalizador de #Cirugias x unidad de
              negocios de Cirugia General y Cirugia Estetica"): exclusiva de
              la vista ICOM agregada, mismo gating que erpIcomPieCard (ver
-             erpUpdateChannelSpecificUI) -- sólo esas 2 unidades tienen
-             Órdenes de Venta reales en Oppen. -->
+             erpUpdateChannelSpecificUI).
+             04/09/2026 ("Agrega el total de OV de Movilidad"): se sumó
+             Movilidad a esta misma card -- el título pasa de "Órdenes de
+             Venta de Cirugía" a "Órdenes de Venta" a secas, ya no son
+             sólo las 2 unidades de Cirugía. -->
         <div class="erp-card" id="erpIcomCirugiaOrdenesCard" style="display:none;padding-bottom:14px">
-          <h2>Órdenes de Venta de Cirugía</h2>
+          <h2>Órdenes de Venta</h2>
           <div id="erpIcomCirugiaOrdenesCards" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px"></div>
         </div>
 
@@ -1719,7 +1730,7 @@ function switchChannel(channel){
   // a diferencia de "erp" (siempre cargado desde el arranque), acá el
   // guard `loaded['monitor_ov']` evita pedirle datos a una unidad que el
   // usuario ni siquiera abrió todavía.
-  if((channel === 'cirugia_general' || channel === 'cirugia_estetica') && loaded['monitor_ov']){
+  if((channel === 'cirugia_general' || channel === 'cirugia_estetica' || channel === 'movilidad') && loaded['monitor_ov']){
     ovSwitchToChannelView(channel);
   }
   if(channel === 'minorista'){
@@ -5020,7 +5031,7 @@ function erpRemapDataForIcomView(data){
 // acá se suma por unidad del lado del cliente) -- byUnidadNegocio[unidad].ordenes
 // ya viene contado en el SERVIDOR (una orden válida = un sernr, ver
 // oppen-sales-orders.js), no hace falta deduplicar sernr acá.
-let ERP_ICOM_CIRUGIA_ORDENES = null; // {cirugia_general, cirugia_estetica} -- null mientras carga o si falló
+let ERP_ICOM_CIRUGIA_ORDENES = null; // {cirugia_general, cirugia_estetica, movilidad} -- null mientras carga o si falló
 function erpIcomSalesOrdersUrl(params){
   const sp = new URLSearchParams(params || {});
   return '/api/oppen-sales-orders?' + sp.toString();
@@ -5047,7 +5058,7 @@ async function erpFetchIcomCirugiaOrdenes(fromStr, toStr){
   const targetChannel = currentChannel;
   try{
     const chunks = erpDateChunksForRange(fromStr, toStr);
-    const totales = {cirugia_general: 0, cirugia_estetica: 0};
+    const totales = {cirugia_general: 0, cirugia_estetica: 0, movilidad: 0};
     for(let i=0;i<chunks.length;i++){
       const d = await erpFetchIcomCirugiaOrdenesChunk(chunks[i]);
       if(targetChannel !== currentChannel) return;
@@ -5074,6 +5085,11 @@ async function erpFetchIcomCirugiaOrdenes(fromStr, toStr){
       totales.cirugia_general += sernrCirugiaGeneral.size;
       const byUnidad = d.byUnidadNegocio || {};
       totales.cirugia_estetica += (byUnidad.cirugia_estetica && byUnidad.cirugia_estetica.ordenes) || 0;
+      // 04/09/2026 ("Agrega el total de OV de Movilidad en Ventas en
+      // Vivo Icom"): mismo criterio que Cirugía Estética -- sin filtro
+      // de clase/tipo (ese filtro fijo es exclusivo de Cirugía General,
+      // ver ovAplicarFiltroFijo), directo de byUnidadNegocio.
+      totales.movilidad += (byUnidad.movilidad && byUnidad.movilidad.ordenes) || 0;
     }
     if(targetChannel !== currentChannel) return;
     ERP_ICOM_CIRUGIA_ORDENES = totales;
@@ -5101,6 +5117,7 @@ function erpRenderIcomCirugiaOrdenesCards(){
   const unidades = [
     {key:'cirugia_general', label: ICOM_UNIT_LABELS.cirugia_general},
     {key:'cirugia_estetica', label: ICOM_UNIT_LABELS.cirugia_estetica},
+    {key:'movilidad', label: ICOM_UNIT_LABELS.movilidad},
   ];
   // 01/09/2026 ("dejalo clickeable para filtrar mismo formato que la
   // card de arriba"): mismo control de filtro que erpRenderCanalPills
