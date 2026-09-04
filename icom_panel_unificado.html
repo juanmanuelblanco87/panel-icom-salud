@@ -1204,7 +1204,12 @@
 
         <div class="erp-kpis" id="ovKpis">
           <div class="erp-kpi"><div class="lbl">Total Neto</div><div class="val" id="ovKpiTotal">—</div></div>
-          <div class="erp-kpi"><div class="lbl">Unidades</div><div class="val" id="ovKpiUnidades">—</div></div>
+          <!-- 03/09/2026 ("donde dice UNIDADES coloca Monto Promedio,
+               dividir total neto / numero de cirugias"): mismo id
+               ovKpiUnidades (sin renombrar, evita perder alguna otra
+               referencia) -- lo que cambió es el label y qué valor se
+               le asigna en ovRenderKpis(). -->
+          <div class="erp-kpi"><div class="lbl">Monto Promedio</div><div class="val" id="ovKpiUnidades">—</div></div>
           <div class="erp-kpi"><div class="lbl"># Cirugías</div><div class="val" id="ovKpiOrdenes">—</div></div>
           <div class="erp-kpi"><div class="lbl">Última actualización</div><div class="val" id="ovKpiUpdated" style="font-size:13px">—</div></div>
         </div>
@@ -5046,8 +5051,28 @@ async function erpFetchIcomCirugiaOrdenes(fromStr, toStr){
     for(let i=0;i<chunks.length;i++){
       const d = await erpFetchIcomCirugiaOrdenesChunk(chunks[i]);
       if(targetChannel !== currentChannel) return;
+      // 03/09/2026 ("el contador de cirugias no esta filtrado por
+      // clase: CR y tipo de operacion: ETH... por lo que no coincide
+      // con el monitor de OV de Cirugias"): byUnidadNegocio.cirugia_general.ordenes
+      // cuenta TODOS los tipos de operación de Cirugía General (ETH,
+      // ASP, BW, COLO, DESC, 3M, ABBO -- ver OPERATION_TYPE_UNIT_MAP en
+      // oppen-sales-orders.js), sin filtrar por clase -- Monitor OV en
+      // cambio sólo cuenta clase=CR + tipoOperacion=Ethicon (ver
+      // OV_CLASE_FIJA/OV_TIPO_OPERACION_FIJO/ovAplicarFiltroFijo más
+      // abajo en este archivo). Acá se replica ESE mismo filtro sobre
+      // los rows de este chunk, contando sernr distintos, para que el
+      // totalizador de esta card coincida con Monitor OV. Cirugía
+      // Estética sigue sin filtro -- mismo criterio que
+      // ovAplicarFiltroFijo (ese filtro es exclusivo de Cirugía
+      // General, Cirugía Estética factura con otros códigos).
+      const sernrCirugiaGeneral = new Set();
+      (d.rows || []).forEach(row => {
+        if(row.unidadNegocio === 'cirugia_general' && row.clase === OV_CLASE_FIJA && row.tipoOperacion === OV_TIPO_OPERACION_FIJO && row.sernr != null){
+          sernrCirugiaGeneral.add(row.sernr);
+        }
+      });
+      totales.cirugia_general += sernrCirugiaGeneral.size;
       const byUnidad = d.byUnidadNegocio || {};
-      totales.cirugia_general += (byUnidad.cirugia_general && byUnidad.cirugia_general.ordenes) || 0;
       totales.cirugia_estetica += (byUnidad.cirugia_estetica && byUnidad.cirugia_estetica.ordenes) || 0;
     }
     if(targetChannel !== currentChannel) return;
@@ -7790,9 +7815,15 @@ function ovGetActiveSubgrupoQuery(){
 function ovRenderKpis(){
   if(!OV_VIEW_DATA) return;
   const {totals} = ovGetFilteredData();
+  const cirugias = ovComputeFilteredOrderCount();
   document.getElementById('ovKpiTotal').textContent = erpFmtMoney(totals.totalNeto);
-  document.getElementById('ovKpiUnidades').textContent = erpFmtInt(totals.unidades);
-  document.getElementById('ovKpiOrdenes').textContent = erpFmtInt(ovComputeFilteredOrderCount());
+  // 03/09/2026 ("donde dice UNIDADES coloca Monto Promedio, dividir
+  // total neto / numero de cirugias"): antes mostraba totals.unidades
+  // (suma de unidades vendidas) -- ahora es el promedio de facturación
+  // por cirugía, con el MISMO número de cirugías que ya se muestra al
+  // lado (ovComputeFilteredOrderCount(), respeta los filtros activos).
+  document.getElementById('ovKpiUnidades').textContent = erpFmtMoney(cirugias > 0 ? totals.totalNeto / cirugias : 0);
+  document.getElementById('ovKpiOrdenes').textContent = erpFmtInt(cirugias);
   const d = new Date(OV_VIEW_DATA.updatedAt);
   document.getElementById('ovKpiUpdated').textContent = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
 }
