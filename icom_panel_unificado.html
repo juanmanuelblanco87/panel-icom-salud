@@ -423,6 +423,16 @@
   .erp-status-updated{font-size:10px;color:#999;white-space:nowrap}
   .erp-status-updated span{color:#777;font-weight:600}
   .erp-kpi-sub{font-size:12px;color:#888;margin-top:2px}
+  /* Comparar: botón circular flotante, distinto al resto (más llamativo) */
+  .erp-compare-fab{width:58px;height:58px;border-radius:50%;border:none;padding:0;margin-top:6px;cursor:pointer;color:#fff;
+    background:linear-gradient(135deg,#1a3d70,#2f6fd0);box-shadow:0 4px 12px rgba(26,61,112,.35);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:9.5px;font-weight:700;letter-spacing:.02em;
+    transition:transform .15s,box-shadow .15s}
+  .erp-compare-fab .fab-ico{font-size:19px;line-height:1}
+  .erp-compare-fab:hover{transform:translateY(-1px) scale(1.06);box-shadow:0 6px 16px rgba(26,61,112,.45)}
+  .erp-compare-fab.erp-quickbtn-active{background:linear-gradient(135deg,#0F7A5A,#22b07d) !important;border:none !important;box-shadow:0 0 0 3px rgba(15,122,90,.25),0 4px 12px rgba(15,122,90,.4)}
+  .erp-toolbar-break{display:none;flex-basis:100%;height:0}
+  .erp-toolbar.compare-on .erp-toolbar-break{display:block}
   .erp-kpi-sub span{font-weight:600;color:#777}
   .erp-kpi-delta-un{min-height:0;margin-top:0}
   .erp-status-float .erp-status{font-size:10.5px;padding:2px 8px;gap:4px;font-weight:600}
@@ -473,8 +483,11 @@
   .erp-table-wrap{max-height:420px;overflow:auto;border:1px solid #eee;border-radius:8px}
 
   @media (max-width:768px){
-    .erp-wrap{padding:40px 14px 40px}
-    .erp-status-float{right:14px;top:4px}
+    .erp-wrap{padding:16px 14px 40px}
+    .erp-status-float{position:static;flex-direction:row;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px 8px;margin-bottom:8px}
+    .erp-status-pills{flex-wrap:wrap}
+    .erp-compare-fab{width:44px;height:44px;margin-top:0;font-size:8px}
+    .erp-compare-fab .fab-ico{font-size:15px}
     .erp-header{flex-direction:column;align-items:stretch}
     .erp-header h1{font-size:17px}
     .erp-kpis{grid-template-columns:repeat(2,1fr)}
@@ -878,13 +891,14 @@
             <span class="erp-status loading" id="erpStockStatus">📦 <span class="erp-status-spin"></span> Cargando…</span>
           </div>
           <div class="erp-status-updated" title="Hora de la última actualización de los datos">Últ. actualización <span id="erpKpiUpdated">—</span></div>
+          <button class="erp-compare-fab" id="erpBtnCompare" onclick="erpToggleCompare()" title="Comparar este período contra otro, para ver qué subió/bajó (Var.%) en cada tabla"><span class="fab-ico">🔀</span><span>Comparar</span></button>
         </div>
         <div class="erp-header">
           <div>
             <h1>Ventas en Vivo</h1>
             <p>Facturación del día seleccionado, agregada por canal y por SKU, directo desde oppen.io.</p>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="erp-toolbar" id="erpToolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <div class="erp-daterange">
               <button type="button" class="pm-btn" id="erpDateRangeBtn" onclick="erpToggleDateRangePicker(event)" title="Elegir rango de fechas: tocá el día de inicio y después el de fin" style="display:inline-flex;align-items:center;gap:6px;min-width:190px;justify-content:flex-start">
                 <span>📅</span><span id="erpDateRangeLabel">—</span>
@@ -893,11 +907,6 @@
             </div>
             <input type="date" id="erpViewDateFrom" style="display:none">
             <input type="date" id="erpViewDateTo" style="display:none">
-            <button class="pm-btn" id="erpBtnHoy" onclick="erpGoToday()" title="Volver a hoy">Hoy</button>
-            <button class="pm-btn" id="erpBtnAyer" onclick="erpGoYesterday()" title="Ver el día anterior (cerrado)">Ayer</button>
-            <button class="pm-btn" id="erpBtnSemanaAct" onclick="erpGoThisWeek()" title="Ver desde el lunes de esta semana hasta hoy inclusive">Semana Act.</button>
-            <button class="pm-btn" id="erpBtnSemanaAnt" onclick="erpGoLastWeek()" title="Ver la semana anterior completa (lunes a domingo)">Semana Ant.</button>
-            <button class="pm-btn" id="erpBtnMesAct" onclick="erpGoThisMonth()" title="Ver desde el día 1 de este mes hasta hoy inclusive">Mes Actual</button>
             <!-- 31/08/2026 ("agregar una función de 'comparar' períodos
                  dentro de ventas en vivo para entender los GAPs"): toggle +
                  selector de un SEGUNDO rango de fechas (el "período de
@@ -908,17 +917,30 @@
                  tablas de abajo (ver erpBuildCompareRows/erpFmtVarPct) --
                  pedido explícito del usuario, confirmado por
                  AskUserQuestion. -->
-            <button class="pm-btn" id="erpBtnCompare" onclick="erpToggleCompare()" title="Comparar este período contra otro, para ver qué subió/bajó (Var.%) en cada tabla">🔀 Comparar</button>
+            <!-- 21/09/2026 ("hazlo flotando debajo de los indicadores... cuando se prende
+                 la comparación, la fecha a comparar al lado de la fecha actual y que
+                 bajen los atajos"): el botón Comparar ahora es un botón circular
+                 flotante (ver .erp-status-float); acá queda el selector del período de
+                 comparación pegado al de la fecha actual, y un corte de fila que sólo
+                 se activa con la comparación prendida (.compare-on) para mandar los
+                 atajos Hoy/Ayer/... a la fila de abajo. -->
             <span id="erpCompareRangeWrap" style="display:none;align-items:center;gap:8px">
               <span style="color:#999;font-size:12px">vs.</span>
               <div class="erp-daterange">
-                <button type="button" class="pm-btn" id="erpCompareRangeBtn" onclick="erpCompareToggleDateRangePicker(event)" title="Elegir el período de comparación a mano" style="display:inline-flex;align-items:center;gap:6px;min-width:150px;justify-content:flex-start">
+                <button type="button" class="pm-btn" id="erpCompareRangeBtn" onclick="erpCompareToggleDateRangePicker(event)" title="Elegir el período de comparación a mano" style="display:inline-flex;align-items:center;gap:6px;min-width:190px;justify-content:flex-start">
                   <span>📅</span><span id="erpCompareRangeLabel">—</span>
                 </button>
                 <div id="erpCompareRangePopup" class="erp-daterange-popup" style="display:none"></div>
               </div>
               <span class="erp-status loading" id="erpCompareStatus">🔀 <span class="erp-status-spin"></span> Cargando…</span>
             </span>
+            <span class="erp-toolbar-break"></span>
+            <button class="pm-btn" id="erpBtnHoy" onclick="erpGoToday()" title="Volver a hoy">Hoy</button>
+            <button class="pm-btn" id="erpBtnAyer" onclick="erpGoYesterday()" title="Ver el día anterior (cerrado)">Ayer</button>
+            <button class="pm-btn" id="erpBtnSemanaAct" onclick="erpGoThisWeek()" title="Ver desde el lunes de esta semana hasta hoy inclusive">Semana Act.</button>
+            <button class="pm-btn" id="erpBtnSemanaAnt" onclick="erpGoLastWeek()" title="Ver la semana anterior completa (lunes a domingo)">Semana Ant.</button>
+            <button class="pm-btn" id="erpBtnMesAct" onclick="erpGoThisMonth()" title="Ver desde el día 1 de este mes hasta hoy inclusive">Mes Actual</button>
+
           </div>
         </div>
 
@@ -3650,6 +3672,8 @@ function erpToggleCompare(){
   const wrap = document.getElementById('erpCompareRangeWrap');
   if(btn) btn.classList.toggle('erp-quickbtn-active', erpCompareEnabled);
   if(wrap) wrap.style.display = erpCompareEnabled ? 'inline-flex' : 'none';
+  const tb = document.getElementById('erpToolbar');
+  if(tb) tb.classList.toggle('compare-on', erpCompareEnabled);
   if(erpCompareEnabled){
     if(erpCompareMode === 'periodo_anterior' || !erpCompareFrom){
       const p = erpComputePeriodoAnteriorEquivalente(erpViewFrom, erpViewTo);
