@@ -403,7 +403,7 @@
   /* ── VENTAS ERP EN VIVO ── */
   #pane-erp{overflow:auto;background:#f7f6f2}
   #pane-monitor_ov{overflow:auto;background:#f7f6f2}
-  .erp-wrap{max-width:1100px;margin:0 auto;padding:28px 32px 60px}
+  .erp-wrap{max-width:1100px;margin:0 auto;padding:42px 32px 60px}
   .erp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px}
   .erp-header h1{font-size:19px;color:var(--accent);font-weight:700}
   .erp-header p{font-size:12.5px;color:#777;margin-top:3px}
@@ -418,7 +418,13 @@
      flotante en la esquina superior derecha del módulo, más chicos. El
      padding-top de .erp-wrap (28px) les deja lugar sin tapar el título. */
   .erp-wrap{position:relative}
-  .erp-status-float{position:absolute;top:5px;right:32px;display:flex;gap:5px;z-index:3}
+  .erp-status-float{position:absolute;top:6px;right:32px;display:flex;flex-direction:column;align-items:flex-end;gap:3px;z-index:3}
+  .erp-status-pills{display:flex;gap:5px}
+  .erp-status-updated{font-size:10px;color:#999;white-space:nowrap}
+  .erp-status-updated span{color:#777;font-weight:600}
+  .erp-kpi-sub{font-size:12px;color:#888;margin-top:2px}
+  .erp-kpi-sub span{font-weight:600;color:#777}
+  .erp-kpi-delta-un{min-height:0;margin-top:0}
   .erp-status-float .erp-status{font-size:10.5px;padding:2px 8px;gap:4px;font-weight:600}
   .erp-status-float .erp-status-spin{width:8px;height:8px;border-width:1.5px}
   /* 26/08/2026 (auditoría de diseño, "2 spinners de carga distintos
@@ -467,7 +473,7 @@
   .erp-table-wrap{max-height:420px;overflow:auto;border:1px solid #eee;border-radius:8px}
 
   @media (max-width:768px){
-    .erp-wrap{padding:26px 14px 40px}
+    .erp-wrap{padding:40px 14px 40px}
     .erp-status-float{right:14px;top:4px}
     .erp-header{flex-direction:column;align-items:stretch}
     .erp-header h1{font-size:17px}
@@ -867,8 +873,11 @@
     <div class="pane" id="pane-erp">
       <div class="erp-wrap">
         <div class="erp-status-float">
-          <span class="erp-status loading" id="erpStatus">💲 <span class="erp-status-spin"></span> Cargando…</span>
-          <span class="erp-status loading" id="erpStockStatus">📦 <span class="erp-status-spin"></span> Cargando…</span>
+          <div class="erp-status-pills">
+            <span class="erp-status loading" id="erpStatus">💲 <span class="erp-status-spin"></span> Cargando…</span>
+            <span class="erp-status loading" id="erpStockStatus">📦 <span class="erp-status-spin"></span> Cargando…</span>
+          </div>
+          <div class="erp-status-updated" title="Hora de la última actualización de los datos">Últ. actualización <span id="erpKpiUpdated">—</span></div>
         </div>
         <div class="erp-header">
           <div>
@@ -925,10 +934,12 @@
              primero, antes del gráfico ICOM, Vendedores y Canales, en TODAS
              las apps (sin gating por canal). -->
         <div class="erp-kpis" id="erpKpis">
-          <div class="erp-kpi"><div class="lbl">Total Neto</div><div class="val" id="erpKpiTotal">—</div><div class="erp-kpi-delta" id="erpKpiTotalDelta"></div></div>
-          <div class="erp-kpi"><div class="lbl">Unidades</div><div class="val" id="erpKpiUnidades">—</div><div class="erp-kpi-delta" id="erpKpiUnidadesDelta"></div></div>
+          <!-- 21/09/2026: "en Total Neto colocar abajo, más chico, 'un.' (unidades)"
+               -- la tarjeta Unidades se fusiona acá (mismo id erpKpiUnidades, así
+               erpRenderKpis no cambia); "Última actualización" ya no es una tarjeta,
+               flota bajo los indicadores 💲/📦 (ver .erp-status-float). -->
+          <div class="erp-kpi"><div class="lbl">Total Neto</div><div class="val" id="erpKpiTotal">—</div><div class="erp-kpi-sub"><span id="erpKpiUnidades">—</span> un.</div><div class="erp-kpi-delta" id="erpKpiTotalDelta"></div><div class="erp-kpi-delta erp-kpi-delta-un" id="erpKpiUnidadesDelta"></div></div>
           <div class="erp-kpi"><div class="lbl">Facturas procesadas</div><div class="val" id="erpKpiInvoices">—</div><div class="erp-kpi-delta" id="erpKpiInvoicesDelta"></div></div>
-          <div class="erp-kpi"><div class="lbl">Última actualización</div><div class="val" id="erpKpiUpdated" style="font-size:13px">—</div></div>
         </div>
 
         <!-- Juan Manuel, 27/07/2026: "En Icom: Debajo del selector de fechas
