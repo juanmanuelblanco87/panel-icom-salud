@@ -412,6 +412,15 @@
   .erp-status.loading{color:#4a90d9;background:var(--accent-soft);border:1px solid #c7dbf3}
   .erp-status.err{color:var(--danger);background:#FBE9E7;border:1px solid #f0c4b8}
   .erp-status.ok .erp-status-spin, .erp-status.err .erp-status-spin{display:none}
+  /* 21/09/2026 ("estos indicadores deberiamos colocarlos flotando mas arriba
+     y a la derecha y mas pequeños"): los chips de sincronización (💲 ventas,
+     📦 stock) salen de la barra de herramientas y quedan en una franja
+     flotante en la esquina superior derecha del módulo, más chicos. El
+     padding-top de .erp-wrap (28px) les deja lugar sin tapar el título. */
+  .erp-wrap{position:relative}
+  .erp-status-float{position:absolute;top:5px;right:32px;display:flex;gap:5px;z-index:3}
+  .erp-status-float .erp-status{font-size:10.5px;padding:2px 8px;gap:4px;font-weight:600}
+  .erp-status-float .erp-status-spin{width:8px;height:8px;border-width:1.5px}
   /* 26/08/2026 (auditoría de diseño, "2 spinners de carga distintos
      en la misma pantalla"): este spinner chico (al lado de 💲/📦)
      usaba #4a90d9, un azul de acento que no aparece en ningún otro
@@ -458,7 +467,8 @@
   .erp-table-wrap{max-height:420px;overflow:auto;border:1px solid #eee;border-radius:8px}
 
   @media (max-width:768px){
-    .erp-wrap{padding:16px 14px 40px}
+    .erp-wrap{padding:26px 14px 40px}
+    .erp-status-float{right:14px;top:4px}
     .erp-header{flex-direction:column;align-items:stretch}
     .erp-header h1{font-size:17px}
     .erp-kpis{grid-template-columns:repeat(2,1fr)}
@@ -856,6 +866,10 @@
     </div>
     <div class="pane" id="pane-erp">
       <div class="erp-wrap">
+        <div class="erp-status-float">
+          <span class="erp-status loading" id="erpStatus">💲 <span class="erp-status-spin"></span> Cargando…</span>
+          <span class="erp-status loading" id="erpStockStatus">📦 <span class="erp-status-spin"></span> Cargando…</span>
+        </div>
         <div class="erp-header">
           <div>
             <h1>Ventas en Vivo</h1>
@@ -896,8 +910,6 @@
               </div>
               <span class="erp-status loading" id="erpCompareStatus">🔀 <span class="erp-status-spin"></span> Cargando…</span>
             </span>
-            <span class="erp-status loading" id="erpStatus">💲 <span class="erp-status-spin"></span> Cargando…</span>
-            <span class="erp-status loading" id="erpStockStatus">📦 <span class="erp-status-spin"></span> Cargando…</span>
           </div>
         </div>
 
