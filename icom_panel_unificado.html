@@ -1267,13 +1267,14 @@
             <span class="erp-status loading" id="ovStatus">💲 <span class="erp-status-spin"></span> Cargando…</span>
           </div>
           <div class="erp-status-updated" title="Hora de la última actualización de los datos">Últ. actualización <span id="ovKpiUpdated">—</span></div>
+          <button class="erp-compare-fab" id="ovBtnCompare" onclick="ovToggleCompare()" aria-label="Comparar" title="Comparar este período contra otro, para ver qué subió/bajó (Var.%) en cada tabla"><img src="data:image/webp;base64,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" alt="Comparar" width="64" height="64" draggable="false"></button>
         </div>
         <div class="erp-header">
           <div>
             <h1>Monitor OV</h1>
             <p>Órdenes de Venta de Cirugía General (aún no facturadas o ya facturadas), agregadas por canal y por SKU, directo desde oppen.io.</p>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="erp-toolbar" id="ovToolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <div class="erp-daterange">
               <button type="button" class="pm-btn" id="ovDateRangeBtn" onclick="ovToggleDateRangePicker(event)" title="Elegir rango de fechas: tocá el día de inicio y después el de fin" style="display:inline-flex;align-items:center;gap:6px;min-width:190px;justify-content:flex-start">
                 <span>📅</span><span id="ovDateRangeLabel">—</span>
@@ -1282,6 +1283,17 @@
             </div>
             <input type="date" id="ovViewDateFrom" style="display:none">
             <input type="date" id="ovViewDateTo" style="display:none">
+            <span id="ovCompareRangeWrap" style="display:none;align-items:center;gap:8px">
+              <span style="color:#999;font-size:12px">vs.</span>
+              <div class="erp-daterange">
+                <button type="button" class="pm-btn" id="ovCompareRangeBtn" onclick="ovCompareToggleDateRangePicker(event)" title="Elegir el período de comparación a mano" style="display:inline-flex;align-items:center;gap:6px;min-width:190px;justify-content:flex-start">
+                  <span>📅</span><span id="ovCompareRangeLabel">—</span>
+                </button>
+                <div id="ovCompareRangePopup" class="erp-daterange-popup" style="display:none"></div>
+              </div>
+              <span class="erp-status loading" id="ovCompareStatus">🔀 <span class="erp-status-spin"></span> Cargando…</span>
+            </span>
+            <span class="erp-toolbar-break"></span>
             <button class="pm-btn" id="ovBtnHoy" onclick="ovGoToday()" title="Volver a hoy">Hoy</button>
             <button class="pm-btn" id="ovBtnAyer" onclick="ovGoYesterday()" title="Ver el día anterior (cerrado)">Ayer</button>
             <button class="pm-btn" id="ovBtnSemanaAct" onclick="ovGoThisWeek()" title="Ver desde el lunes de esta semana hasta hoy inclusive">Semana Act.</button>
@@ -1296,14 +1308,14 @@
         </div>
 
         <div class="erp-kpis" id="ovKpis">
-          <div class="erp-kpi"><div class="lbl">Total Neto</div><div class="val" id="ovKpiTotal">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Total Neto</div><div class="val" id="ovKpiTotal">—</div><div class="erp-kpi-delta" id="ovKpiTotalDelta"></div></div>
           <!-- 03/09/2026 ("donde dice UNIDADES coloca Monto Promedio,
                dividir total neto / numero de cirugias"): mismo id
                ovKpiUnidades (sin renombrar, evita perder alguna otra
                referencia) -- lo que cambió es el label y qué valor se
                le asigna en ovRenderKpis(). -->
-          <div class="erp-kpi"><div class="lbl">Monto Promedio</div><div class="val" id="ovKpiUnidades">—</div></div>
-          <div class="erp-kpi"><div class="lbl"># Cirugías</div><div class="val" id="ovKpiOrdenes">—</div></div>
+          <div class="erp-kpi"><div class="lbl">Monto Promedio</div><div class="val" id="ovKpiUnidades">—</div><div class="erp-kpi-delta" id="ovKpiUnidadesDelta"></div></div>
+          <div class="erp-kpi"><div class="lbl"># Cirugías</div><div class="val" id="ovKpiOrdenes">—</div><div class="erp-kpi-delta" id="ovKpiOrdenesDelta"></div></div>
         </div>
 
         <div class="erp-card" id="ovTipoOperacionCard">
@@ -1316,7 +1328,7 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Tipo de Operación</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <thead><tr><th>Tipo de Operación</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovTipoOpVarHead" style="display:none">Var.</th></tr></thead>
               <tbody id="ovTipoOpBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
@@ -1332,7 +1344,7 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Especialidad</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <thead><tr><th>Especialidad</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovEspecialidadVarHead" style="display:none">Var.</th></tr></thead>
               <tbody id="ovEspecialidadBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
@@ -1357,7 +1369,7 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Cliente</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <thead><tr><th>Cliente</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovClienteVarHead" style="display:none">Var.</th></tr></thead>
               <tbody id="ovClienteBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
@@ -1373,7 +1385,7 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Institución</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <thead><tr><th>Institución</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovInstitucionVarHead" style="display:none">Var.</th></tr></thead>
               <tbody id="ovInstitucionBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
@@ -1389,7 +1401,7 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Médico</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <thead><tr><th>Médico</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovMedicoVarHead" style="display:none">Var.</th></tr></thead>
               <tbody id="ovMedicoBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
@@ -1410,7 +1422,7 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Etiqueta</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <thead><tr><th>Etiqueta</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovEtiquetaVarHead" style="display:none">Var.</th></tr></thead>
               <tbody id="ovEtiquetaBody"><tr><td colspan="6" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
@@ -1427,7 +1439,7 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>Subgrupo</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <thead><tr><th>Subgrupo</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovSubgrupoVarHead" style="display:none">Var.</th></tr></thead>
               <tbody id="ovSubgrupoBody"><tr><td colspan="5" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
@@ -1441,7 +1453,7 @@
           </div>
           <div class="erp-table-wrap">
             <table class="erp-table">
-              <thead><tr><th>SKU</th><th>Nombre</th><th class="num">Cirugías</th><th class="num">Stock Total</th><th class="num">Precio Neto</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th></tr></thead>
+              <thead><tr><th>SKU</th><th>Nombre</th><th class="num">Cirugías</th><th class="num">Stock Total</th><th class="num">Precio Neto</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovSkuVarHead" style="display:none">Var.</th></tr></thead>
               <tbody id="ovSkuBody"><tr><td colspan="8" class="pm-empty">Cargando datos del ERP…</td></tr></tbody>
             </table>
           </div>
@@ -7898,6 +7910,212 @@ async function ovFetchViewData(fromStr, toStr){
   }
 }
 
+/* ============================================================
+   COMPARAR PERÍODOS -- Monitor OV (21/09/2026: "agrega el comparar identico
+   en los monitores de OV"). Clon deliberado de la comparación de Ventas en
+   Vivo (erpToggleCompare / erpFetchCompareData / calendario propio /
+   erpBuildCompareRows+erpFmtVarCell reutilizados tal cual): mismo "período
+   anterior equivalente" automático, mismo calendario para fijar uno a mano,
+   mismas columnas Var. (Nuevo / Desapareció / ▲▼ %) en cada tabla. Los
+   filtros activos se aplican también al período comparado, así las
+   variaciones son manzanas con manzanas.
+   ============================================================ */
+let ovCompareEnabled = false;
+let ovCompareMode = 'periodo_anterior'; // 'periodo_anterior' | 'manual'
+let ovCompareFrom = null;
+let ovCompareTo = null;
+let OV_COMPARE_DATA = null;
+
+function ovSetCompareStatus(text, cls){
+  const el = document.getElementById('ovCompareStatus');
+  if(!el) return;
+  el.innerHTML = '🔀<span class="erp-status-spin"></span><span>'+text+'</span>';
+  el.className = 'erp-status ' + cls;
+}
+
+async function ovFetchCompareData(fromStr, toStr){
+  if(!ovCompareEnabled) return;
+  const targetChannel = currentChannel;
+  ovSetCompareStatus('Cargando…', 'loading');
+  try{
+    const chunks = erpDateChunksForRange(fromStr, toStr);
+    let data;
+    if(chunks.length <= 1){
+      data = await ovFetchSalesOrdersChunk({from:fromStr, to:toStr}, targetChannel);
+    }else{
+      const results = [];
+      for(let i=0;i<chunks.length;i++){
+        ovSetCompareStatus('Cargando… ('+(i+1)+'/'+chunks.length+')', 'loading');
+        results.push(await ovFetchSalesOrdersChunk(chunks[i], targetChannel));
+      }
+      data = ovMergeViewData(results);
+    }
+    if(targetChannel !== currentChannel || !ovCompareEnabled) return; // respuesta vieja (cambió la unidad o se apagó la comparación)
+    OV_COMPARE_DATA = ovAplicarFiltroFijo(data, targetChannel);       // mismo filtro fijo que el período primario
+    ovSetCompareStatus('OK', 'ok');
+    ovRenderAll();
+  }catch(e){
+    if(targetChannel !== currentChannel || !ovCompareEnabled) return;
+    console.error('Error consultando /api/oppen-sales-orders (período de comparación):', e);
+    ovSetCompareStatus('Error: ' + e.message, 'err');
+  }
+}
+
+function ovRenderCompareRangeLabel(){
+  const el = document.getElementById('ovCompareRangeLabel');
+  if(!el) return;
+  if(!ovCompareFrom || !ovCompareTo){ el.textContent = '—'; return; }
+  el.textContent = (ovCompareFrom===ovCompareTo)
+    ? ovFmtDateDDMMYYYY(ovCompareFrom)
+    : ovFmtDateDDMMYYYY(ovCompareFrom)+' a '+ovFmtDateDDMMYYYY(ovCompareTo);
+}
+
+// Prende/apaga el modo comparación (ver erpToggleCompare: mismo criterio).
+function ovToggleCompare(){
+  ovCompareEnabled = !ovCompareEnabled;
+  const btn = document.getElementById('ovBtnCompare');
+  const wrap = document.getElementById('ovCompareRangeWrap');
+  if(btn) btn.classList.toggle('erp-quickbtn-active', ovCompareEnabled);
+  if(wrap) wrap.style.display = ovCompareEnabled ? 'inline-flex' : 'none';
+  const tb = document.getElementById('ovToolbar');
+  if(tb) tb.classList.toggle('compare-on', ovCompareEnabled);
+  if(ovCompareEnabled){
+    if(ovCompareMode === 'periodo_anterior' || !ovCompareFrom){
+      const pr = erpComputePeriodoAnteriorEquivalente(ovViewFrom, ovViewTo);
+      ovCompareFrom = pr.from;
+      ovCompareTo = pr.to;
+      ovCompareMode = 'periodo_anterior';
+    }
+    ovRenderCompareRangeLabel();
+    ovFetchCompareData(ovCompareFrom, ovCompareTo);
+  }else{
+    OV_COMPARE_DATA = null;
+    ovRenderAll();
+  }
+}
+
+// Cambió el período PRIMARIO: si la comparación es la automática, sigue al nuevo rango.
+function ovSyncCompareToNewPrimaryRange(fromStr, toStr){
+  if(!ovCompareEnabled || ovCompareMode !== 'periodo_anterior') return;
+  const pr = erpComputePeriodoAnteriorEquivalente(fromStr, toStr);
+  ovCompareFrom = pr.from;
+  ovCompareTo = pr.to;
+  ovRenderCompareRangeLabel();
+  ovFetchCompareData(ovCompareFrom, ovCompareTo);
+}
+
+/* ---- Calendario del período de comparación (clon de erpCompare*) ---- */
+let ovCompareCalPendingStart = null;
+let ovCompareCalViewDate = new Date();
+
+function ovCompareToggleDateRangePicker(ev){
+  if(ev) ev.stopPropagation();
+  const popup = document.getElementById('ovCompareRangePopup');
+  if(!popup) return;
+  const isOpen = popup.style.display !== 'none';
+  if(isOpen){ ovCompareCloseDateRangePicker(); return; }
+  ovCompareCalPendingStart = null;
+  const base = ovCompareFrom ? new Date(ovCompareFrom+'T00:00:00') : new Date();
+  ovCompareCalViewDate = new Date(base.getFullYear(), base.getMonth(), 1);
+  ovCompareRenderCalendarPopup();
+  popup.style.display = 'block';
+  setTimeout(()=> document.addEventListener('click', ovCompareOutsideClickCloseCal), 0);
+}
+// Scopeado al wrapper de comparación a propósito -- ahora hay 2
+// ".erp-daterange" en #pane-erp (el primario y este), y un querySelector
+// sin scope siempre encontraría el PRIMERO en el DOM (el primario).
+function ovCompareOutsideClickCloseCal(e){
+  const wrap = document.querySelector('#ovCompareRangeWrap .erp-daterange');
+  if(!wrap) return;
+  const path = e.composedPath ? e.composedPath() : [];
+  if(path.includes(wrap) || wrap.contains(e.target)) return;
+  ovCompareCloseDateRangePicker();
+}
+function ovCompareCloseDateRangePicker(){
+  const popup = document.getElementById('ovCompareRangePopup');
+  if(popup) popup.style.display = 'none';
+  document.removeEventListener('click', ovCompareOutsideClickCloseCal);
+}
+function ovCompareCalMonthNav(delta, ev){
+  if(ev) ev.stopPropagation();
+  ovCompareCalViewDate = new Date(ovCompareCalViewDate.getFullYear(), ovCompareCalViewDate.getMonth()+delta, 1);
+  ovCompareRenderCalendarPopup();
+}
+function ovCompareRenderCalendarPopup(){
+  const popup = document.getElementById('ovCompareRangePopup');
+  if(!popup) return;
+  const y = ovCompareCalViewDate.getFullYear(), m = ovCompareCalViewDate.getMonth();
+  const firstOfMonth = new Date(y, m, 1);
+  const firstWeekday = (firstOfMonth.getDay() + 6) % 7;
+  const daysInMonth = new Date(y, m+1, 0).getDate();
+  const daysInPrevMonth = new Date(y, m, 0).getDate();
+  const todayStr = erpTodayStr();
+
+  let cells = '';
+  for(let i=0;i<firstWeekday;i++){
+    const d = daysInPrevMonth - firstWeekday + 1 + i;
+    cells += '<div class="erp-cal-day erp-cal-muted">'+d+'</div>';
+  }
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    let cls = 'erp-cal-day';
+    if(dateStr === todayStr) cls += ' erp-cal-today';
+    if(ovCompareCalPendingStart){
+      if(dateStr === ovCompareCalPendingStart) cls += ' erp-cal-selected';
+    } else if(ovCompareFrom && ovCompareTo){
+      if(dateStr === ovCompareFrom || dateStr === ovCompareTo) cls += ' erp-cal-selected';
+      else if(dateStr > ovCompareFrom && dateStr < ovCompareTo) cls += ' erp-cal-inrange';
+    }
+    cells += '<div class="'+cls+'" onclick="ovCompareCalPickDay(\''+dateStr+'\')">'+d+'</div>';
+  }
+  const totalCells = firstWeekday + daysInMonth;
+  const trailing = (7 - (totalCells % 7)) % 7;
+  for(let i=1;i<=trailing;i++){
+    cells += '<div class="erp-cal-day erp-cal-muted">'+i+'</div>';
+  }
+
+  popup.innerHTML =
+      '<div class="erp-cal-head">'
+    +   '<button type="button" onclick="ovCompareCalMonthNav(-1, event)">‹</button>'
+    +   '<span class="erp-cal-title">'+ERP_CAL_MESES[m]+' '+y+'</span>'
+    +   '<button type="button" onclick="ovCompareCalMonthNav(1, event)">›</button>'
+    + '</div>'
+    + '<div class="erp-cal-grid">'
+    +   ERP_CAL_DOW.map(d=>'<div class="erp-cal-dow">'+d+'</div>').join('')
+    +   cells
+    + '</div>'
+    + '<div class="erp-cal-hint">'+(ovCompareCalPendingStart ? 'Elegí la fecha de fin' : 'Elegí la fecha de inicio')+'</div>';
+}
+function ovCompareCalPickDay(dateStr){
+  if(!ovCompareCalPendingStart){
+    ovCompareCalPendingStart = dateStr;
+    ovCompareRenderCalendarPopup();
+    return;
+  }
+  let from = ovCompareCalPendingStart, to = dateStr;
+  if(from > to){ [from, to] = [to, from]; }
+  ovCompareCalPendingStart = null;
+  ovCompareFrom = from;
+  ovCompareTo = to;
+  ovCompareMode = 'manual'; // el usuario eligió a mano -- deja de seguir al período primario
+  ovRenderCompareRangeLabel();
+  ovCompareCloseDateRangePicker();
+  ovFetchCompareData(from, to);
+}
+
+
+function ovFmtVarKpi(actual, anterior){
+  if(!ovCompareEnabled || !OV_COMPARE_DATA) return '';
+  if(!anterior && actual>0) return '<span style="color:#0F7A5A;font-weight:700">Nuevo</span>';
+  if(anterior>0 && !actual) return '<span style="color:#c0422a;font-weight:700">▼ 100% (desapareció)</span>';
+  if(!anterior && !actual) return '';
+  const pct = ((actual-anterior)/anterior)*100;
+  const arrow = pct>0 ? '▲' : (pct<0 ? '▼' : '—');
+  const color = pct>0 ? '#0F7A5A' : (pct<0 ? '#c0422a' : '#888');
+  return '<span style="color:'+color+';font-weight:700">'+arrow+' '+Math.abs(pct).toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%</span> <span style="color:#999">vs. período comparado</span>';
+}
+
+
 // Predicado único de filtros -- mismo criterio que erpRowPassesFilters,
 // sin marca/macro (Cirugía General siempre usa subgrupo/proveedor, no hace
 // falta el dispatcher erpHasActiveClasificacionFilter/
@@ -7938,19 +8156,20 @@ function ovRowPassesFilters(row, skip){
   return true;
 }
 
-function ovGetFilteredData(){
-  if(!OV_VIEW_DATA) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
+function ovGetFilteredData(data){
+  data = data || OV_VIEW_DATA;
+  if(!data) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
   const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
     || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
     || !!ovInstitucionSelected || !!ovMedicoSelected || !!ovEtiquetaSelected || ovHasActiveClasificacionFilter();
   if(!anyFilter){
-    return {bySku: OV_VIEW_DATA.bySku, totals: OV_VIEW_DATA.totals};
+    return {bySku: data.bySku, totals: data.totals};
   }
   const bySku = {};
-  (OV_VIEW_DATA.rows||[]).forEach(row=>{
+  (data.rows||[]).forEach(row=>{
     if(!ovRowPassesFilters(row)) return;
     if(!bySku[row.sku]){
-      const nombre = row.desc || (OV_VIEW_DATA.bySku[row.sku] && OV_VIEW_DATA.bySku[row.sku].nombre) || row.sku;
+      const nombre = row.desc || (data.bySku[row.sku] && data.bySku[row.sku].nombre) || row.sku;
       bySku[row.sku] = {nombre, unidades:0, totalNeto:0};
     }
     bySku[row.sku].unidades += row.u;
@@ -7960,10 +8179,11 @@ function ovGetFilteredData(){
   return {bySku, totals};
 }
 
-function ovComputeRowGroupTotals(getKey, skip){
+function ovComputeRowGroupTotals(getKey, skip, data){
+  data = data || OV_VIEW_DATA;
   const out = {};
-  if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows) return out;
-  OV_VIEW_DATA.rows.forEach(row=>{
+  if(!data || !data.rows) return out;
+  data.rows.forEach(row=>{
     if(!ovRowPassesFilters(row, skip)) return;
     const key = getKey(row);
     if(key == null) return;
@@ -7982,10 +8202,11 @@ function ovComputeRowGroupTotals(getKey, skip){
 // líneas del mismo tipo/especialidad cuenta como 1 sola cirugía, no 2.
 // Mismo criterio que ovComputeFilteredOrderCount (Set de sernr), pero por
 // grupo en vez de global.
-function ovComputeGroupOrderCounts(getKey, skip){
+function ovComputeGroupOrderCounts(getKey, skip, data){
+  data = data || OV_VIEW_DATA;
   const setsPorGrupo = {};
-  if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows) return {};
-  OV_VIEW_DATA.rows.forEach(row=>{
+  if(!data || !data.rows) return {};
+  data.rows.forEach(row=>{
     if(!ovRowPassesFilters(row, skip)) return;
     const key = getKey(row);
     if(key == null || row.sernr == null) return;
@@ -7997,46 +8218,48 @@ function ovComputeGroupOrderCounts(getKey, skip){
   return out;
 }
 
-function ovComputeCanalTotals(){
-  if(!OV_VIEW_DATA || !OV_VIEW_DATA.byCanal) return {};
+function ovComputeCanalTotals(data){
+  data = data || OV_VIEW_DATA;
+  if(!data || !data.byCanal) return {};
   const anyOtherFilter = ovVendInstExcluded.size > 0 || ovVendClienteExcluded.size > 0
     || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
     || !!ovInstitucionSelected || !!ovMedicoSelected || !!ovEtiquetaSelected || ovHasActiveClasificacionFilter();
-  if(!anyOtherFilter) return OV_VIEW_DATA.byCanal;
-  return ovComputeRowGroupTotals(row=>row.canal, {canal:true});
+  if(!anyOtherFilter) return data.byCanal;
+  return ovComputeRowGroupTotals(row=>row.canal, {canal:true}, data);
 }
-function ovComputeTipoOperacionTotals(){
-  return ovComputeRowGroupTotals(row=>row.tipoOperacion, {tipoOperacion:true});
+function ovComputeTipoOperacionTotals(data){
+  return ovComputeRowGroupTotals(row=>row.tipoOperacion, {tipoOperacion:true}, data);
 }
-function ovComputeEspecialidadTotals(){
-  return ovComputeRowGroupTotals(row=>row.especialidad, {especialidad:true});
+function ovComputeEspecialidadTotals(data){
+  return ovComputeRowGroupTotals(row=>row.especialidad, {especialidad:true}, data);
 }
 // 01/09/2026: mismo criterio que ovComputeEspecialidadTotals, agrupando
 // por row.institucionNombre/row.medicoNombre en vez de row.especialidad.
-function ovComputeInstitucionTotals(){
-  return ovComputeRowGroupTotals(row=>row.institucionNombre, {institucion:true});
+function ovComputeInstitucionTotals(data){
+  return ovComputeRowGroupTotals(row=>row.institucionNombre, {institucion:true}, data);
 }
-function ovComputeMedicoTotals(){
-  return ovComputeRowGroupTotals(row=>row.medicoNombre, {medico:true});
+function ovComputeMedicoTotals(data){
+  return ovComputeRowGroupTotals(row=>row.medicoNombre, {medico:true}, data);
 }
 // 01/09/2026 ("Por proveedor reemplazarla por la de Etiquetas -- J&J,
 // Competencia, etc."): mismo criterio, agrupando por row.etiqueta (ver
 // ETIQUETA_LABELS en oppen-sales-orders.js).
-function ovComputeEtiquetaTotals(){
-  return ovComputeRowGroupTotals(row=>row.etiqueta, {etiqueta:true});
+function ovComputeEtiquetaTotals(data){
+  return ovComputeRowGroupTotals(row=>row.etiqueta, {etiqueta:true}, data);
 }
-function ovComputeVendInstTotals(){
-  return ovComputeRowGroupTotals(row=>row.vendedorInstitucion, {vendInst:true});
+function ovComputeVendInstTotals(data){
+  return ovComputeRowGroupTotals(row=>row.vendedorInstitucion, {vendInst:true}, data);
 }
-function ovComputeVendClienteTotals(){
-  return ovComputeRowGroupTotals(row=>row.vendedorCliente, {vendCliente:true});
+function ovComputeVendClienteTotals(data){
+  return ovComputeRowGroupTotals(row=>row.vendedorCliente, {vendCliente:true}, data);
 }
 // Cuenta órdenes DISTINTAS (por sernr) que pasan los filtros de pill/cliente
 // activos -- mismo criterio que erpComputeFilteredInvoiceCount (a
 // propósito NO aplica subgrupo/proveedor, ver skip.clasificacion: "Órdenes
 // procesadas" cuenta órdenes completas, no líneas).
-function ovComputeFilteredOrderCount(){
-  if(!OV_VIEW_DATA) return 0;
+function ovComputeFilteredOrderCount(data){
+  data = data || OV_VIEW_DATA;
+  if(!data) return 0;
   // 01/09/2026: se agregan ovInstitucionSelected/ovMedicoSelected al
   // gate -- sin esto, filtrar por Institución o Médico (sin ningún otro
   // filtro activo) dejaba el KPI "# Cirugías" mostrando el total SIN
@@ -8045,9 +8268,9 @@ function ovComputeFilteredOrderCount(){
   const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
     || ovVendClienteExcluded.size > 0 || !!ovClienteSelectedKey || !!ovTipoOperacionSelected || !!ovEspecialidadSelected
     || !!ovInstitucionSelected || !!ovMedicoSelected || !!ovEtiquetaSelected;
-  if(!anyFilter) return OV_VIEW_DATA.ordersProcessed || 0;
+  if(!anyFilter) return data.ordersProcessed || 0;
   const seen = new Set();
-  (OV_VIEW_DATA.rows||[]).forEach(row=>{
+  (data.rows||[]).forEach(row=>{
     if(!ovRowPassesFilters(row, {clasificacion:true})) return;
     if(row.sernr != null) seen.add(row.sernr);
   });
@@ -8074,11 +8297,32 @@ function ovRenderKpis(){
   document.getElementById('ovKpiOrdenes').textContent = erpFmtInt(cirugias);
   const d = new Date(OV_VIEW_DATA.updatedAt);
   document.getElementById('ovKpiUpdated').textContent = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+
+  // Comparar períodos: subtítulo de variación en los 3 KPIs (ver ovFmtVarKpi; vacío con la comparación apagada)
+  const totalDeltaEl = document.getElementById('ovKpiTotalDelta');
+  const promDeltaEl = document.getElementById('ovKpiUnidadesDelta');
+  const ordenesDeltaEl = document.getElementById('ovKpiOrdenesDelta');
+  if(ovCompareEnabled && OV_COMPARE_DATA){
+    const {totals: totalsCompare} = ovGetFilteredData(OV_COMPARE_DATA);
+    const cirugiasCompare = ovComputeFilteredOrderCount(OV_COMPARE_DATA);
+    const promActual = cirugias > 0 ? totals.totalNeto / cirugias : 0;
+    const promCompare = cirugiasCompare > 0 ? totalsCompare.totalNeto / cirugiasCompare : 0;
+    if(totalDeltaEl) totalDeltaEl.innerHTML = ovFmtVarKpi(totals.totalNeto, totalsCompare.totalNeto);
+    if(promDeltaEl) promDeltaEl.innerHTML = ovFmtVarKpi(promActual, promCompare);
+    if(ordenesDeltaEl) ordenesDeltaEl.innerHTML = ovFmtVarKpi(cirugias, cirugiasCompare);
+  }else{
+    if(totalDeltaEl) totalDeltaEl.innerHTML = '';
+    if(promDeltaEl) promDeltaEl.innerHTML = '';
+    if(ordenesDeltaEl) ordenesDeltaEl.innerHTML = '';
+  }
 }
 
 async function ovRenderSkuTable(){
   const body = document.getElementById('ovSkuBody');
   const {bySku, totals} = ovGetFilteredData();
+  const varHead = document.getElementById('ovSkuVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
   if(!OV_VIEW_DATA || !bySku){
     body.innerHTML = '<tr><td colspan="8" class="pm-empty">Sin datos.</td></tr>';
     document.getElementById('ovSkuCount').textContent = '';
@@ -8093,7 +8337,18 @@ async function ovRenderSkuTable(){
   const cirugias = ovComputeGroupOrderCounts(row=>row.sku, {});
   const grandTotal = totals.totalNeto;
   const q = (document.getElementById('ovSkuSearch').value||'').trim().toLowerCase();
-  let rows = Object.entries(bySku);
+  let compareBySku = null;
+  let entries;
+  if(compareOn){
+    const bySkuCompare = ovGetFilteredData(OV_COMPARE_DATA).bySku;
+    const merged = erpBuildCompareRows(bySku, bySkuCompare);
+    compareBySku = {};
+    merged.forEach(r=>{ compareBySku[r.label] = r; });
+    entries = merged.map(r=>[r.label, {nombre: (bySku[r.label]||bySkuCompare[r.label]||{}).nombre, unidades: r.unidades, totalNeto: r.totalNeto}]);
+  }else{
+    entries = Object.entries(bySku);
+  }
+  let rows = entries;
   if(q){
     rows = rows.filter(([sku, v])=> sku.toLowerCase().includes(q) || (v.nombre||'').toLowerCase().includes(q));
   }
@@ -8101,9 +8356,10 @@ async function ovRenderSkuTable(){
   document.getElementById('ovSkuCount').textContent = rows.length + ' SKUs';
   const MAX = 300;
   const shown = rows.slice(0, MAX);
-  body.innerHTML = shown.map(([sku, v])=>
-    '<tr><td>'+sku+'</td><td>'+(v.nombre||'—')+'</td><td class="num">'+erpFmtInt(cirugias[sku]||0)+'</td><td class="num">'+erpFmtInt(skuToStock[sku]||0)+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td><td class="num">'+erpFmtPct(v.totalNeto, grandTotal)+'</td></tr>'
-  ).join('') + (rows.length>MAX ? '<tr><td colspan="8" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
+  body.innerHTML = shown.map(([sku, v])=>{
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareBySku[sku])+'</td>' : '';
+    return '<tr><td>'+sku+'</td><td>'+(v.nombre||'—')+'</td><td class="num">'+erpFmtInt(cirugias[sku]||0)+'</td><td class="num">'+erpFmtInt(skuToStock[sku]||0)+'</td><td class="num">'+erpFmtAvgPrice(v.totalNeto, v.unidades)+'</td><td class="num">'+erpFmtInt(v.unidades)+'</td><td class="num">'+erpFmtMoney(v.totalNeto)+'</td><td class="num">'+erpFmtPct(v.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
+  }).join('') + (rows.length>MAX ? '<tr><td colspan="8" style="text-align:center;color:#999">… y '+(rows.length-MAX)+' más (refiná la búsqueda para verlos)</td></tr>' : '');
 }
 
 // 31/08/2026 (3ra vuelta, "Aqui deja un boton para descargar el excel"):
@@ -8176,6 +8432,9 @@ function ovClearEtiquetaFilter(){
 function ovRenderEtiquetaTable(){
   const body = document.getElementById('ovEtiquetaBody');
   if(!body) return;
+  const varHead = document.getElementById('ovEtiquetaVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
   const countSpan = document.getElementById('ovEtiquetaCount');
   const filterNote = document.getElementById('ovEtiquetaFilterNote');
   if(!OV_VIEW_DATA){
@@ -8193,7 +8452,17 @@ function ovRenderEtiquetaTable(){
   }
   const totals = ovComputeEtiquetaTotals();
   const cirugias = ovComputeGroupOrderCounts(row=>row.etiqueta, {etiqueta:true});
-  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  let compareByLabel = null;
+  let rows;
+  if(compareOn){
+    // union de etiquetas de ambos períodos: lo que vendía antes y ahora no (o al revés) también aparece (Nuevo/Desapareció)
+    const merged = erpBuildCompareRows(totals, ovComputeEtiquetaTotals(OV_COMPARE_DATA));
+    compareByLabel = {};
+    merged.forEach(r=>{ compareByLabel[r.label] = r; });
+    rows = merged.map(r=>({label:r.label, unidades:r.unidades, totalNeto:r.totalNeto, cirugias: cirugias[r.label]||0}));
+  }else{
+    rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  }
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' etiqueta' : ' etiquetas');
   if(!rows.length){
@@ -8203,9 +8472,10 @@ function ovRenderEtiquetaTable(){
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
   body.innerHTML = rows.map(r=>{
     const selected = ovEtiquetaSelected === r.label;
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareByLabel[r.label])+'</td>' : '';
     return '<tr onclick="ovToggleEtiqueta(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por esta etiqueta (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
   }).join('');
 }
 
@@ -8232,6 +8502,9 @@ async function ovRenderSubgrupoTable(){
   const body = document.getElementById('ovSubgrupoBody');
   const countSpan = document.getElementById('ovSubgrupoCount');
   const filterNote = document.getElementById('ovSubgrupoFilterNote');
+  const varHead = document.getElementById('ovSubgrupoVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
   const {bySku} = ovGetFilteredData();
   if(!OV_VIEW_DATA || !bySku){
     body.innerHTML = '<tr><td colspan="5" class="pm-empty">Sin datos.</td></tr>';
@@ -8249,19 +8522,27 @@ async function ovRenderSubgrupoTable(){
     }
   }
 
-  const bySubgrupo = {};
-  Object.entries(bySku).forEach(([sku, v])=>{
-    const rawSubgrupo = skuToSubgrupo[sku] || 'Sin subgrupo';
-    const key = erpNormalizeMarcaKey(rawSubgrupo);
-    if(!bySubgrupo[key]) bySubgrupo[key] = {unidades:0, totalNeto:0, labelCounts:{}};
-    bySubgrupo[key].unidades += v.unidades;
-    bySubgrupo[key].totalNeto += v.totalNeto;
-    bySubgrupo[key].labelCounts[rawSubgrupo] = (bySubgrupo[key].labelCounts[rawSubgrupo]||0) + 1;
-  });
-
-  let rows = Object.entries(bySubgrupo).map(([key, v])=>{
-    const labels = Object.entries(v.labelCounts).sort((a,b)=> b[1]-a[1] || b[0].length-a[0].length);
-    return {key, subgrupo: labels[0][0].toUpperCase(), unidades: v.unidades, totalNeto: v.totalNeto};
+  const aggSubgrupo = (bySkuMap)=>{
+    const out = {};
+    Object.entries(bySkuMap).forEach(([sku, v])=>{
+      const rawSubgrupo = skuToSubgrupo[sku] || 'Sin subgrupo';
+      const key = erpNormalizeMarcaKey(rawSubgrupo);
+      if(!out[key]) out[key] = {unidades:0, totalNeto:0, labelCounts:{}};
+      out[key].unidades += v.unidades;
+      out[key].totalNeto += v.totalNeto;
+      out[key].labelCounts[rawSubgrupo] = (out[key].labelCounts[rawSubgrupo]||0) + 1;
+    });
+    return out;
+  };
+  const bySubgrupo = aggSubgrupo(bySku);
+  const bySubgrupoCompare = compareOn ? aggSubgrupo(ovGetFilteredData(OV_COMPARE_DATA).bySku) : {};
+  const claves = new Set([...Object.keys(bySubgrupo), ...Object.keys(bySubgrupoCompare)]);
+  let rows = [...claves].map(key=>{
+    const v = bySubgrupo[key] || {unidades:0, totalNeto:0, labelCounts:{}};
+    const vc = bySubgrupoCompare[key] || {unidades:0, totalNeto:0, labelCounts:{}};
+    const fuente = Object.keys(v.labelCounts).length ? v : vc;
+    const labels = Object.entries(fuente.labelCounts).sort((a,b)=> b[1]-a[1] || b[0].length-a[0].length);
+    return {key, subgrupo: (labels.length ? labels[0][0] : key).toUpperCase(), unidades: v.unidades, totalNeto: v.totalNeto, totalNetoCompare: vc.totalNeto};
   });
 
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
@@ -8274,9 +8555,10 @@ async function ovRenderSubgrupoTable(){
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
   body.innerHTML = rows.map(r=>{
     const selected = ovSubgrupoSelectedKey === r.key;
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell({totalNeto:r.totalNeto, totalNetoCompare:r.totalNetoCompare})+'</td>' : '';
     return '<tr onclick="ovToggleSubgrupoRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.subgrupo)+'\')" title="Tocar para filtrar por este subgrupo (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.subgrupo+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+r.subgrupo+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
   }).join('');
 }
 
@@ -8291,6 +8573,9 @@ function ovClearTipoOperacionFilter(){
 function ovRenderTipoOperacionTable(){
   const body = document.getElementById('ovTipoOpBody');
   if(!body) return;
+  const varHead = document.getElementById('ovTipoOpVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
   const countSpan = document.getElementById('ovTipoOpCount');
   const filterNote = document.getElementById('ovTipoOpFilterNote');
   if(!OV_VIEW_DATA){
@@ -8310,7 +8595,17 @@ function ovRenderTipoOperacionTable(){
   // 31/08/2026 ("es importante conocer la cantidad de cirugias diarias"):
   // ver ovComputeGroupOrderCounts -- cirugías = órdenes DISTINTAS, no líneas.
   const cirugias = ovComputeGroupOrderCounts(row=>row.tipoOperacion, {tipoOperacion:true});
-  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  let compareByLabel = null;
+  let rows;
+  if(compareOn){
+    // union de etiquetas de ambos períodos: lo que vendía antes y ahora no (o al revés) también aparece (Nuevo/Desapareció)
+    const merged = erpBuildCompareRows(totals, ovComputeTipoOperacionTotals(OV_COMPARE_DATA));
+    compareByLabel = {};
+    merged.forEach(r=>{ compareByLabel[r.label] = r; });
+    rows = merged.map(r=>({label:r.label, unidades:r.unidades, totalNeto:r.totalNeto, cirugias: cirugias[r.label]||0}));
+  }else{
+    rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  }
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' tipo' : ' tipos');
   if(!rows.length){
@@ -8320,9 +8615,10 @@ function ovRenderTipoOperacionTable(){
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
   body.innerHTML = rows.map(r=>{
     const selected = ovTipoOperacionSelected === r.label;
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareByLabel[r.label])+'</td>' : '';
     return '<tr onclick="ovToggleTipoOperacion(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este tipo de operación (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
   }).join('');
 }
 
@@ -8341,6 +8637,9 @@ function ovClearEspecialidadFilter(){
 function ovRenderEspecialidadTable(){
   const body = document.getElementById('ovEspecialidadBody');
   if(!body) return;
+  const varHead = document.getElementById('ovEspecialidadVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
   const countSpan = document.getElementById('ovEspecialidadCount');
   const filterNote = document.getElementById('ovEspecialidadFilterNote');
   if(!OV_VIEW_DATA){
@@ -8360,7 +8659,17 @@ function ovRenderEspecialidadTable(){
   // 31/08/2026 ("es importante conocer la cantidad de cirugias diarias"):
   // ver ovComputeGroupOrderCounts -- cirugías = órdenes DISTINTAS, no líneas.
   const cirugias = ovComputeGroupOrderCounts(row=>row.especialidad, {especialidad:true});
-  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  let compareByLabel = null;
+  let rows;
+  if(compareOn){
+    // union de etiquetas de ambos períodos: lo que vendía antes y ahora no (o al revés) también aparece (Nuevo/Desapareció)
+    const merged = erpBuildCompareRows(totals, ovComputeEspecialidadTotals(OV_COMPARE_DATA));
+    compareByLabel = {};
+    merged.forEach(r=>{ compareByLabel[r.label] = r; });
+    rows = merged.map(r=>({label:r.label, unidades:r.unidades, totalNeto:r.totalNeto, cirugias: cirugias[r.label]||0}));
+  }else{
+    rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  }
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' especialidad' : ' especialidades');
   if(!rows.length){
@@ -8370,9 +8679,10 @@ function ovRenderEspecialidadTable(){
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
   body.innerHTML = rows.map(r=>{
     const selected = ovEspecialidadSelected === r.label;
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareByLabel[r.label])+'</td>' : '';
     return '<tr onclick="ovToggleEspecialidad(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por esta especialidad (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
   }).join('');
 }
 
@@ -8391,6 +8701,9 @@ function ovClearInstitucionFilter(){
 function ovRenderInstitucionTable(){
   const body = document.getElementById('ovInstitucionBody');
   if(!body) return;
+  const varHead = document.getElementById('ovInstitucionVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
   const countSpan = document.getElementById('ovInstitucionCount');
   const filterNote = document.getElementById('ovInstitucionFilterNote');
   if(!OV_VIEW_DATA){
@@ -8408,7 +8721,17 @@ function ovRenderInstitucionTable(){
   }
   const totals = ovComputeInstitucionTotals();
   const cirugias = ovComputeGroupOrderCounts(row=>row.institucionNombre, {institucion:true});
-  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  let compareByLabel = null;
+  let rows;
+  if(compareOn){
+    // union de etiquetas de ambos períodos: lo que vendía antes y ahora no (o al revés) también aparece (Nuevo/Desapareció)
+    const merged = erpBuildCompareRows(totals, ovComputeInstitucionTotals(OV_COMPARE_DATA));
+    compareByLabel = {};
+    merged.forEach(r=>{ compareByLabel[r.label] = r; });
+    rows = merged.map(r=>({label:r.label, unidades:r.unidades, totalNeto:r.totalNeto, cirugias: cirugias[r.label]||0}));
+  }else{
+    rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  }
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' institución' : ' instituciones');
   if(!rows.length){
@@ -8418,9 +8741,10 @@ function ovRenderInstitucionTable(){
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
   body.innerHTML = rows.map(r=>{
     const selected = ovInstitucionSelected === r.label;
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareByLabel[r.label])+'</td>' : '';
     return '<tr onclick="ovToggleInstitucion(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por esta institución (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
   }).join('');
 }
 
@@ -8435,6 +8759,9 @@ function ovClearMedicoFilter(){
 function ovRenderMedicoTable(){
   const body = document.getElementById('ovMedicoBody');
   if(!body) return;
+  const varHead = document.getElementById('ovMedicoVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
   const countSpan = document.getElementById('ovMedicoCount');
   const filterNote = document.getElementById('ovMedicoFilterNote');
   if(!OV_VIEW_DATA){
@@ -8452,7 +8779,17 @@ function ovRenderMedicoTable(){
   }
   const totals = ovComputeMedicoTotals();
   const cirugias = ovComputeGroupOrderCounts(row=>row.medicoNombre, {medico:true});
-  let rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  let compareByLabel = null;
+  let rows;
+  if(compareOn){
+    // union de etiquetas de ambos períodos: lo que vendía antes y ahora no (o al revés) también aparece (Nuevo/Desapareció)
+    const merged = erpBuildCompareRows(totals, ovComputeMedicoTotals(OV_COMPARE_DATA));
+    compareByLabel = {};
+    merged.forEach(r=>{ compareByLabel[r.label] = r; });
+    rows = merged.map(r=>({label:r.label, unidades:r.unidades, totalNeto:r.totalNeto, cirugias: cirugias[r.label]||0}));
+  }else{
+    rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  }
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' médico' : ' médicos');
   if(!rows.length){
@@ -8462,9 +8799,10 @@ function ovRenderMedicoTable(){
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
   body.innerHTML = rows.map(r=>{
     const selected = ovMedicoSelected === r.label;
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareByLabel[r.label])+'</td>' : '';
     return '<tr onclick="ovToggleMedico(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este médico (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+(r.label||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
   }).join('');
 }
 
@@ -8534,6 +8872,9 @@ function ovClearClienteSelection(){
 function ovRenderClienteTable(){
   const body = document.getElementById('ovClienteBody');
   if(!body) return;
+  const varHead = document.getElementById('ovClienteVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
   const countSpan = document.getElementById('ovClienteCount');
   const filterNote = document.getElementById('ovClienteFilterNote');
   if(!OV_VIEW_DATA || !OV_VIEW_DATA.rows){
@@ -8555,9 +8896,19 @@ function ovRenderClienteTable(){
   // el resto de los cuadros -- antes esta tabla sólo tenía Unidades/
   // Total Neto/Peso, sin Cirugías ni Precio Pr.
   const cirugias = ovComputeGroupOrderCounts(row=>row.cliente, {cliente:true});
-  let rows = Object.entries(byCliente).map(([label, v])=>({
-    key: erpNormalizeMarcaKey(label), label, unidades: v.unidades, totalNeto: v.totalNeto, cirugias: cirugias[label]||0,
-  }));
+  let compareByLabel = null;
+  let rows;
+  if(compareOn){
+    const byClienteCompare = ovComputeRowGroupTotals(row=>row.cliente, {cliente:true}, OV_COMPARE_DATA);
+    const merged = erpBuildCompareRows(byCliente, byClienteCompare);
+    compareByLabel = {};
+    merged.forEach(r=>{ compareByLabel[r.label] = r; });
+    rows = merged.map(r=>({key: erpNormalizeMarcaKey(r.label), label: r.label, unidades: r.unidades, totalNeto: r.totalNeto, cirugias: cirugias[r.label]||0}));
+  }else{
+    rows = Object.entries(byCliente).map(([label, v])=>({
+      key: erpNormalizeMarcaKey(label), label, unidades: v.unidades, totalNeto: v.totalNeto, cirugias: cirugias[label]||0,
+    }));
+  }
   rows.sort((a,b)=>b.totalNeto - a.totalNeto);
   const q = ovGetActiveClienteQuery();
   if(q) rows = rows.filter(r=>erpNormalizeMarcaKey(r.label).includes(q));
@@ -8569,9 +8920,10 @@ function ovRenderClienteTable(){
   const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
   body.innerHTML = rows.map(r=>{
     const selected = ovClienteSelectedKey === r.key;
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareByLabel[r.label])+'</td>' : '';
     return '<tr onclick="ovToggleClienteRow(\''+erpJsStrEscape(r.key)+'\', \''+erpJsStrEscape(r.label)+'\')" title="Tocar para filtrar por este cliente (tocar de nuevo para quitar el filtro)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#eef3fb;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td></tr>';
+      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
   }).join('');
 }
 
@@ -8588,19 +8940,28 @@ function ovRenderCanalPills(){
     return;
   }
   const canalTotals = ovComputeCanalTotals();
-  const rows = Object.entries(canalTotals).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  let rows;
+  if(compareOn){
+    const merged = erpBuildCompareRows(canalTotals, ovComputeCanalTotals(OV_COMPARE_DATA));
+    rows = merged.sort((a,b)=>b.totalNeto - a.totalNeto).map(r=>[r.label, {unidades:r.unidades, totalNeto:r.totalNeto, _row:r}]);
+  }else{
+    rows = Object.entries(canalTotals).sort((a,b)=>b[1].totalNeto - a[1].totalNeto);
+  }
   if(!rows.length){
     wrap.innerHTML = '<span class="pm-empty">Sin órdenes este día.</span>';
     return;
   }
   wrap.innerHTML = rows.map(([canal, v])=>{
     const excluded = ovCanalExcluded.has(canal);
+    const varLine = compareOn ? '<div style="font-size:10.5px;margin-top:2px">'+erpFmtVarCell(v._row)+'</div>' : '';
     return '<div onclick="ovToggleCanal(\''+erpJsStrEscape(canal)+'\')" title="Tocar para incluir/excluir" '
       + 'style="cursor:pointer;user-select:none;border:2px solid '+(excluded?'#ddd':'#1a3d70')+';border-radius:14px;'
       + 'padding:10px 16px;min-width:150px;background:'+(excluded?'#f7f6f2':'#eef3fb')+';opacity:'+(excluded?'.5':'1')+';transition:.15s">'
       + '<div style="font-size:12.5px;font-weight:700;color:#1a3d70;white-space:nowrap">'+(excluded?'☐':'☑')+' '+erpCanalIcon(canal)+' '+canal+'</div>'
       + '<div style="font-size:15px;font-weight:700;color:#1a3d70;margin-top:2px">'+erpFmtMoney(v.totalNeto)+'</div>'
       + '<div style="font-size:10.5px;color:#888;margin-top:1px">'+erpFmtInt(v.unidades)+' un.</div>'
+      + varLine
       + '</div>';
   }).join('');
 }
@@ -8746,6 +9107,7 @@ function ovCalPickDay(dateStr){
   ovRenderDateRangeLabel();
   ovCloseDateRangePicker();
   ovFetchViewData(from, to);
+  ovSyncCompareToNewPrimaryRange(from, to);
 }
 
 function ovApplyQuickRange(fromStr, toStr, key){
@@ -8758,6 +9120,7 @@ function ovApplyQuickRange(fromStr, toStr, key){
   ovRenderQuickRangeButtons();
   ovRenderDateRangeLabel();
   ovFetchViewData(fromStr, toStr);
+  ovSyncCompareToNewPrimaryRange(fromStr, toStr);
 }
 function ovGoToday(){
   const today = erpTodayStr();
@@ -8869,6 +9232,8 @@ function ovSwitchToChannelView(channel){
   ovRenderQuickRangeButtons();
   ovRenderDateRangeLabel();
   ovFetchViewData(today, today);
+  // cambió la unidad de negocio: el período comparado del canal anterior ya no sirve -- vuelve al automático y se pide de nuevo
+  if(ovCompareEnabled){ ovCompareMode = 'periodo_anterior'; OV_COMPARE_DATA = null; ovSyncCompareToNewPrimaryRange(today, today); }
 }
 
 // Se llama desde loadPane('monitor_ov') -- ver la lista `loaded` y
