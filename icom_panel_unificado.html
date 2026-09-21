@@ -1237,6 +1237,16 @@
     </div>
 <div class="pane" id="pane-monitor_ov">
       <div class="erp-wrap">
+        <!-- 21/09/2026 ("en los monitores de OV no esta flotando todavia"): mismo
+             criterio que Ventas en Vivo -- chip de sincronización flotando arriba
+             a la derecha y "Últ. actualización" como texto chico debajo (ya no es
+             una tarjeta KPI; mismo id ovKpiUpdated, ovRenderKpis no cambia). -->
+        <div class="erp-status-float">
+          <div class="erp-status-pills">
+            <span class="erp-status loading" id="ovStatus">💲 <span class="erp-status-spin"></span> Cargando…</span>
+          </div>
+          <div class="erp-status-updated" title="Hora de la última actualización de los datos">Últ. actualización <span id="ovKpiUpdated">—</span></div>
+        </div>
         <div class="erp-header">
           <div>
             <h1>Monitor OV</h1>
@@ -1256,7 +1266,6 @@
             <button class="pm-btn" id="ovBtnSemanaAct" onclick="ovGoThisWeek()" title="Ver desde el lunes de esta semana hasta hoy inclusive">Semana Act.</button>
             <button class="pm-btn" id="ovBtnSemanaAnt" onclick="ovGoLastWeek()" title="Ver la semana anterior completa (lunes a domingo)">Semana Ant.</button>
             <button class="pm-btn" id="ovBtnMesAct" onclick="ovGoThisMonth()" title="Ver desde el día 1 de este mes hasta hoy inclusive">Mes Actual</button>
-            <span class="erp-status loading" id="ovStatus">💲 <span class="erp-status-spin"></span> Cargando…</span>
           </div>
         </div>
 
@@ -1274,7 +1283,6 @@
                le asigna en ovRenderKpis(). -->
           <div class="erp-kpi"><div class="lbl">Monto Promedio</div><div class="val" id="ovKpiUnidades">—</div></div>
           <div class="erp-kpi"><div class="lbl"># Cirugías</div><div class="val" id="ovKpiOrdenes">—</div></div>
-          <div class="erp-kpi"><div class="lbl">Última actualización</div><div class="val" id="ovKpiUpdated" style="font-size:13px">—</div></div>
         </div>
 
         <div class="erp-card" id="ovTipoOperacionCard">
