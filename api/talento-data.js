@@ -20,8 +20,8 @@
 //     sólo reportes directos -- 20/08/2026).
 //   - colaborador: sólo sus propios datos (sin expandir a un equipo).
 //   - gerente: todos los de su misma unidad de negocio.
-const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerSolicitudesVacaciones, leerPosts, leerLicencias, leerHistorialCompetencias, leerComentariosMuro, leerNotasObjetivo } = require('./_talento-store');
-const { requerirSesion } = require('./_talento-auth');
+const { leerPersonas, leerObjetivos, leerCompetencias, leerVacacionesPeriodos, leerVacacionesArrastres, leerSolicitudesVacaciones, leerPosts, leerLicencias, leerSolicitudesLicencias, leerHistorialCompetencias, leerComentariosMuro, leerNotasObjetivo } = require('./_talento-store');
+const { requerirSesion, esRRHH } = require('./_talento-auth');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -37,8 +37,8 @@ module.exports = async function handler(req, res) {
     if (!solicitante) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida -- volvé a iniciar sesión.' }); return; }
     const { rol, personaId, unidadNegocio } = solicitante;
 
-    let [personas, objetivos, competencias, vacaciones, solicitudesVacaciones, posts, licencias, historialCompetencias, comentariosMuro, notasObjetivo] = await Promise.all([
-      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerSolicitudesVacaciones(), leerPosts(), leerLicencias(), leerHistorialCompetencias(), leerComentariosMuro(), leerNotasObjetivo(),
+    let [personas, objetivos, competencias, vacaciones, vacacionesArrastres, solicitudesVacaciones, posts, licencias, solicitudesLicencias, historialCompetencias, comentariosMuro, notasObjetivo] = await Promise.all([
+      leerPersonas(), leerObjetivos(), leerCompetencias(), leerVacacionesPeriodos(), leerVacacionesArrastres(), leerSolicitudesVacaciones(), leerPosts(), leerLicencias(), leerSolicitudesLicencias(), leerHistorialCompetencias(), leerComentariosMuro(), leerNotasObjetivo(),
     ]);
     // 19/08/2026 ("sumar un feed social (muro)"): igual que cumpleanos,
     // NO se filtra por rol -- el Muro es de toda la organización, no
@@ -79,7 +79,14 @@ module.exports = async function handler(req, res) {
       .filter(p => p.estado === 'activo')
       .map(p => ({ id: p.id, nombre: p.nombre, funcion: p.funcion, supervisorId: p.supervisorId || null, foto: p.foto || '', unidadNegocio: p.unidadNegocio || '', sector: p.sector || '', telefono: p.telefono || '', email: p.email || '' }));
 
-    if (rol === 'supervisor' && personaId) {
+    // 15/09/2026 ("RRHH sea cual sea su jerarquia tiene que poder ver
+    // toda la app de Talento"): admin ya caía acá sin tocar ninguna
+    // rama de abajo (ninguna condición lo alcanzaba) -- se agrega el
+    // mismo "no filtrar nada" para cualquiera de RR.HH. aunque su rol
+    // sea gerente/supervisor (ver esRRHH en _talento-auth.js).
+    if (esRRHH(solicitante)) {
+      // sin filtro -- ve todo, igual que admin.
+    } else if (rol === 'supervisor' && personaId) {
       // 20/08/2026 ("sólo puede ver sus reportes directos, debería ver
       // sus reportes directos y para abajo el resto también"): antes
       // era 1 sola pasada (sólo reporte directo) -- ahora es un BFS
@@ -101,8 +108,10 @@ module.exports = async function handler(req, res) {
       objetivos = objetivos.filter(o => idsEquipo.has(o.personaId));
       competencias = competencias.filter(c => idsEquipo.has(c.personaId));
       vacaciones = vacaciones.filter(v => idsEquipo.has(v.personaId));
+      vacacionesArrastres = vacacionesArrastres.filter(a => idsEquipo.has(a.personaId));
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsEquipo.has(s.personaId));
       licencias = licencias.filter(l => idsEquipo.has(l.personaId));
+      solicitudesLicencias = solicitudesLicencias.filter(s => idsEquipo.has(s.personaId));
       historialCompetencias = historialCompetencias.filter(h => idsEquipo.has(h.personaId));
       notasObjetivo = notasObjetivo.filter(n => idsEquipo.has(n.personaId));
     } else if (rol === 'colaborador' && personaId) {
@@ -111,8 +120,10 @@ module.exports = async function handler(req, res) {
       objetivos = objetivos.filter(o => idsPropio.has(o.personaId));
       competencias = competencias.filter(c => idsPropio.has(c.personaId));
       vacaciones = vacaciones.filter(v => idsPropio.has(v.personaId));
+      vacacionesArrastres = vacacionesArrastres.filter(a => idsPropio.has(a.personaId));
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsPropio.has(s.personaId));
       licencias = licencias.filter(l => idsPropio.has(l.personaId));
+      solicitudesLicencias = solicitudesLicencias.filter(s => idsPropio.has(s.personaId));
       historialCompetencias = historialCompetencias.filter(h => idsPropio.has(h.personaId));
       notasObjetivo = notasObjetivo.filter(n => idsPropio.has(n.personaId));
     } else if (rol === 'gerente' && unidadNegocio) {
@@ -121,8 +132,10 @@ module.exports = async function handler(req, res) {
       objetivos = objetivos.filter(o => idsUnidad.has(o.personaId));
       competencias = competencias.filter(c => idsUnidad.has(c.personaId));
       vacaciones = vacaciones.filter(v => idsUnidad.has(v.personaId));
+      vacacionesArrastres = vacacionesArrastres.filter(a => idsUnidad.has(a.personaId));
       solicitudesVacaciones = solicitudesVacaciones.filter(s => idsUnidad.has(s.personaId));
       licencias = licencias.filter(l => idsUnidad.has(l.personaId));
+      solicitudesLicencias = solicitudesLicencias.filter(s => idsUnidad.has(s.personaId));
       historialCompetencias = historialCompetencias.filter(h => idsUnidad.has(h.personaId));
       notasObjetivo = notasObjetivo.filter(n => idsUnidad.has(n.personaId));
     }
@@ -133,7 +146,7 @@ module.exports = async function handler(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, solicitudesVacaciones, cumpleanos, posts, licencias, historialCompetencias, comentariosMuro, notasObjetivo, organigrama });
+    res.status(200).json({ ok: true, personas, objetivos, competencias, vacaciones, vacacionesArrastres, solicitudesVacaciones, cumpleanos, posts, licencias, solicitudesLicencias, historialCompetencias, comentariosMuro, notasObjetivo, organigrama });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }

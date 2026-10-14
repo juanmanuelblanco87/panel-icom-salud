@@ -87,6 +87,15 @@ async function guardarUsuario(u) {
   await redis.set(`${PREFIJO}:usuario:${u.usuario}`, u);
   await redis.sadd(`${PREFIJO}:usuario:ids`, u.usuario);
 }
+// 16/09/2026 ("modifica para que desde personas podamos modificar los
+// roles... elimina la ruedita"): revocar un acceso ahora es parte del
+// flujo de Personas (ver accionEditarPersona en talento-guardar.js) --
+// hasta ahora no existía ninguna forma de borrar un usuario, sólo
+// crear/actualizar.
+async function eliminarUsuario(usuario) {
+  await redis.del(`${PREFIJO}:usuario:${usuario}`);
+  await redis.srem(`${PREFIJO}:usuario:ids`, usuario);
+}
 
 // -- Objetivos --
 async function leerObjetivos() {
@@ -162,6 +171,28 @@ async function eliminarVacacionPeriodo(id) {
   await redis.srem(`${PREFIJO}:vacacionPeriodo:ids`, id);
 }
 
+// -- Arrastre de vacaciones -- (07/09/2026, "cuando empiece el período
+// vacacional 2026 se pueden sumar... los que hayan quedado pendiente de
+// goce del período anterior... que los pueda configurar sólo RRHH"):
+// UN registro por persona+año DESTINO (mismo criterio de clave compuesta
+// determinística que `competencia` -- personaId_anio, upsert, nunca
+// duplicados para el mismo año). `anio` es el año que RECIBE el
+// arrastre (ej. 2026), `dias` es cuánto se le suma a lo que
+// calcularDiasVacaciones ya calcula para ese año -- ver
+// accionGuardarVacacionArrastre en talento-guardar.js, único lugar que
+// escribe acá (admin/RRHH-only).
+async function leerVacacionesArrastres() {
+  return leerColeccion('vacacionArrastre');
+}
+async function leerVacacionArrastre(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:vacacionArrastre:${id}`);
+}
+async function guardarVacacionArrastre(a) {
+  await redis.set(`${PREFIJO}:vacacionArrastre:${a.id}`, a);
+  await redis.sadd(`${PREFIJO}:vacacionArrastre:ids`, a.id);
+}
+
 // -- Solicitudes de Vacaciones -- (14/08/2026, flujo de aprobación) un
 // colaborador pide un período, queda 'pendiente', y alguien con
 // permiso (supervisor directo / gerente de su unidad / admin) la
@@ -181,6 +212,28 @@ async function leerSolicitudVacacion(id) {
 async function guardarSolicitudVacacion(s) {
   await redis.set(`${PREFIJO}:solicitudVacacion:${s.id}`, s);
   await redis.sadd(`${PREFIJO}:solicitudVacacion:ids`, s.id);
+}
+
+// -- Solicitudes de Licencia (Novedades) -- (08/09/2026, "sumar flujo
+// en Novedades similar al de vacaciones... cada colaborador puede
+// solicitar/informar cualquier novedad... le llega a su superior
+// inmediato para aprobación... queda pendiente subir el comprobante"):
+// mismo patrón EXACTO que solicitudVacacion -- colección de
+// solicitudes (pendiente -> aprobada/rechazada/cancelada), nunca se
+// elimina, sólo cambia de estado. Al aprobarse, se crea una Licencia
+// real (ver accionAprobarSolicitudLicencia en talento-guardar.js) --
+// la solicitud y la licencia son 2 registros distintos a propósito,
+// mismo criterio que solicitudVacacion/vacacionPeriodo.
+async function leerSolicitudesLicencias() {
+  return leerColeccion('solicitudLicencia');
+}
+async function leerSolicitudLicencia(id) {
+  if (!id) return null;
+  return await redis.get(`${PREFIJO}:solicitudLicencia:${id}`);
+}
+async function guardarSolicitudLicencia(s) {
+  await redis.set(`${PREFIJO}:solicitudLicencia:${s.id}`, s);
+  await redis.sadd(`${PREFIJO}:solicitudLicencia:ids`, s.id);
 }
 
 // -- Posts del Muro -- (19/08/2026, "sumar un feed social") colección
@@ -275,17 +328,38 @@ async function guardarMensaje(m) {
   await redis.sadd(`${PREFIJO}:mensaje:ids`, m.id);
 }
 
+// -- Auditoría de bajas -- (09/09/2026, "registro de quién borra una
+// vacación/novedad aprobada"): a diferencia de objetivo.historialCambios
+// (que vive DENTRO del objetivo porque el objetivo sigue existiendo
+// después de editado), borrar un período de vacaciones o una licencia
+// hace desaparecer el registro entero -- no hay dónde "colgarle" el
+// historial. Colección aparte, sólo de lectura desde la UI (no hay
+// acción para editarla/borrarla -- sería un audit log que se pueda
+// manipular a sí mismo). Guarda una FOTO completa de lo borrado
+// (`datosBorrados`), no sólo el id, para poder reconstruirlo a mano si
+// hiciera falta.
+async function leerAuditoriaBajas() {
+  return leerColeccion('auditoriaBaja');
+}
+async function guardarAuditoriaBaja(a) {
+  await redis.set(`${PREFIJO}:auditoriaBaja:${a.id}`, a);
+  await redis.sadd(`${PREFIJO}:auditoriaBaja:ids`, a.id);
+}
+
 module.exports = {
   leerPersonas, leerPersona, guardarPersona, eliminarPersona,
-  leerUsuarios, leerUsuario, guardarUsuario,
+  leerUsuarios, leerUsuario, guardarUsuario, eliminarUsuario,
   leerObjetivos, leerObjetivo, guardarObjetivo, eliminarObjetivo,
   leerCompetencias, leerCompetencia, guardarCompetencia,
   leerHistorialCompetencias, guardarHistorialCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
+  leerVacacionesArrastres, leerVacacionArrastre, guardarVacacionArrastre,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
+  leerSolicitudesLicencias, leerSolicitudLicencia, guardarSolicitudLicencia,
   leerPosts, leerPost, guardarPost, eliminarPost,
   leerLicencias, leerLicencia, guardarLicencia, eliminarLicencia,
   leerComentariosMuro, leerComentarioMuro, guardarComentarioMuro, eliminarComentarioMuro,
   leerMensajes, guardarMensaje,
+  leerAuditoriaBajas, guardarAuditoriaBaja,
   leerNotasObjetivo, guardarNotaObjetivo,
 };

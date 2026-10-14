@@ -72,7 +72,7 @@
 //   byCanal: { "ICOM-CEN": { totalNeto: ..., unidades: ... }, ... },
 //   bySku: { "8": { nombre: "...", unidades: ..., totalNeto: ... }, ... },
 //   byCanalSku: { "ICOM-CEN": { "8": { unidades, totalNeto } } },
-//   byUnidadNegocio: { minorista: { unidades, totalNeto, facturas }, movilidad: {...}, ... }, // IOMA no entra acá a propósito
+//   byUnidadNegocio: { minorista: { unidades, totalNeto, totalCosto, facturas }, movilidad: {...}, ... }, // IOMA no entra acá a propósito -- totalCosto = CMV (suma de OperativeCost, ya en pesos), agregado 22/09/2026
 //   byTipoOperacion: { "Ethicon": { unidades, totalNeto }, "ASP": {...}, ... }, // por código de OperationType (ver TIPO_OPERACION_LABELS) -- usado por el cuadro "Por Tipo de Operación" de Cirugía General, siempre ya viene filtrado por ?unidadNegocio= si el pedido lo trae
 //   bySkuUnidadNegocio: { "8": { minorista: { unidades, totalNeto }, movilidad: {...}, ... } },
 //     // por SKU, cuánto vendió cada unidad de negocio -- usado por Stocks
@@ -97,6 +97,69 @@
 // con un token nuevo pedido ahí: GET /genericapi/ICOMGENERAL/Invoice
 // devolvió 200 con datos reales de facturas.
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
+
+// 23/09/2026 ("Grupo de Clientes (OS, PU, PR, etc) en Ventas en Vivo de Cirugía"): el mapa
+// CustCode->nombre de grupo lo arma api/actualizar-customer-grupos.js (Customer tiene 167K
+// registros, demasiado pesado para pedirlo acá en vivo -- ver ese archivo para el detalle
+// completo) y lo deja en un blob. Se lee 1 vez por pedido (barato, es sólo {codigo: nombre})
+// y se adjunta a cada fila -- mismo patrón que costoUnit (campo aditivo, no cambia nada del
+// resto del cálculo). Si el blob todavía no existe (bootstrap no corrió nunca) o falla la
+// lectura, se sigue igual sin romper nada -- grupoCliente queda null en cada fila.
+const { head: headBlob } = require('@vercel/blob');
+
+// 07/10/2026 ("FCN son ventas no facturadas todavía... al monto que dice Oppen hay que sumarle el
+// IVA, eso va a acercar el P&L a lo que dice Finanzas" -- "la alícuota es por producto" -- "las
+// sucursales que terminan en 99 son las FCN"): las facturas de las oficinas *-99 (ICEN-99, IJCP-99,
+// PSAL-99, BELL-99, ESME-99) son las ventas "FCN" que Oppen guarda NETAS de IVA y que Finanzas
+// muestra con IVA (ver "Venta de fcn" en su P&L). Con ?fcn=1 (lo pide sólo el P&L, ver
+// api/_pnl-gastos-core.js) cada línea de esas oficinas suma además `ivaFcn` = neto × alícuota del
+// producto: mismo criterio que ya usa Mercado Libre para el costo (ivaPctParaSku en
+// mercado_libre.html) -- 1) excepción manual por SKU (api/meli-iva-overrides.js), 2) ItemGroup de
+// Oppen (IVA105 -> 10,5%, IVAEXE -> 0%), 3) 21% por defecto. Sin ?fcn=1 nada cambia.
+const { leerSnapshot: leerSnapshotStock } = require('./_stock-store');
+const { leerIvaOverrides } = require('./_meli-store');
+let cacheIvaPorSku = null; // { t, itemGroup, overrides }
+async function cargarIvaFcn() {
+  if (cacheIvaPorSku && Date.now() - cacheIvaPorSku.t < 10 * 60 * 1000) return cacheIvaPorSku;
+  const [snap, overrides] = await Promise.all([
+    leerSnapshotStock().catch(() => null),
+    leerIvaOverrides().catch(() => ({})),
+  ]);
+  const itemGroup = {};
+  Object.entries((snap && snap.bySku) || {}).forEach(([sku, v]) => { if (v && v.itemGroup) itemGroup[sku] = v.itemGroup; });
+  cacheIvaPorSku = { t: Date.now(), itemGroup, overrides: overrides || {} };
+  return cacheIvaPorSku;
+}
+function ivaPctDeSku(sku, iva) {
+  const ov = iva.overrides;
+  if (ov[sku] != null) return Number(ov[sku]);
+  const grupo = iva.itemGroup[sku];
+  if (grupo === 'IVA105') return 10.5;
+  if (grupo === 'IVAEXE') return 0;
+  return 21;
+}
+function esOficinaFcn(office) { return /99$/.test(String(office || '').trim()); }
+const CUSTOMER_GRUPOS_BLOB_PATHNAME = 'customer_grupos.json';
+let customerGruposCache = null; // { mapa: {custCode: nombreGrupo}, cachedAt: epoch ms }
+const CUSTOMER_GRUPOS_CACHE_MS = 5 * 60 * 1000; // 5 min -- el mapa cambia poco, no hace falta releer el blob en cada pedido
+async function fetchCustomerGruposMap() {
+  const now = Date.now();
+  if (customerGruposCache && now - customerGruposCache.cachedAt < CUSTOMER_GRUPOS_CACHE_MS) {
+    return customerGruposCache.mapa;
+  }
+  try {
+    const info = await headBlob(CUSTOMER_GRUPOS_BLOB_PATHNAME);
+    const r = await fetch(info.url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const mapa = (data && data.mapa) || {};
+    customerGruposCache = { mapa, cachedAt: now };
+    return mapa;
+  } catch (e) {
+    customerGruposCache = { mapa: {}, cachedAt: now }; // evita reintentar la lectura fallida en cada request de este mismo proceso "warm"
+    return {};
+  }
+}
 
 // Cache de token en memoria del proceso serverless. Sobrevive entre invocaciones
 // mientras la instancia esté "warm" (típico en polls frecuentes cada 5 min).
@@ -179,9 +242,25 @@ async function fetchInvoicesPage(token, offset, limit, fromDate, toDate) {
   });
   if (toDate) params.set('TransDate__lte', toDate);
 
-  const res = await fetch(`${BASE_URL}/Invoice?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  // 08/10/2026 ("Error consultando Invoice (429): Rate limit exceeded, limit 60, retryAfterSeconds 14" en Ventas en Vivo):
+  // Oppen limita a 60 pedidos por minuto para TODA la cuenta, y el cron de P&L (cada 15 min, ver
+  // actualizar-pnl-venta-vivo) pagina el mes completo y se come ese cupo durante 40-90s -- cualquier consulta
+  // de un usuario que caiga en esa ventana recibía el 429 pelado. Ahora se respeta el retryAfterSeconds que
+  // informa Oppen y se reintenta (hasta 2 veces, esperando lo que pide Oppen, máx 40s cada una) en vez de fallar de entrada.
+  let res;
+  const tInicio = Date.now();
+  for (let intento = 0; ; intento++) {
+    res = await fetch(`${BASE_URL}/Invoice?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status !== 429 || intento >= 2) break;
+    const txt = await res.text().catch(() => '');
+    let espera = 5;
+    try { const j = JSON.parse(txt); if (Number(j.retryAfterSeconds) > 0) espera = Number(j.retryAfterSeconds) + 1; } catch (e) { /* sin JSON: espera por defecto */ }
+    espera = Math.min(espera, 40);
+    if ((Date.now() - tInicio) / 1000 + espera > 30) break; // presupuesto de espera: la función tiene tope de 90s
+    await new Promise(r => setTimeout(r, espera * 1000));
+  }
 
   if (res.status === 401) {
     // Token vencido o inválido: invalidar cache para forzar re-auth en el próximo intento.
@@ -190,6 +269,7 @@ async function fetchInvoicesPage(token, offset, limit, fromDate, toDate) {
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    if (res.status === 429) throw new Error('Oppen está limitando las consultas (demasiados pedidos seguidos, suele pasar mientras se actualiza el P&L). Esperá un minuto y volvé a tocar "Actualizar ahora".');
     throw new Error(`Error consultando Invoice (${res.status}): ${text}`);
   }
   return res.json();
@@ -506,6 +586,24 @@ function toDDMMYYYY(isoDate) {
   return `${d}/${m}/${y}`;
 }
 
+// 01/10/2026 ("podemos estimar mejor el cierre del dia... hasta las 19/20hs despues baja
+// bastante el volumen"): TransTime viene como "HH:MM:SS", ya en hora LOCAL de Argentina --
+// confirmado contra createTime (en UTC): un caso real traía createTime 13:44:26Z y
+// TransTime "10:44:25" (13:44 UTC - 3h = 10:44 ARG, coincide al segundo) -- así que no hace
+// falta ningún ajuste de huso horario acá, a diferencia de TransDate/ARG_OFFSET_MS que sí lo
+// necesitan en otros lados de este archivo. Se usa para armar una curva horaria típica de
+// ventas (ver calcularProyeccionPorGrupo en _pnl-gastos-core.js) y así proyectar el cierre de
+// HOY según cuánto suele faltar vender a esta hora, en vez de sólo comparar contra el
+// promedio de un día entero. null si el campo viene vacío o mal formado (factura vieja, o
+// algún caso sin cargar) -- nunca se inventa una hora.
+function horaDecimalDesdeTransTime(transTime) {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(transTime || ''));
+  if (!m) return null;
+  const h = Number(m[1]), min = Number(m[2]), s = m[3] ? Number(m[3]) : 0;
+  if (!(h >= 0 && h < 24) || !(min >= 0 && min < 60)) return null;
+  return h + min / 60 + s / 3600;
+}
+
 module.exports = async function handler(req, res) {
   // CORS abierto solo a tu propio dominio de Vercel (mismo origen normalmente,
   // pero por si el panel se sirve desde otro subdominio del mismo proyecto).
@@ -514,6 +612,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const token = await getToken();
+    const customerGruposMap = await fetchCustomerGruposMap();
     // Por defecto, mes en curso. Se puede pedir un rango puntual (para
     // recuperar un mes ya cerrado, ej. si se perdió el IndexedDB al mudar de
     // proyecto de Vercel) pasando ?from=YYYY-MM-DD&to=YYYY-MM-DD.
@@ -581,6 +680,15 @@ module.exports = async function handler(req, res) {
     // respuesta chica y liviana con SOLO lo que hace falta para
     // bySkuUnidadNegocio/byUnidadNegocio.
     const soloUnidadNegocio = url.searchParams.get('soloUnidadNegocio') === '1';
+    // ?soloSkuSet=1 (22/09/2026, tarea diaria de "Stock Inmovilizado" en
+    // Stocks -- ver api/actualizar-venta-6m-skuset.js): más liviano todavía
+    // que soloUnidadNegocio -- ese pedido sólo necesita saber QUÉ SKUs
+    // vendieron algo en el rango, nunca cuánto ni en qué unidad. bySku ya se
+    // arma siempre igual más abajo (no cambia el cálculo, sólo el filtrado
+    // de qué va en la respuesta) -- acá sólo se exponen sus claves.
+    const soloSkuSet = url.searchParams.get('soloSkuSet') === '1';
+    const conIvaFcn = url.searchParams.get('fcn') === '1';
+    const ivaFcnData = conIvaFcn ? await cargarIvaFcn() : null;
 
     let offset = 0;
     let hasMore = true;
@@ -593,6 +701,10 @@ module.exports = async function handler(req, res) {
     const byCanalSku = {};  // canal -> sku -> {unidades, totalNeto}
     const invoicesByCanal = {}; // canal -> cantidad de facturas (para el KPI "Facturas procesadas" filtrado)
     const byUnidadNegocio = {}; // unidad -> {unidades, totalNeto, facturas} -- IOMA (unidadNegocio null) NO entra acá, a propósito
+    // 08/10/2026 ("tarda 20 min calculando el año pasado cuando aplico filtros"): el Dashboard comparaba el año pasado CON filtro pidiendo el mes completo con todas las filas
+    // (muy pesado, se colgaba). Alcanza con este agregado chico -- por unidad (Movilidad / Cirugía Estética), "vendedorInstitucionvendedorCliente" -> neto -- que viaja en la
+    // respuesta liviana (?soloUnidadNegocio=1) junto a bySkuUnidadNegocio (que ya trae Proveedor/Subgrupo por SKU para Cirugía General).
+    const byVendedores = {};
     const bySkuUnidadNegocio = {}; // sku -> unidad -> {unidades, totalNeto} -- ver comentario junto a su uso más abajo (inventario por unidad de negocio en Stocks)
     const rows = [];        // detalle por línea, para alimentar Seguimiento (applyParsedSales)
 
@@ -612,7 +724,16 @@ module.exports = async function handler(req, res) {
         invoicesEnUnidad++;
 
         if (unidadNegocio) {
-          if (!byUnidadNegocio[unidadNegocio]) byUnidadNegocio[unidadNegocio] = { unidades: 0, totalNeto: 0, facturas: 0 };
+          // 22/09/2026 ("vamos a construir también el CMV desde Oppen" -- ver
+          // api/_pnl-gastos-core.js): totalCosto suma OperativeCost, el costo real por
+          // línea que ya usa costoUnit más abajo (ya convertido a pesos si la factura era
+          // USD, mismo criterio y misma conversión que totalNeto) -- es el CMV (costo de
+          // mercadería vendida) de la unidad para el período pedido. Campo puramente
+          // ADITIVO: no cambia ningún cálculo existente, sólo agrega un acumulador más
+          // dentro del mismo loop ya validado (no se duplica la clasificación/conversión
+          // en otro archivo, para no arriesgar un desvío como el de OPERATION_TYPE_UNIT_MAP
+          // -- ver comentario en _pnl-gastos-core.js).
+          if (!byUnidadNegocio[unidadNegocio]) byUnidadNegocio[unidadNegocio] = { unidades: 0, totalNeto: 0, totalCosto: 0, facturas: 0, costoExcluidoGuardia: 0, costoLineasSinCargar: 0 };
           byUnidadNegocio[unidadNegocio].facturas++;
         }
 
@@ -647,6 +768,12 @@ module.exports = async function handler(req, res) {
           : normalizeVendedor(inv.SalesManInstitution);
         const cliente = inv.CustName ? String(inv.CustName).trim() : 'Sin Cliente';
         const tipoOperacion = normalizeTipoOperacion(inv.OperationType);
+        // "Por Grupo de Clientes" (Cirugía) -- ver comentario junto a fetchCustomerGruposMap.
+        // CustCode es el mismo código que identifica al cliente en la factura (Customer.Code
+        // en el catálogo sincronizado) -- null si el cliente no está en el mapa (bootstrap
+        // todavía no llegó a ese cliente, o el cliente no tiene GroupCode cargado en Oppen).
+        const grupoCliente = (inv.CustCode && customerGruposMap[inv.CustCode]) || null;
+        const horaDecimal = horaDecimalDesdeTransTime(inv.TransTime);
 
         // Juan Manuel, 27/07/2026: "En Cirugia Estetica hay ventas con
         // Moneda 'Dolar' esa venta hay que multiplicarla por el tipo de
@@ -688,6 +815,22 @@ module.exports = async function handler(req, res) {
             neto = neto * fxRate;
             operativeCost = operativeCost * fxRate;
           }
+          // 26/09/2026 ("nuestro costeo no multiplica por cantidades" -- Juan Manuel
+          // encontró el caso real: cód 15580, costo unitario $6.574,63, 30 unidades
+          // vendidas, costo total real (según Finanzas, cruzado contra el reporte
+          // "Ventas con proveedor" de Oppen) $197.238,90 = 6.574,63 × 30 -- pero acá
+          // se venía usando operativeCost SUELTO como si ya fuera el total de la
+          // línea): Invoice.Items[].OperativeCost es el costo UNITARIO, no el total
+          // de la línea -- confirmado también de forma agregada, sumando
+          // OperativeCost SIN multiplicar por Qty en las 1.743 líneas de Cirugía
+          // General de julio da $273.774.951, el mismo número (al peso) que ya
+          // mostraba el Dashboard -- coincidencia imposible si no fuera éste el bug.
+          // El comentario viejo de costoUnit (más abajo) asumía lo contrario
+          // ("tomado de OperativeCost/Qty"), por eso además de subsanar totalCosto
+          // acá se saca esa división -- costoUnit ya no tiene que dividir nada.
+          const operativeCostTotal = operativeCost * qty;
+          // IVA de las ventas FCN (oficinas *-99), sólo con ?fcn=1 -- ver cargarIvaFcn arriba.
+          const ivaFcn = (ivaFcnData && esOficinaFcn(rawOffice)) ? neto * ivaPctDeSku(sku, ivaFcnData) / 100 : 0;
 
           if (!bySku[sku]) bySku[sku] = { nombre: it.Name || '', unidades: 0, totalNeto: 0 };
           bySku[sku].unidades += qty;
@@ -697,6 +840,45 @@ module.exports = async function handler(req, res) {
           if (unidadNegocio) {
             byUnidadNegocio[unidadNegocio].unidades += qty;
             byUnidadNegocio[unidadNegocio].totalNeto += neto;
+            if (ivaFcn) byUnidadNegocio[unidadNegocio].ivaFcn = (byUnidadNegocio[unidadNegocio].ivaFcn || 0) + ivaFcn;
+            // Guardia de sanidad (22/09/2026, encontrado armando el CMV para el P&L de
+            // Gastos): algunas líneas de Cirugía Estética (implantes Mentor) traen un
+            // OperativeCost disparatado -- ej. costo $507.038.940 contra una venta de
+            // $967.312 (524x el precio), repetido igual en varios SKU/facturas distintas --
+            // dato corrupto del lado de Oppen (costeo de inventario mal cargado), no un
+            // problema de esta conversión de moneda. El comentario de costoUnit de abajo ya
+            // documentaba "0% con costo mayor a 1.5x el precio de venta" como la validación
+            // original. 2do caso encontrado el mismo día: líneas con venta $0 (regalos/
+            // muestras, ej. "TOP MENTOR - BIND") con el MISMO tipo de costo disparatado
+            // ($18M+ por línea) -- ahí neto*5 no sirve de nada (neto=0), así que se agrega
+            // también un tope absoluto (ningún ítem individual cuesta $10M reales -- los
+            // implantes "sanos" de este mismo listado rondan $300k-800k). Cualquiera de los
+            // 2 motivos EXCLUYE la línea de totalCosto (no de costoUnit/totalNeto/unidades,
+            // que no se usan para ningún total en pesos agregado y quedan igual que siempre).
+            // 26/09/2026: ambos umbrales (5x y $10M) se comparan ahora contra
+            // operativeCostTotal (operativeCost × Qty), no contra operativeCost suelto --
+            // antes de corregir el bug de la multiplicación esta guardia ya operaba, sin
+            // querer, sobre una cifra que en la práctica funcionaba como "costo unitario",
+            // así que compararla contra `neto` (que sí es el total de la línea) y contra un
+            // tope pensado para una línea entera quedaba desalineado. Validado contra Cirugía
+            // General de julio (713 líneas reales): la línea más cara del mes es $6,06M, muy
+            // por debajo del tope de $10M -- no se excluye ninguna venta real con este cambio.
+            const costoSospechoso = (neto > 0 && operativeCostTotal > neto * 5) || operativeCostTotal > 10_000_000;
+            if (!costoSospechoso) {
+              byUnidadNegocio[unidadNegocio].totalCosto += operativeCostTotal;
+            } else {
+              // 23/09/2026 ("cómo revisamos el CMV" -- Finanzas cruzó julio y encontró un
+              // desvío de 165M contra el CMV manual): diagnóstico para poder auditar de dónde
+              // sale la brecha sin tener que reconstruir todo a mano -- cuánto se excluyó por
+              // la guardia de sanidad (arriba) y, aparte, cuánto de la venta no tiene NINGÚN
+              // costo cargado en Oppen (operativeCost<=0, ej. facturación IOMA/servicios sin
+              // OperativeCost real). Puramente aditivo, no toca totalCosto ni ningún cálculo
+              // existente -- son 2 acumuladores más en el mismo loop ya validado.
+              byUnidadNegocio[unidadNegocio].costoExcluidoGuardia += operativeCostTotal;
+            }
+            if (operativeCost <= 0 && neto > 0) {
+              byUnidadNegocio[unidadNegocio].costoLineasSinCargar += neto;
+            }
 
             // Juan Manuel, 28/07/2026 -- "En Stocks tenemos que armar el
             // inventario por Unidades de negocio... Dividir los Skus de
@@ -717,9 +899,19 @@ module.exports = async function handler(req, res) {
           }
 
           if (canal) {
-            if (!byCanal[canal]) byCanal[canal] = { unidades: 0, totalNeto: 0 };
+            if (!byCanal[canal]) byCanal[canal] = { unidades: 0, totalNeto: 0, totalCosto: 0 };
             byCanal[canal].unidades += qty;
             byCanal[canal].totalNeto += neto;
+            if (ivaFcn) byCanal[canal].ivaFcn = (byCanal[canal].ivaFcn || 0) + ivaFcn;
+            // 23/09/2026 ("selector de canales... que filtre todo el dashboard, incluido
+            // Gastos"): mismo totalCosto (CMV) y misma guardia de sanidad que ya se agregó a
+            // byUnidadNegocio -- ver ese comentario para el detalle de los 2 casos de datos
+            // corruptos encontrados (OperativeCost hasta 524x el precio de venta / líneas de
+            // venta $0 con costo de $18M+). 26/09/2026: operativeCostTotal, no operativeCost
+            // suelto -- ver el comentario grande junto a byUnidadNegocio.totalCosto más arriba.
+            if (!(neto > 0 && operativeCostTotal > neto * 5) && operativeCostTotal <= 10_000_000) {
+              byCanal[canal].totalCosto += operativeCostTotal;
+            }
 
             if (!byCanalSku[canal]) byCanalSku[canal] = {};
             if (!byCanalSku[canal][sku]) byCanalSku[canal][sku] = { unidades: 0, totalNeto: 0 };
@@ -731,27 +923,48 @@ module.exports = async function handler(req, res) {
           byTipoOperacion[tipoOperacion].unidades += qty;
           byTipoOperacion[tipoOperacion].totalNeto += neto;
 
+          if (unidadNegocio === 'movilidad' || unidadNegocio === 'cirugia_estetica') {
+            const kv = (vendedorInstitucion || 'Sin Vendedor') + '' + (vendedorCliente || 'Sin Vendedor');
+            if (!byVendedores[unidadNegocio]) byVendedores[unidadNegocio] = {};
+            byVendedores[unidadNegocio][kv] = (byVendedores[unidadNegocio][kv] || 0) + neto;
+          }
+
           rows.push({
             sku,
             f: neto,
+            ...(ivaFcn ? { ivaFcn } : {}), // IVA de la venta FCN de esta línea (sólo con ?fcn=1 y oficina *-99)
             u: qty,
             fecha: toDDMMYYYY(inv.TransDate),
+            horaDecimal, // hora local ARG de la factura (ver horaDecimalDesdeTransTime), null si no se pudo leer
             office: rawOffice, // código crudo (ej "ICOM-CEN"), Seguimiento lo mapea con su propio SUC_CANAL
             canal, // mismo canal ya normalizado que usan byCanal/byCanalSku (ej. "Central", "Bella Vista") -- lo agregamos acá para que el shell pueda filtrar por canal cruzando con Vendedor/Cliente sin tener que duplicar OFFICE_CANAL_MAP del lado del cliente
             unidadNegocio, // 'minorista'|'movilidad'|'cirugia_estetica'|'cirugia_general'|null (IOMA)
             desc: it.Name || '',
-            // Costo unitario real, tomado de OperativeCost/Qty (ya convertido
+            // Costo unitario real, tomado directo de OperativeCost (ya convertido
             // a pesos arriba si la factura era USD). Validado contra ~3000
             // líneas reales: 94.8% con costo cargado, 0% con costo mayor a
             // 1.5x el precio de venta (Stock.Cost, en cambio, viene vacío el
             // 100% de las veces — no sirve como fuente).
-            costoUnit: (qty > 0 && operativeCost > 0) ? operativeCost / qty : 0,
+            // 26/09/2026 ("nuestro costeo no multiplica por cantidades" -- Juan Manuel,
+            // con un caso real: cód 15580, 30 unidades, costo unitario $6.574,63):
+            // ANTES decía "tomado de OperativeCost/Qty" y dividía acá -- esa lectura daba
+            // por sentado que OperativeCost ya era el total de la línea. Es al revés:
+            // OperativeCost YA es el costo unitario tal cual lo devuelve Oppen -- dividir
+            // por Qty lo encogía de más en cualquier línea con más de 1 unidad (la mayoría
+            // de las ventas a instituciones/OOSS, que compran en cantidad). Confirmado
+            // agregado: sumar OperativeCost sin multiplicar por Qty en toda Cirugía General
+            // de julio daba EXACTO lo mismo -- al peso -- que ya mostraba el CMV del P&L,
+            // así que la cuenta vieja arrastraba este error desde el vamos. Ver
+            // operativeCostTotal (= operativeCost × qty) más arriba, para los acumuladores
+            // de totales (totalCosto) que si necesitan la multiplicación.
+            costoUnit: operativeCost > 0 ? operativeCost : 0,
             // Juan Manuel, 27/07/2026: "vamos a agregar Vendedores... tenemos
             // Vendedor (Cliente) y Vendedor (Institución)". Ver normalizeVendedor
             // más arriba -- "Sin Vendedor" si el campo viene vacío.
             vendedorCliente,
             vendedorInstitucion,
             cliente,
+            grupoCliente, // "OOSS"/"INSTITUCIÓN PRIVADA"/"INSTITUCIÓN PÚBLICA"/etc, o null -- ver fetchCustomerGruposMap
             tipoOperacion,
             sernr: inv.SerNr != null ? String(inv.SerNr) : null, // para poder contar facturas DISTINTAS al filtrar por Vendedor/Cliente (varias líneas comparten la misma factura)
           });
@@ -774,7 +987,15 @@ module.exports = async function handler(req, res) {
     // ?soloUnidadNegocio=1 (ver comentario junto a su parseo más arriba):
     // respuesta chica, sin los campos pesados que Stocks no necesita para
     // el reparto por unidad de negocio.
-    res.status(200).json(soloUnidadNegocio ? {
+    res.status(200).json(soloSkuSet ? {
+      ok: true,
+      updatedAt: new Date().toISOString(),
+      month: fromDate.slice(5, 7),
+      invoicesProcessed: invoicesEnUnidad,
+      invoicesEnRango: invoicesProcessed,
+      unidadNegocioFilter,
+      skuSet: Object.keys(bySku),
+    } : soloUnidadNegocio ? {
       ok: true,
       updatedAt: new Date().toISOString(),
       month: fromDate.slice(5, 7),
@@ -783,6 +1004,12 @@ module.exports = async function handler(req, res) {
       unidadNegocioFilter,
       byUnidadNegocio,
       bySkuUnidadNegocio,
+      byVendedores,
+      // 23/09/2026 (selector de canales de Minorista, api/_pnl-gastos-core.js): byCanal es
+      // chico (5 claves) a diferencia de bySku/rows -- se agrega a la respuesta liviana sin
+      // problema de tamaño, para no tener que pedir la respuesta completa (pesada) sólo por
+      // este campo.
+      byCanal,
     } : {
       ok: true,
       updatedAt: new Date().toISOString(),

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "panel-icom-salud-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "vercel@59.10.0", "dev", "--listen", "3100", "--yes"],
+      "cwd": "C:\\Users\\juan8\\Downloads\\panel-icom-salud",
+      "port": 3100
+    }
+  ]
+}

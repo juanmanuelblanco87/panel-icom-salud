@@ -109,7 +109,20 @@ module.exports = async function handler(req, res) {
   try {
     const url = new URL(req.url, 'https://' + req.headers.host);
     const secret = url.searchParams.get('secret');
-    if (!process.env.MAINTENANCE_SECRET || secret !== process.env.MAINTENANCE_SECRET) {
+    // 22/09/2026 ("que quede en el Vercel el Cron, independiente de que mi PC esté
+    // encendida"): hasta ahora este endpoint sólo aceptaba ?secret=MAINTENANCE_SECRET,
+    // pensado para ser disparado 1 vez por mes por una tarea programada de este
+    // asistente -- resultó frágil (la base quedó trabada en junio, sin nadie
+    // notándolo). Se acepta AHORA también la convención nativa de Vercel Cron
+    // (Authorization: Bearer CRON_SECRET, que Vercel agrega solo en cada invocación
+    // real de un cron de vercel.json -- ver api/actualizar-stock-diario.js, mismo
+    // criterio) -- y, además, este mismo endpoint pasa a poder ser llamado
+    // server-a-server desde api/actualizar-venta-6m-skuset.js (mismo secret,
+    // mismo proceso, ver ese archivo) para autosanar cualquier mes cerrado que le
+    // falte a esta base, sin depender de ningún disparo externo.
+    const authHeader = req.headers['authorization'] || '';
+    const esVercelCron = !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
+    if (!esVercelCron && (!process.env.MAINTENANCE_SECRET || secret !== process.env.MAINTENANCE_SECRET)) {
       res.status(403).json({ ok: false, error: 'secret inválido o no configurado' });
       return;
     }

@@ -205,6 +205,32 @@ async function fetchItemCostPage(token, offset, limit) {
   return res.json();
 }
 
+// 15/09/2026 ("Solución del costo: Esta en Operative Cost, mira el
+// swagger"): bug real encontrado -- para artículos costeados por
+// "Receta" (OperativeCostMethod===9, costo armado a partir de sus
+// componentes) el campo OperativeCost que trae la PAGINACIÓN
+// (/ItemCost?__limit__=...&__offset__=...) queda pegado, a veces más
+// de un año desactualizado (confirmado en vivo, SKU 011806: la
+// paginación traía $228.980 desde 2024-06-26, mientras la propia
+// pantalla de Oppen ya mostraba $41.990). El usuario encontró en el
+// swagger de Oppen que el recurso SINGULAR -- GET /ItemCost/{code}, a
+// diferencia de la lista -- SÍ trae el valor recalculado y al día
+// (mismo SKU: $41.990, actualizado 2025-12-12). Se usa acá SOLO para
+// los ítems con método Receta (197 en todo el catálogo, confirmado en
+// vivo) -- pedirlo así para TODO el catálogo (16.000+ artículos)
+// multiplicaría por muy poco beneficio la cantidad de llamadas; el
+// resto de los métodos de costeo ya viene bien en la paginación.
+const OPERATIVE_COST_METHOD_RECETA = 9;
+async function fetchItemCostPorCodigo(token, code) {
+  const res = await fetch(`${BASE_URL}/ItemCost/${encodeURIComponent(code)}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) { cachedToken = null; throw new Error('Token rechazado por oppen.io (401) consultando ItemCost/{code}.'); }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Error consultando ItemCost/${code} (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
 // Escanea un PEDAZO del catálogo de ItemCost, arrancando en startOffset,
 // página por página, SECUENCIAL. fxOverride (opcional): si viene (> 0), se
 // usa TAL CUAL para convertir costos en USD a ARS, sin siquiera consultar
@@ -243,9 +269,23 @@ async function escanearItemCostCompleto({
       }
     }
     let usdSinConvertir = 0;
-    for (const row of rawRows) {
+    let recetaRefrescados = 0;
+    for (let row of rawRows) {
       recordsProcessed++;
       const sku = cleanSku(row.Code);
+      // Receta: la paginación puede traer un OperativeCost viejo -- se
+      // pide el recurso singular, que sí viene recalculado. Si esta
+      // llamada puntual falla (503 transitorio, etc.), se seguía de
+      // largo con el valor de la paginación en vez de cortar toda la
+      // página -- mejor un costo posiblemente viejo que ninguno.
+      if (Number(row.OperativeCostMethod) === OPERATIVE_COST_METHOD_RECETA && row.Code) {
+        try {
+          const fresco = await fetchItemCostPorCodigo(token, row.Code);
+          if (fresco) { row = fresco; recetaRefrescados++; }
+        } catch (e) {
+          console.error(`escanearItemCostCompleto: no se pudo refrescar el costo por Receta del SKU ${sku}, se sigue con el valor (posiblemente viejo) de la paginación:`, e.message || e);
+        }
+      }
       const raw = Number(row.OperativeCost) > 0 ? Number(row.OperativeCost) : 0;
       const currency = String(row.OperativeCostCurrency || 'ARS').toUpperCase();
       let costo = 0;
@@ -265,6 +305,9 @@ async function escanearItemCostCompleto({
       if (costo > 0) costoBySku[sku] = costo;
       const nombre = String(row.Name || '').trim();
       if (nombre) nombreBySku[sku] = nombre;
+    }
+    if (recetaRefrescados > 0) {
+      console.log(`escanearItemCostCompleto: ${recetaRefrescados} artículo(s) con costeo por Receta refrescados contra /ItemCost/{code} en esta página.`);
     }
     if (usdSinConvertir > 0) {
       console.error(`escanearItemCostCompleto: ${usdSinConvertir} artículo(s) en USD sin tipo de cambio disponible en esta página -- quedaron con costo:0.`);

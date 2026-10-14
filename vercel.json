@@ -1,4 +1,6 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "fluid": true,
   "functions": {
     "api/oppen-stock.js": {
       "maxDuration": 30
@@ -7,12 +9,27 @@
       "maxDuration": 30
     },
     "api/oppen-invoices.js": {
-      "maxDuration": 60
+      "maxDuration": 90
     },
     "api/actualizar-ventas-12m.js": {
-      "maxDuration": 30
+      "maxDuration": 150
     },
     "api/ventas-12m-sku-unidad.js": {
+      "maxDuration": 15
+    },
+    "api/actualizar-venta-6m-skuset.js": {
+      "maxDuration": 300
+    },
+    "api/venta-6m-skuset.js": {
+      "maxDuration": 15
+    },
+    "api/actualizar-venta-30d.js": {
+      "maxDuration": 200
+    },
+    "api/venta-30d.js": {
+      "maxDuration": 15
+    },
+    "api/ipc-mensual.js": {
       "maxDuration": 15
     },
     "api/actualizar-exhibiciones-venta-12m.js": {
@@ -25,6 +42,9 @@
       "maxDuration": 60
     },
     "api/stock-fx-override.js": {
+      "maxDuration": 60
+    },
+    "api/actualizar-fx-oficial.js": {
       "maxDuration": 60
     },
     "api/stock-snapshot.js": {
@@ -44,14 +64,148 @@
     },
     "api/alquileres-ai-precio.js": {
       "maxDuration": 60
+    },
+    "api/meli-actualizar-publicaciones.js": {
+      "maxDuration": 60
+    },
+    "api/meli-resolver.js": {
+      "maxDuration": 30
+    },
+    "api/actualizar-pnl-gastos.js": {
+      "maxDuration": 120
+    },
+    "api/pnl-gastos.js": {
+      "maxDuration": 15
+    },
+    "api/actualizar-pnl-venta-vivo.js": {
+      "maxDuration": 100
+    },
+    "api/actualizar-customer-grupos.js": {
+      "maxDuration": 280
+    },
+    "api/actualizar-supplier-items.js": {
+      "maxDuration": 60
+    },
+    "api/listas-precios-guardar.js": {
+      "maxDuration": 15
+    },
+    "api/google-resenas.js": {
+      "maxDuration": 30
+    },
+    "api/actualizar-google-resenas.js": {
+      "maxDuration": 60
+    },
+    "api/resenar.js": {
+      "maxDuration": 15
+    },
+    "api/meli-reactivar-promocion.js": {
+      "maxDuration": 30
+    },
+    "api/anio-pasado-liviano.js": {
+      "maxDuration": 150
+    },
+    "api/talento-video.js": {
+      "maxDuration": 60
+    },
+    "api/talento-link-preview.js": {
+      "maxDuration": 15
+    },
+    "api/nubi-actualizar.js": {
+      "maxDuration": 120
+    },
+    "api/nubi-data.js": {
+      "maxDuration": 30
+    },
+    "api/nubi-vigilancia.js": {
+      "maxDuration": 30
     }
   },
   "crons": [
-    { "path": "/api/talento-recordatorios", "schedule": "0 12 * * *" },
-    { "path": "/api/alquileres-snapshot", "schedule": "0 13 1 * *" },
-    { "path": "/api/actualizar-stock-diario", "schedule": "0 9 * * *" }
+    {
+      "path": "/api/talento-recordatorios",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/talento-escalamiento",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/alquileres-snapshot",
+      "schedule": "0 13 1 * *"
+    },
+    {
+      "path": "/api/actualizar-stock-diario",
+      "schedule": "* 9-11 * * *"
+    },
+    {
+      "path": "/api/actualizar-fx-oficial",
+      "schedule": "0 13-18 * * *"
+    },
+    {
+      "path": "/api/meli-actualizar-publicaciones",
+      "schedule": "* 8-9 * * *"
+    },
+    {
+      "path": "/api/actualizar-venta-6m-skuset",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/actualizar-venta-30d",
+      "schedule": "15 6 * * *"
+    },
+    {
+      "path": "/api/actualizar-pnl-gastos",
+      "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/actualizar-pnl-gastos?mesAtras=1",
+      "schedule": "5 7 * * *"
+    },
+    {
+      "path": "/api/actualizar-pnl-gastos?mesAtras=2",
+      "schedule": "40 7 * * *"
+    },
+    {
+      "path": "/api/actualizar-pnl-venta-vivo",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/actualizar-customer-grupos",
+      "schedule": "45 6 * * *"
+    },
+    {
+      "path": "/api/actualizar-supplier-items",
+      "schedule": "50 6 * * *"
+    },
+    {
+      "path": "/api/anio-pasado-liviano",
+      "schedule": "20 7 * * *"
+    },
+    {
+      "path": "/api/actualizar-google-resenas",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/nubi-actualizar",
+      "schedule": "*/5 11-12 * * *"
+    },
+    {
+      "path": "/api/nubi-actualizar",
+      "schedule": "*/15 15-16 * * *"
+    },
+    {
+      "path": "/api/nubi-vigilancia",
+      "schedule": "0 21 * * *"
+    }
   ],
   "rewrites": [
-    { "source": "/", "destination": "/icom_panel_unificado.html" }
+    {
+      "source": "/",
+      "destination": "/icom_panel_unificado.html"
+    },
+    {
+      "source": "/r/:slug",
+      "destination": "/api/resenar?s=:slug"
+    }
   ]
 }

@@ -128,9 +128,21 @@ async function fetchSalesOrdersPage(token, offset, limit, fromDate, toDate) {
   });
   if (toDate) params.set('TransDate__lte', toDate);
 
-  const res = await fetch(`${BASE_URL}/SalesOrder?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  // 08/10/2026: Oppen limita a 60 pedidos/min en total; ante un 429 se espera lo que indica (retryAfterSeconds, máx 20s en total) y se reintenta en vez de fallar de entrada.
+  let res;
+  const tInicio = Date.now();
+  for (let intento = 0; ; intento++) {
+    res = await fetch(`${BASE_URL}/SalesOrder?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status !== 429 || intento >= 2) break;
+    const txt = await res.text().catch(() => '');
+    let espera = 5;
+    try { const j = JSON.parse(txt); if (Number(j.retryAfterSeconds) > 0) espera = Number(j.retryAfterSeconds) + 1; } catch (e) { /* sin JSON */ }
+    espera = Math.min(espera, 20);
+    if ((Date.now() - tInicio) / 1000 + espera > 20) break;
+    await new Promise(r => setTimeout(r, espera * 1000));
+  }
 
   if (res.status === 401) {
     cachedToken = null;
@@ -581,7 +593,11 @@ module.exports = async function handler(req, res) {
             canal,
             unidadNegocio,
             desc: it.Name || '',
-            costoUnit: (qty > 0 && operativeCost > 0) ? operativeCost / qty : 0,
+            // 26/09/2026: mismo fix que api/oppen-invoices.js (ver ese comentario, junto a
+            // operativeCostTotal, para el caso real que lo encontró) -- OperativeCost YA es
+            // el costo unitario, no el total de la línea; dividir por Qty lo encogía de más
+            // en cualquier línea con más de 1 unidad.
+            costoUnit: operativeCost > 0 ? operativeCost : 0,
             vendedorCliente,
             vendedorInstitucion,
             cliente,

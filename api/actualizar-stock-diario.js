@@ -1,10 +1,13 @@
 // api/actualizar-stock-diario.js
 //
 // Tarea de mantenimiento (protegida por secret, mismo patrón que
-// api/actualizar-exhibiciones-venta-12m.js), pensada para correr UNA vez
-// por día vía un cron NATIVO de Vercel (ver "crons" en vercel.json, '0 9
-// * * *' = 9:00 UTC = 6:00 Argentina -- Argentina no tiene horario de
-// verano, siempre UTC-3).
+// api/actualizar-exhibiciones-venta-12m.js), pensada para completar UN
+// escaneo por día vía un cron NATIVO de Vercel (ver "crons" en
+// vercel.json, '* 9-11 * * *' = cada minuto entre 9:00 y 11:59 UTC =
+// 6:00 a 8:59 Argentina -- Argentina no tiene horario de verano, siempre
+// UTC-3). La ventana ancha + el guard de "¿ya se completó hoy?" más
+// abajo son la red de seguridad real (ver 2da nota, 07/09/2026); el
+// auto-encadenado por waitUntil es sólo un acelerador opcional.
 //
 // 28/08/2026 ("mueve esto a vercel que no depende de una maquina
 // abierta"): antes lo disparaba una tarea EXTERNA (o, más recientemente, un
@@ -14,6 +17,30 @@
 // cada invocación se auto-encadena a la siguiente (ver waitUntil/
 // dispararContinuacion más abajo) -- toda la cadena corre en la
 // infraestructura de Vercel, sin depender de nada externo.
+//
+// 07/09/2026 (2da vuelta -- "chequea el modulo de Stocks, no esta
+// actualizando correctamente"): en producción, el auto-encadenado por
+// waitUntil resultó NO ser confiable -- ni siquiera con Fluid Compute
+// habilitado (ver "fluid":true en vercel.json, necesario para que
+// waitUntil tenga chance de sobrevivir después de responder, pero
+// confirmado en vivo que "a veces igual desaparece en silencio" bajo
+// tráfico bajo, justamente el caso de una tarea de fondo que nadie más
+// está golpeando). Se vio la cadena morir después de 1 eslabón sin
+// Fluid, y después de ~4 CON Fluid -- mejor, pero seguía sin terminar
+// los ~40-90 eslabones que necesita un escaneo completo.
+//
+// FIX: en vez de depender de una ÚNICA cadena que se auto-sostiene,
+// el cron de vercel.json ahora dispara este endpoint cada minuto
+// durante una ventana ancha (varias horas) a la mañana -- cada tick
+// de cron es una invocación NUEVA, 100% confiable (no depende de
+// waitUntil para nada), que retoma el progreso guardado y hace un
+// pedacito más. El auto-encadenado por waitUntil se deja como
+// ACELERADOR opcional (si sobrevive, genial, avanza más rápido entre
+// ticks de cron) pero ya NO es la única vía -- aunque siempre fallara,
+// el cron por sí solo termina el escaneo dentro de la ventana. El
+// guard de "¿ya se completó hoy?" más abajo evita que la ventana ancha
+// dispare re-escaneos completos innecesarios una vez que el de hoy ya
+// terminó.
 //
 // Juan Manuel, 03/08/2026: "El Stock se actualiza demasiado, quisiera que
 // solo se actualice 1 vez a la mañana (6:00 am) y que esta info este
@@ -93,14 +120,38 @@ const {
   escanearStockCompleto, escanearItemCostCompleto, escanearItemCompleto, escanearSupplierCompleto, escanearSupplierItemCompleto,
 } = require('./_stock-scan');
 const {
-  leerFxOverride, escribirSnapshot, leerProgreso, escribirProgreso, borrarProgreso,
+  leerFxOverride, leerSnapshot, escribirSnapshot, leerProgreso, escribirProgreso, borrarProgreso,
 } = require('./_stock-store');
+const { requerirSesion } = require('./_talento-auth');
+
+// 07/09/2026 (cron cada minuto como red de seguridad, ver comentario grande
+// arriba): Argentina no tiene horario de verano, siempre UTC-3 -- alcanza
+// con restar 3hs antes de comparar el día calendario, sin necesidad de una
+// librería de timezones.
+const ARG_OFFSET_MS = 3 * 60 * 60 * 1000;
+function esDeHoyArgentina(iso) {
+  if (!iso) return false;
+  const fechaArg = new Date(Date.parse(iso) - ARG_OFFSET_MS);
+  const ahoraArg = new Date(Date.now() - ARG_OFFSET_MS);
+  return fechaArg.toISOString().slice(0, 10) === ahoraArg.toISOString().slice(0, 10);
+}
 // 28/08/2026 ("mueve esto a vercel que no depende de una maquina abierta"):
 // waitUntil deja que una tarea de fondo (acá, el auto-llamado a la SIGUIENTE
 // página del escaneo) siga corriendo DESPUÉS de que la respuesta ya se envió
 // -- así cada invocación devuelve rápido (adentro de maxDuration) pero la
 // cadena entera sigue sola, sin que nada externo (ni una máquina abierta, ni
 // una tarea programada haciendo el loop) tenga que llamarla de nuevo.
+//
+// 07/09/2026 ("chequea el modulo de Stocks, no esta actualizando
+// correctamente"): esto NO funciona sin Fluid Compute -- sin eso, Vercel
+// puede congelar/matar la instancia apenas se manda la respuesta, así que
+// la tarea de waitUntil queda cancelada a mitad de camino, en un punto
+// arbitrario, SIN disparar ni el .then ni el .catch (silencio total en los
+// logs). Confirmado en vivo: el snapshot llevaba 10 días sin completarse,
+// la cadena moría después de 0-1 eslabones, y ni una sola vez saltó el log
+// de error agregado más abajo -- consistente con que la promesa se
+// cancelaba, no con que fallara. Fix real: `"fluid": true` en vercel.json
+// (ver https://vercel.com/docs/fluid-compute#enabling-fluid-compute).
 const { waitUntil } = require('@vercel/functions');
 
 const PROGRESO_STALE_MS = 3 * 60 * 60 * 1000; // 3 horas -- un progreso más viejo que esto se considera una corrida abandonada, se arranca de cero
@@ -121,12 +172,36 @@ function dispararContinuacion(req, chunkMs) {
   const host = req.headers['x-forwarded-host'] || req.headers.host;
   const secret = process.env.STOCK_SYNC_MANUAL_SECRET || process.env.MAINTENANCE_SECRET;
   const selfUrl = `https://${host}/api/actualizar-stock-diario?secret=${encodeURIComponent(secret || '')}&chunkMs=${chunkMs}`;
-  return fetch(selfUrl).then(() => {}).catch((e) => {
-    console.error('actualizar-stock-diario: fallo al auto-encadenar la siguiente llamada:', e);
-  });
+  // 07/09/2026 ("chequea el modulo de Stocks, no esta actualizando
+  // correctamente"): el snapshot llevaba 10 días sin actualizarse. La
+  // cadena se cortaba después del primer eslabón SIN dejar ningún
+  // rastro en los logs -- este .then() nunca chequeaba si la respuesta
+  // era ok, así que una continuación rechazada (403, 500, lo que sea)
+  // quedaba en absoluto silencio. Se agrega el chequeo + log para que
+  // la próxima vez que la cadena se corte, quede escrito el motivo
+  // real en vez de tener que adivinar.
+  // 07/09/2026 (2da vuelta -- "sigue sin actualizar ni con fluid:true"):
+  // log también en el camino OK, no sólo en error -- si esto nunca
+  // aparece en los logs, es que la promesa se cancela ANTES de que
+  // fetch() resuelva (la instancia se congela/mata a mitad de camino),
+  // no que la respuesta venga mal.
+  console.log(`actualizar-stock-diario: disparando continuación -> ${selfUrl.replace(/secret=[^&]+/, 'secret=***')}`);
+  return fetch(selfUrl)
+    .then(async (r) => {
+      if (!r.ok) {
+        const body = await r.text().catch(() => '(no se pudo leer el body)');
+        console.error(`actualizar-stock-diario: la continuación respondió ${r.status} -- cadena cortada. url=${selfUrl.replace(/secret=[^&]+/, 'secret=***')} body=${body.slice(0, 500)}`);
+      } else {
+        console.log(`actualizar-stock-diario: continuación respondió ${r.status} OK`);
+      }
+    })
+    .catch((e) => {
+      console.error('actualizar-stock-diario: fallo al auto-encadenar la siguiente llamada:', e);
+    });
 }
 
 function talVezEncadenar(state, req, chunkMs) {
+  console.log(`actualizar-stock-diario: talVezEncadenar chainCount=${state.chainCount} phase=${state.phase}`);
   if (state.chainCount <= CHAIN_MAX) {
     waitUntil(dispararContinuacion(req, chunkMs));
   } else {
@@ -154,7 +229,17 @@ module.exports = async function handler(req, res) {
     // producción no necesita llevar ningún secret en la URL committeada.
     const authHeader = req.headers['authorization'] || '';
     const esVercelCron = !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
-    const secretValido = esVercelCron || (secret && (secret === process.env.MAINTENANCE_SECRET || secret === process.env.STOCK_SYNC_MANUAL_SECRET));
+    // 15/09/2026 ("Solución del costo... mira el swagger"): mismo criterio
+    // ya usado en meli-actualizar-publicaciones.js -- además del secret de
+    // mantenimiento, se acepta una sesión de Talento con rol admin, así un
+    // admin puede forzar un re-escaneo manual (ej. para verificar un fix)
+    // sin manejar MAINTENANCE_SECRET/STOCK_SYNC_MANUAL_SECRET.
+    const solicitanteAdmin = requerirSesion(req);
+    const esAdminSesion = !!solicitanteAdmin && solicitanteAdmin.rol === 'admin';
+    const secretValido = esVercelCron || esAdminSesion || (secret && (secret === process.env.MAINTENANCE_SECRET || secret === process.env.STOCK_SYNC_MANUAL_SECRET));
+    // 07/09/2026 (2da vuelta): sólo booleanos, nunca el valor real -- para
+    // descartar que en ESTA instancia las env vars vengan undefined.
+    console.log(`actualizar-stock-diario: auth check -- esVercelCron=${esVercelCron} tieneSecretParam=${!!secret} tieneSTOCK_SYNC_MANUAL_SECRET=${!!process.env.STOCK_SYNC_MANUAL_SECRET} tieneMAINTENANCE_SECRET=${!!process.env.MAINTENANCE_SECRET} tieneCRON_SECRET=${!!process.env.CRON_SECRET} secretValido=${secretValido}`);
     if (!secretValido) {
       res.status(403).json({ ok: false, error: 'secret inválido o no configurado' });
       return;
@@ -169,6 +254,23 @@ module.exports = async function handler(req, res) {
     let state = forceReset ? null : await leerProgreso();
     const stateEsViejo = state && state.startedAt && (Date.now() - Date.parse(state.startedAt) > PROGRESO_STALE_MS);
     if (!state || stateEsViejo) {
+      // 07/09/2026 (cron cada minuto como red de seguridad, ver comentario
+      // grande al principio del archivo): antes de arrancar un escaneo
+      // NUEVO, chequear si ya se completó uno hoy -- evita que la ventana
+      // ancha de cron dispare decenas de re-escaneos completos
+      // innecesarios contra oppen.io en el mismo día sólo porque el de
+      // hoy ya había terminado bien (por auto-encadenado o por el cron
+      // mismo) antes de que la ventana se cierre.
+      if (!forceReset) {
+        const snapshotActual = await leerSnapshot();
+        if (snapshotActual.completo && esDeHoyArgentina(snapshotActual.generatedAt)) {
+          console.log(`actualizar-stock-diario: ya se completó un escaneo hoy (${snapshotActual.generatedAt}) -- no se arranca uno nuevo.`);
+          res.status(200).json({
+            ok: true, completo: true, yaActualizadoHoy: true, generatedAt: snapshotActual.generatedAt,
+          });
+          return;
+        }
+      }
       state = {
         phase: 'stock',
         stockOffset: 0,

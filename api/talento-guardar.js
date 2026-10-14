@@ -31,15 +31,18 @@ const {
   leerObjetivos, leerObjetivo, guardarObjetivo, eliminarObjetivo,
   guardarCompetencia, guardarHistorialCompetencia,
   leerVacacionesPeriodos, leerVacacionPeriodo, guardarVacacionPeriodo, eliminarVacacionPeriodo,
+  leerVacacionArrastre, guardarVacacionArrastre,
   leerSolicitudesVacaciones, leerSolicitudVacacion, guardarSolicitudVacacion,
+  leerSolicitudLicencia, guardarSolicitudLicencia,
   leerPost, guardarPost, eliminarPost,
   leerLicencia, guardarLicencia, eliminarLicencia,
   leerComentarioMuro, guardarComentarioMuro, eliminarComentarioMuro,
-  leerMensajes, guardarMensaje, leerUsuario, guardarUsuario,
+  leerMensajes, guardarMensaje, leerUsuario, guardarUsuario, eliminarUsuario,
   guardarNotaObjetivo,
+  guardarAuditoriaBaja,
 } = require('./_talento-store');
-const { requerirSesion } = require('./_talento-auth');
-const { enviarEmail, resolverAprobadores, emailNuevaSolicitud, emailSolicitudResuelta, emailNuevoObjetivo } = require('./_talento-email');
+const { requerirSesion, esRRHH, generarSaltYHash, puedeEditarMuro } = require('./_talento-auth');
+const { emailMencionMuro, enviarEmail, resolverAprobadores, resolverEmailsAprobadores, emailNuevaSolicitud, emailSolicitudResuelta, emailNuevoObjetivo, emailMensajeContacto, emailNuevaSolicitudLicencia, emailSolicitudLicenciaResuelta } = require('./_talento-email');
 
 // 12/08/2026 ("en Función dejar 'Otros' para especificar"): esta lista ya
 // NO se usa para validar -- el cliente resuelve "Otros" al texto libre
@@ -54,6 +57,100 @@ const { enviarEmail, resolverAprobadores, emailNuevaSolicitud, emailSolicitudRes
 // usa para validar acá.
 const FUNCIONES_VALIDAS = ['Coordinador', 'Supervisor', 'Colaborador', 'Gerente', 'Otros'];
 const EPS = 1e-6;
+
+// 08/09/2026 ("cerrar los accesos de acuerdo a los roles/unidades de
+// negocio... deja un desplegable en Personas que se llame apps") +
+// 08/09/2026 (2da vuelta, "no me aparecen todas las opciones, deja
+// todas (Ortopedia/Movilidad/Cirugia, etc) por si mañana tenemos una
+// necesidad distinta"): qué apps del shell (icom_panel_unificado.html)
+// puede VER cada persona en el menú lateral -- GRANULAR, un token por
+// cada ítem real del sidebar (no agrupado en 3 bolsones como la 1ra
+// versión), justamente para poder habilitar combinaciones que la
+// tabla original no contemplaba.
+//   - 'ventas_vivo': el canal "ICOM" (vista agregada de las 4
+//     unidades) + el cluster de apps que cuelga debajo (Ventas en
+//     Vivo, Monitor OV, Dashboard, Seguimiento, Forecast, Alquileres,
+//     Exhibiciones, Base de Productos, Ortopedias -- esos ya se
+//     scopean solos por canal via data-channels, no hace falta un
+//     token por cada uno).
+//   - 'stocks': el ítem Stocks (sólo visible bajo el canal icom de
+//     todos modos, ver data-channels="icom" en el sidebar).
+//   - 'minorista'/'movilidad'/'cirugia_estetica'/'cirugia_general':
+//     cada selector de unidad de negocio, por separado.
+//   - 'gestion_talento': la app de RR.HH. (este mismo archivo).
+//   - 'importaciones': el proyecto aparte de Importaciones.
+// `rol==='admin'` (RR.HH.) tiene TODAS sin pasar por acá -- ver
+// showShell() en el shell, admin nunca lee este campo. Esto es sólo
+// una función de FUNCIÓN+unidad -- calcula el DEFAULT al dar de alta;
+// una vez creada la persona, RR.HH. lo puede pisar a mano desde el
+// desplegable "Apps" del form (ver accionEditarPersona más abajo, que
+// sólo lo toca si el payload lo manda explícito). Portada 1:1 al
+// sub-app (mismo criterio que calcularDiasVacaciones) para que el
+// desplegable pueda sugerir el mismo default sin ida y vuelta al
+// servidor.
+// 24/09/2026 ("coloca un permiso para aprobar Mercado Libre así podemos
+// sumar colaboradores con esa condición"): 'meli_aprobar' es distinto a
+// los de arriba -- esos son VISIBILIDAD de un ítem del sidebar, éste es
+// un permiso de ACCIÓN adentro de Mercado Libre (aceptar/enviar ofertas
+// reales, ver api/meli-aceptar-propuesta.js y api/meli-crear-descuento.js,
+// puedeAprobarMeli en _talento-auth.js). Se reusa el mismo mecanismo
+// (mismo campo appsPermitidas, mismo desplegable "Apps") por simplicidad
+// -- no se agrega a NINGUNA rama de calcularAppsPermitidas: es
+// deliberadamente opt-in, RR.HH. lo tilda a mano persona por persona,
+// nunca un default automático por función/unidad.
+// 26/09/2026 ("agrega un permiso para editar el Muro al igual que el de
+// aprobar Mercado Libre"): 'muro_editar' sigue el mismo criterio -- permiso de
+// ACCIÓN (publicar/moderar el Muro, ver accionCrearPost/accionEliminarPost/
+// accionEliminarComentarioMuro más abajo y puedeEditarMuro en _talento-auth.js),
+// deliberadamente opt-in, nunca un default automático.
+const APPS_VALIDAS = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'importaciones', 'gestion_talento', 'meli_aprobar', 'muro_editar'];
+const UNIDAD_A_CANAL_APP = { 'Ortopedia': 'minorista', 'Movilidad': 'movilidad', 'Cirugía Estética': 'cirugia_estetica', 'Cirugía': 'cirugia_general' };
+function calcularAppsPermitidas(funcion, unidadNegocio) {
+  const f = (funcion || '').trim().toLowerCase();
+  if (f === 'ceo') return APPS_VALIDAS.slice();
+  if (f === 'gerente') {
+    // "TODAS LAS UNIDADES DE NEGOCIO" -- los 4 canales, no sólo el propio.
+    const apps = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'gestion_talento'];
+    // "APP Importaciones: CEO, Admin RRHH, Gerente Ortopedia y Gerente
+    // de Movilidad" -- por combinación función+unidad, no por persona
+    // puntual (si el día de mañana cambia quién ocupa el puesto, el
+    // acceso se ajusta solo).
+    if (unidadNegocio === 'Ortopedia' || unidadNegocio === 'Movilidad') apps.push('importaciones');
+    return apps;
+  }
+  if (f === 'jefe' || f === 'coordinador') {
+    // "ICOM... SOLO SU UNIDAD DE NEGOCIO" -- ventas_vivo + el canal
+    // propio, no los otros 3.
+    const apps = ['ventas_vivo', 'gestion_talento'];
+    const canalPropio = UNIDAD_A_CANAL_APP[unidadNegocio];
+    if (canalPropio) apps.push(canalPropio);
+    return apps;
+  }
+  // "CONSULTORES: ICOM, GESTION DE TALENTO" -- sin columna de unidad
+  // en la tabla (a diferencia de Jefe/Coordinador), así que sin canal
+  // propio forzado.
+  if (f === 'consultor') return ['ventas_vivo', 'gestion_talento'];
+  // 08/09/2026 (3ra vuelta, "Milagros Bravo supervisor en Ortopedia
+  // solo ve Gestion de Talento" -- bug real): la tabla original dice
+  // "SUPERVISORES: GESTION DE TALENTO, SOLO SU UNIDAD DE NEGOCIO" y
+  // "VENDEDORES: GESTION DE TALENTO, SOLO SU UNIDAD DE NEGOCIO" -- las
+  // 2 SÍ tienen columna de unidad (a diferencia de Colaboradores, que
+  // no tiene ninguna), sólo que sin "ICOM" -- se los había agrupado
+  // por error con Colaborador, dejándolos sin ver su propio canal.
+  if (f === 'supervisor' || f === 'vendedor' || f === 'vendedora') {
+    const apps = ['gestion_talento'];
+    const canalPropio = UNIDAD_A_CANAL_APP[unidadNegocio];
+    if (canalPropio) apps.push(canalPropio);
+    return apps;
+  }
+  // colaborador, y cualquier función no reconocida ("Otros" o texto
+  // libre): sólo Gestión de Talento, sin ningún canal.
+  return ['gestion_talento'];
+}
+function sanearApps(apps) {
+  if (!Array.isArray(apps)) return [];
+  return [...new Set(apps.filter(a => APPS_VALIDAS.includes(a)))];
+}
 
 // 13/08/2026 (Fase 2, "Perfil de Competencias" + "Matriz de Talento
 // 9-Box"): las primeras 7 son las que ya usaba el Excel viejo de la
@@ -84,6 +181,30 @@ const ITEMS_COMPETENCIA = [
 // misma función existe portada 1:1 en talento_app.html para mostrarla
 // en pantalla -- acá es la que manda (el server bloquea si un período
 // se pasa del saldo, el cliente sólo previsualiza).
+// 26/09/2026 ("corrige el cálculo de las vacaciones" -- tabla nueva de Juan Manuel): el
+// Art. 150 (días fijos, una vez completado el año calendario) DEJA de crecer con la
+// antigüedad INDIVIDUAL de cada persona (tramos 5/10/20 años) -- ahora es un monto FIJO de
+// por vida según la COHORTE de fecha de ingreso (probablemente por una reestructuración de
+// convenio/política interna efectiva 2/3/26, no la LCT genérica). El Art. 153 (proporcional,
+// para quien todavía no completó el año calendario) NO cambia -- sigue aplicando igual a
+// cualquier ingreso del año en curso, sea cual sea su cohorte futura; de hecho la franja más
+// nueva que dio Juan Manuel ("Ingreso entre 2/3/26 y 31/12/26: 1 día cada 20 días
+// trabajados") es exactamente ese mismo Art. 153 aplicado a los ingresos de este año -- no
+// hace falta un caso aparte, ya lo cubre la rama de abajo. Tabla completa (fecha de ingreso
+// -> días fijos, una vez completado el primer año calendario):
+//   2/3/26 en adelante ......... 14 días (mismo valor que la franja de abajo -- se asume
+//                                 que continúa así hasta que haya una nueva corte definida;
+//                                 avisar si corresponde otro criterio a futuro)
+//   1/1/22 -- 1/3/26 ............ 14 días
+//   1/1/17 -- 31/12/21 .......... 21 días
+//   1/1/07 -- 31/12/16 .......... 28 días
+//   hasta 31/12/06 .............. 35 días
+function diasFijosPorCohorteIngreso(ingreso) {
+  if (ingreso >= new Date(2022, 0, 1)) return 14;
+  if (ingreso >= new Date(2017, 0, 1)) return 21;
+  if (ingreso >= new Date(2007, 0, 1)) return 28;
+  return 35;
+}
 function calcularDiasVacaciones(fechaIngreso, anio) {
   if (!fechaIngreso) return { diasCorresponden: 0, antiguedadAnios: 0, proporcional: false, error: 'Sin fecha de ingreso.' };
   const ingreso = new Date(fechaIngreso + 'T00:00:00');
@@ -92,24 +213,35 @@ function calcularDiasVacaciones(fechaIngreso, anio) {
   if (ingreso > finDeAnio) return { diasCorresponden: 0, antiguedadAnios: 0, proporcional: false, error: null };
 
   if (ingreso <= inicioDeAnio) {
-    // Trabajó el año calendario completo -- tabla por tramos de antigüedad.
+    // Trabajó el año calendario completo -- días fijos según cohorte de ingreso (ver tabla arriba).
     let antiguedadAnios = finDeAnio.getFullYear() - ingreso.getFullYear();
     const noCumplioAniversarioAun = (finDeAnio.getMonth() < ingreso.getMonth())
       || (finDeAnio.getMonth() === ingreso.getMonth() && finDeAnio.getDate() < ingreso.getDate());
     if (noCumplioAniversarioAun) antiguedadAnios -= 1;
-    let diasCorresponden;
-    if (antiguedadAnios <= 5) diasCorresponden = 14;
-    else if (antiguedadAnios <= 10) diasCorresponden = 21;
-    else if (antiguedadAnios <= 20) diasCorresponden = 28;
-    else diasCorresponden = 35;
+    const diasCorresponden = diasFijosPorCohorteIngreso(ingreso);
     return { diasCorresponden, antiguedadAnios, proporcional: false, error: null };
   }
 
-  // Ingresó durante ESE año, después del 1/1 -- proporcional (Art. 153).
+  // Ingresó durante ESE año, después del 1/1 -- proporcional (Art. 153), sin cambios.
   const MS_POR_DIA = 24 * 60 * 60 * 1000;
   const diasTrabajados = Math.round((finDeAnio - ingreso) / MS_POR_DIA) + 1;
   const diasCorresponden = Math.floor(diasTrabajados / 20);
   return { diasCorresponden, antiguedadAnios: 0, proporcional: true, error: null };
+}
+
+// 07/09/2026 ("cuando empiece el período vacacional 2026 se pueden
+// sumar... los que hayan quedado pendiente de goce del período
+// anterior... que los pueda configurar sólo RRHH"): a diferencia de
+// calcularDiasVacaciones (pura, sin I/O, portada 1:1 al sub-app para
+// preview), el arrastre SÍ vive en Redis (lo carga RRHH a mano, no se
+// puede derivar sólo de fechaIngreso) -- este helper hace el único
+// GET que hace falta (clave compuesta personaId_anio, mismo criterio
+// que `competencia`) y devuelve 0 si nunca se configuró nada para ese
+// año, para que sumarlo sea siempre seguro sin chequear null en cada
+// lugar que lo usa.
+async function obtenerDiasArrastre(personaId, anio) {
+  const arrastre = await leerVacacionArrastre(personaId + '_' + anio);
+  return arrastre ? (Number(arrastre.dias) || 0) : 0;
 }
 
 function httpError(status, body) {
@@ -118,6 +250,92 @@ function httpError(status, body) {
 
 function esAdmin(solicitante) {
   return !!solicitante && solicitante.rol === 'admin';
+}
+
+// 16/09/2026 ("modifica para que desde personas podamos modificar los
+// roles, etc. que ese sector sea el que mande y elimina la ruedita"):
+// hasta ahora el ROL/acceso al sistema (Usuarios, ver
+// api/talento-usuarios.js) vivía en una pantalla aparte, sin ninguna
+// sincronización con la Persona -- eso fue justo la causa del bug real
+// de Mariano Bigliani (su Persona decía RRHH, pero su cuenta de acceso
+// nunca se tocó, así que unidadNegocio ahí seguía en null/desactualizado
+// y esRRHH() nunca daba true). Ahora la Persona es la ÚNICA fuente de
+// verdad: unidadNegocio/nombre/email de la cuenta se pisan SIEMPRE con
+// los de la Persona vinculada (nunca se editan aparte) -- lo único que
+// se decide en el form de acceso es el ROL (y el usuario/contraseña la
+// primera vez). "Ninguno" permite revocar el acceso sin borrar a la
+// persona.
+const ROLES_ACCESO_VALIDOS = ['admin', 'supervisor', 'colaborador', 'gerente'];
+
+async function buscarUsuarioDePersona(personaId) {
+  if (!personaId) return null;
+  const usuarios = await leerUsuarios();
+  return usuarios.find(u => u.personaId === personaId) || null;
+}
+
+// Crea, actualiza o revoca el acceso vinculado a `persona` según
+// `acceso` ({rolAcceso, usuarioLogin, passwordAcceso} -- todo opcional,
+// tal cual lo manda el form de Personas). Si `acceso` es undefined (el
+// caller no mandó nada de esto), no se toca el acceso existente para
+// nada -- una edición de sólo, por ejemplo, el teléfono no debe afectar
+// el login. Pero SI el acceso ya existía Y la persona cambió
+// nombre/email/unidadNegocio, esos 3 campos se resincronizan de
+// cualquier forma (la Persona manda, siempre) -- por eso este helper se
+// llama en TODO editarPersona, no sólo cuando `acceso` viene poblado.
+async function sincronizarAccesoDesdePersona(persona, acceso, usuarioExistente) {
+  // `acceso` es undefined cuando el caller ni siquiera sabe de este
+  // concepto (ej. algún otro flujo viejo que sólo edita
+  // teléfono/estado) -- en ESE caso nunca se toca el rol ni se revoca
+  // nada, sólo se resincroniza nombre/email/unidad más abajo si ya
+  // había una cuenta. accesoProvisto=true significa que el form de
+  // Personas estuvo presente en este guardado (manda rolAcceso siempre,
+  // aunque sea 'ninguno' -- el default del desplegable) -- SÓLO ahí
+  // tiene sentido crear o revocar.
+  const accesoProvisto = !!acceso;
+  let rolAcceso = accesoProvisto && acceso.rolAcceso ? String(acceso.rolAcceso).trim() : '';
+  if (rolAcceso === 'ninguno') rolAcceso = ''; // nunca es un rol real a validar
+
+  if (!usuarioExistente) {
+    if (!accesoProvisto || !rolAcceso) return null; // nada que crear
+    // Alta de acceso nuevo -- usuario y contraseña son obligatorios.
+    if (!ROLES_ACCESO_VALIDOS.includes(rolAcceso)) {
+      throw httpError(400, { ok: false, error: 'Rol de acceso inválido.' });
+    }
+    const usuarioLogin = acceso.usuarioLogin ? String(acceso.usuarioLogin).trim() : '';
+    const passwordAcceso = acceso.passwordAcceso ? String(acceso.passwordAcceso) : '';
+    if (!usuarioLogin) throw httpError(400, { ok: false, error: 'Falta el usuario (login) para dar de acceso.' });
+    if (!passwordAcceso || passwordAcceso.length < 4) throw httpError(400, { ok: false, error: 'La contraseña debe tener al menos 4 caracteres.' });
+    if (await leerUsuario(usuarioLogin)) throw httpError(400, { ok: false, error: 'Ya existe un usuario con ese nombre de login.' });
+    const { salt, hash } = generarSaltYHash(passwordAcceso);
+    const nuevo = {
+      usuario: usuarioLogin, salt, hash, rol: rolAcceso, personaId: persona.id,
+      unidadNegocio: persona.unidadNegocio || null, nombre: persona.nombre, email: persona.email || '',
+    };
+    await guardarUsuario(nuevo);
+    return nuevo;
+  }
+
+  if (accesoProvisto && !rolAcceso) {
+    // El form mandó explícitamente "Ninguno" sobre una cuenta que
+    // existía -- se revoca. Se borra la cuenta, la Persona queda intacta.
+    await eliminarUsuario(usuarioExistente.usuario);
+    return null;
+  }
+
+  // Ya existía -- se resincronizan nombre/email/unidadNegocio SIEMPRE
+  // (la Persona manda), y el rol si vino explícito en el payload.
+  const actualizado = Object.assign({}, usuarioExistente, {
+    nombre: persona.nombre, email: persona.email || '', unidadNegocio: persona.unidadNegocio || null,
+  });
+  if (rolAcceso && ROLES_ACCESO_VALIDOS.includes(rolAcceso)) actualizado.rol = rolAcceso;
+  if (acceso && acceso.passwordAcceso) {
+    const passwordAcceso = String(acceso.passwordAcceso);
+    if (passwordAcceso.length < 4) throw httpError(400, { ok: false, error: 'La contraseña debe tener al menos 4 caracteres.' });
+    const { salt, hash } = generarSaltYHash(passwordAcceso);
+    actualizado.salt = salt; actualizado.hash = hash;
+  }
+  await guardarUsuario(actualizado);
+  return actualizado;
 }
 
 // 20/08/2026 ("sólo puede ver sus reportes directos, debería ver...
@@ -192,8 +410,14 @@ async function puedeCrearSolicitud(solicitante, persona) {
 }
 
 // Quién puede APROBAR/RECHAZAR una solicitud de `persona`: admin
-// (cualquiera), su supervisor directo, o un gerente de su misma unidad
-// de negocio. Un colaborador NUNCA puede aprobar (ni la propia).
+// (cualquiera), su supervisor directo O cualquier supervisor más
+// arriba en su cadena hasta llegar al CEO (09/09/2026, "Permitir la
+// aprobación de novedades y vacaciones desde el supervisor inmediato y
+// el superior del superior hasta llegar al CEO" -- antes esto sólo
+// dejaba aprobar al supervisor DIRECTO; si esa persona no podía
+// resolver la solicitud, nadie más arriba en la línea tenía cómo
+// hacerlo), o un gerente de su misma unidad de negocio. Un colaborador
+// NUNCA puede aprobar (ni la propia).
 // 21/08/2026 ("por algun motivo me puedo 'autoaprobar' las
 // vacaciones"): admin devolvía true sin condición -- nadie chequeaba
 // que la solicitud no fuera la propia. Un supervisor/gerente normal ya
@@ -201,11 +425,20 @@ async function puedeCrearSolicitud(solicitante, persona) {
 // coincide con uno mismo salvo dato corrupto), pero para admin era un
 // agujero real. Se corta ACÁ, antes de cualquier rama de rol, para que
 // nadie -- ni admin -- pueda aprobar/rechazar su propia solicitud.
-function esAprobadorDeVacaciones(solicitante, persona) {
+async function esAprobadorDeVacaciones(solicitante, persona) {
   if (!solicitante || !persona) return false;
   if (persona.id === solicitante.personaId) return false;
-  if (solicitante.rol === 'admin') return true;
-  if (solicitante.rol === 'supervisor') return persona.supervisorId === solicitante.personaId;
+  // 15/09/2026 ("RRHH sea cual sea su jerarquia tiene que poder ver
+  // toda la app de Talento"): antes esto sólo alcanzaba a rol==='admin'
+  // -- alguien de RR.HH. cargado con un rol de jerarquía más chica
+  // (gerente/supervisor) quedaba scopeado a su propia unidad, sin
+  // poder aprobar/rechazar Novedades o Vacaciones de nadie afuera de
+  // ella. Ver esRRHH en _talento-auth.js.
+  if (esRRHH(solicitante)) return true;
+  // esDescendienteDe ya cubre el caso directo (primer salto de la
+  // cadena) además de cualquier nivel más arriba -- no hace falta un
+  // chequeo aparte de "supervisorId directo".
+  if (solicitante.rol === 'supervisor') return esDescendienteDe(persona, solicitante.personaId);
   if (solicitante.rol === 'gerente') return !!solicitante.unidadNegocio && persona.unidadNegocio === solicitante.unidadNegocio;
   return false;
 }
@@ -302,17 +535,72 @@ function validarCertificado(certificado) {
 // existiendo y se siguen mostrando bien en la tabla/Excel -- sólo no
 // se pueden volver a editar sin elegir antes un motivo de la lista
 // nueva (efecto esperado, no un bug).
-const MOTIVOS_LICENCIA = ['enfermedad', 'maternidad', 'mudanza', 'estudio', 'cumpleanos', 'sin_goce', 'llegada_tarde', 'matrimonio', 'accidente_laboral'];
+//
+// 07/09/2026 ("en los motivos de ausencias hay que agregar: Ausencia
+// injustificada Y Ausencia con permiso"): las 2 se suman al final de
+// la lista -- ninguna de las 2 pide certificado (una ausencia
+// injustificada por definición no tiene respaldo, y "con permiso" es
+// una autorización administrativa, no médica/legal).
+const MOTIVOS_LICENCIA = ['enfermedad', 'maternidad', 'mudanza', 'estudio', 'cumpleanos', 'sin_goce', 'llegada_tarde', 'matrimonio', 'accidente_laboral', 'injustificada', 'con_permiso'];
 const MOTIVOS_LICENCIA_CON_CERTIFICADO = ['enfermedad', 'estudio', 'maternidad', 'accidente_laboral'];
 
+// 07/09/2026 ("hijos con fecha de nacimiento"): array de largo
+// variable, todos opcionales -- se sanea acá (no confiar en lo que
+// mande el cliente) y se descarta cualquier fila sin fecha (un
+// "hijo fantasma" sin dato real no aporta nada). Tope de 20 -- de
+// sobra para cualquier caso real, sólo para no guardar algo enorme
+// por un error del cliente.
+function validarHijos(hijos) {
+  if (!Array.isArray(hijos)) return [];
+  return hijos
+    .filter(h => h && h.fechaNacimiento)
+    .slice(0, 20)
+    .map(h => ({ nombre: h.nombre ? String(h.nombre).trim() : '', fechaNacimiento: String(h.fechaNacimiento) }));
+}
+
+// 09/10/2026 ("agregar las imágenes de cada persona a la base de personas"): carga de fotos en lote -- sólo RR.HH./admin (mismo permiso que editar personas). Cada foto pasa por la misma
+// validación que la foto de perfil (data URL de imagen, con tope de tamaño). Hasta 15 por pedido: el cliente las manda de a tandas.
+async function accionCargarFotosPersonas(payload, solicitante) {
+  if (!esRRHH(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede cargar fotos.' });
+  const lista = Array.isArray(payload && payload.fotos) ? payload.fotos.slice(0, 15) : [];
+  if (!lista.length) throw httpError(400, { ok: false, error: 'No llegó ninguna foto.' });
+  const resultados = [];
+  for (const it of lista) {
+    const personaId = it && it.personaId;
+    try {
+      const persona = await leerPersona(personaId);
+      if (!persona) { resultados.push({ personaId, ok: false, error: 'La persona no existe.' }); continue; }
+      const foto = validarFoto(it.foto);
+      if (!foto) { resultados.push({ personaId, ok: false, error: 'Foto vacía.' }); continue; }
+      await guardarPersona({ ...persona, foto });
+      resultados.push({ personaId, ok: true });
+    } catch (e) {
+      resultados.push({ personaId, ok: false, error: (e && e.body && e.body.error) || String((e && e.message) || e) });
+    }
+  }
+  return { status: 200, body: { ok: true, resultados } };
+}
+
 async function accionCrearPersona(payload, solicitante) {
-  if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
-  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, sector, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso, foto } = payload || {};
+  // 16/09/2026 ("este rol deberia poder editar y agregar personas"):
+  // esRRHH() (admin O cualquier jerarquía con unidadNegocio='RRHH', ver
+  // _talento-auth.js) puede dar de alta -- ANTES esto era esAdmin()
+  // estricto. El "Acceso al sistema" (rol/usuario/contraseña) sigue
+  // reservado a admin de verdad -- ver el chequeo puntual más abajo,
+  // antes de pasarle nada a sincronizarAccesoDesdePersona -- alguien de
+  // RRHH no-admin no debería poder autoasignarse (o asignarle a otro)
+  // el rol 'admin' con sólo crear una persona.
+  if (!esRRHH(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede dar de alta personas.' });
+  const { nombre, unidadNegocio, funcion, lugarDeTrabajo, sector, telefono, email, cuil, fechaNacimiento, supervisorId, fechaIngreso, foto, domicilio, formacion, estadoCivil, hijos, appsPermitidas, rolAcceso, usuarioLogin, passwordAcceso } = payload || {};
   const errores = [];
   if (!nombre || !String(nombre).trim()) errores.push('Falta el nombre.');
   if (!unidadNegocio || !String(unidadNegocio).trim()) errores.push('Falta la unidad de negocio.');
   if (!funcion || !String(funcion).trim()) errores.push('Falta la función.');
   if (!lugarDeTrabajo || !String(lugarDeTrabajo).trim()) errores.push('Falta el lugar de trabajo.');
+  // 23/09/2026 ("que la carga de Domicilio en Personas no sea opcional, sino que sea
+  // obligatoria"): pasa de opcional a obligatorio en el alta -- ver el mismo criterio en
+  // accionEditarPersona (no se puede vaciar en una edición tampoco).
+  if (!domicilio || !String(domicilio).trim()) errores.push('Falta el domicilio.');
   const cuilFormateado = formatearCuil(cuil);
   if (cuilFormateado === undefined) errores.push('El CUIL debe tener 11 dígitos (formato XX-XXXXXXXX-X).');
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
@@ -334,20 +622,68 @@ async function accionCrearPersona(payload, solicitante) {
     cuil: cuilFormateado || '', foto: fotoValidada,
     fechaNacimiento: fechaNacimiento || null,
     supervisorId: supervisorId || null,
-    fechaIngreso: fechaIngreso || null, estado: 'activo',
+    fechaIngreso: fechaIngreso || null, estado: 'activo', fechaBaja: null,
+    // 07/09/2026 ("Domicilio, Formación, estado civil, hijos con fecha
+    // de nacimiento"): agregados como opcionales, mismo criterio que
+    // sector/teléfono/email en ese momento. 23/09/2026: domicilio pasó
+    // a ser OBLIGATORIO (ver validación arriba) -- formación/estado
+    // civil siguen opcionales, sin cambios.
+    domicilio: domicilio ? String(domicilio).trim() : '',
+    formacion: formacion ? String(formacion).trim() : '',
+    estadoCivil: estadoCivil ? String(estadoCivil).trim() : '',
+    hijos: validarHijos(hijos),
+    // 08/09/2026 ("cerrar los accesos... deja un desplegable en
+    // Personas que se llame apps"): si el form manda un array
+    // explícito (RR.HH. lo tocó a mano en el alta) se respeta tal
+    // cual; si no, se calcula el default según función+unidad -- ver
+    // calcularAppsPermitidas arriba.
+    appsPermitidas: Array.isArray(appsPermitidas) ? sanearApps(appsPermitidas) : calcularAppsPermitidas(funcion, unidadNegocio),
     // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
     potencialActual: null, boxActual: null,
   };
   await guardarPersona(persona);
-  return { status: 200, body: { ok: true, persona } };
+  // Sólo un admin real puede tocar el acceso al sistema (ver comentario
+  // arriba, junto al chequeo de esRRHH) -- alguien de RRHH no-admin
+  // puede crear la Persona igual, simplemente sin la parte de acceso en
+  // esta misma llamada (un admin se lo agrega después si corresponde).
+  const usuarioCreado = esAdmin(solicitante)
+    ? await sincronizarAccesoDesdePersona(persona, { rolAcceso, usuarioLogin, passwordAcceso }, null)
+    : null;
+  return { status: 200, body: { ok: true, persona, acceso: usuarioCreado ? { usuario: usuarioCreado.usuario, rol: usuarioCreado.rol } : null } };
+}
+
+// 08/09/2026 ("dejar la función de editar la fecha de baja"): mismo
+// criterio de validación que validarFechasLicencia -- formato y fecha
+// real, más un chequeo de orden contra fechaIngreso (typo típico:
+// invertir día/mes) -- SÍ puede ser el mismo día (alta y baja el mismo
+// día es válido), sólo se rechaza si queda ANTES del ingreso.
+function validarFechaBaja(fechaBaja, fechaIngreso) {
+  const f = String(fechaBaja || '').trim();
+  if (!f) throw httpError(400, { ok: false, error: 'Falta la fecha de baja.' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) throw httpError(400, { ok: false, error: 'Fecha de baja inválida.' });
+  const d = new Date(f + 'T00:00:00');
+  if (isNaN(d.getTime())) throw httpError(400, { ok: false, error: 'Fecha de baja inválida.' });
+  if (fechaIngreso && f < fechaIngreso) {
+    throw httpError(400, { ok: false, error: 'La fecha de baja no puede ser anterior a la fecha de ingreso.' });
+  }
+  return f;
 }
 
 async function accionEditarPersona(payload, solicitante) {
-  if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede editar personas.' });
+  // 16/09/2026 ("este rol deberia poder editar y agregar personas"):
+  // mismo criterio que accionCrearPersona -- esRRHH() puede editar,
+  // pero el acceso al sistema (más abajo) sigue exigiendo admin real.
+  if (!esRRHH(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede editar personas.' });
   const { id } = payload || {};
   if (!id) throw httpError(400, { ok: false, error: 'Falta el id de la persona a editar.' });
   if (payload.funcion !== undefined && !String(payload.funcion || '').trim()) {
     throw httpError(400, { ok: false, error: 'La función no puede quedar vacía.' });
+  }
+  // 23/09/2026 ("que la carga de Domicilio en Personas no sea opcional, sino que sea
+  // obligatoria"): mismo criterio que función -- si el campo viene en el payload de edición,
+  // no puede quedar vacío (evita que una persona ya cargada con domicilio quede en blanco).
+  if (payload.domicilio !== undefined && !String(payload.domicilio || '').trim()) {
+    throw httpError(400, { ok: false, error: 'El domicilio no puede quedar vacío.' });
   }
   if (payload.supervisorId && payload.supervisorId === id) {
     throw httpError(400, { ok: false, error: 'Una persona no puede ser su propio supervisor.' });
@@ -372,13 +708,67 @@ async function accionEditarPersona(payload, solicitante) {
     const conMismoCuil = personas.find(p => p.id !== id && p.estado === 'activo' && soloDigitos(p.cuil) === soloDigitos(cuilFormateado));
     if (conMismoCuil) throw httpError(400, { ok: false, error: 'Ya existe otra persona activa con ese CUIL: ' + conMismoCuil.nombre + '.' });
   }
-  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'sector', 'telefono', 'email', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado'];
+  const campos = ['nombre', 'unidadNegocio', 'funcion', 'lugarDeTrabajo', 'sector', 'telefono', 'email', 'fechaNacimiento', 'supervisorId', 'fechaIngreso', 'estado', 'domicilio', 'formacion', 'estadoCivil'];
   const actualizada = Object.assign({}, existente);
   campos.forEach(c => { if (payload[c] !== undefined) actualizada[c] = payload[c]; });
   if (payload.cuil !== undefined) actualizada.cuil = cuilFormateado || '';
   if (payload.foto !== undefined) actualizada.foto = validarFoto(payload.foto);
+  if (payload.hijos !== undefined) actualizada.hijos = validarHijos(payload.hijos);
+  // 08/09/2026 ("desplegable... solo el RRHH/ADMIN puede editar"): esta
+  // acción entera ya es esRRHH()-only (16/09/2026: antes era esAdmin()
+  // estricto, ver el chequeo arriba) -- "sólo RRHH" sigue siendo cierto,
+  // ya no es sinónimo de "sólo admin". Sólo se toca si el form lo manda
+  // explícito -- una edición que no toque el desplegable de Apps
+  // conserva lo que ya tenía (nunca se recalcula solo por cambiar
+  // función/unidad en una edición, a diferencia del alta).
+  if (payload.appsPermitidas !== undefined) actualizada.appsPermitidas = sanearApps(payload.appsPermitidas);
+  // 07/09/2026 ("dar de baja... figure baja con la fecha que se aplicó
+  // ese cambio"): por default fechaBaja se calcula sola, el mismo día
+  // real del cambio de estado -- se completa en la transición
+  // activo→baja; si se reactiva (baja→activo) se limpia, para que no
+  // quede una fecha de baja vieja colgada en alguien que volvió a
+  // estar activo.
+  //
+  // 08/09/2026 ("dejar la función de editar la fecha de baja"): RR.HH.
+  // puede cargar la baja unos días DESPUÉS de que la persona realmente
+  // se fue (ej. carga hoy una baja que en los hechos fue la semana
+  // pasada) -- con el auto-cálculo de arriba, esa fecha quedaba mal
+  // (el día que RR.HH. entró a tocar el sistema, no el día real), y el
+  // reporte de "bajas por mes" (ver tab-reportes) contaba la baja en el
+  // mes equivocado. Ahora, si el payload manda fechaBaja explícita Y el
+  // estado resultante es 'baja' (recién puesta en baja O ya estaba en
+  // baja y se está corrigiendo la fecha), se usa esa -- validada acá,
+  // nunca a ciegas. Si NO viene en el payload, se mantiene el
+  // auto-cálculo de siempre (compatible con cualquier llamador viejo
+  // que sólo mande el cambio de estado).
+  if (actualizada.estado === 'baja' && payload.fechaBaja !== undefined) {
+    actualizada.fechaBaja = validarFechaBaja(payload.fechaBaja, actualizada.fechaIngreso);
+  } else if (existente.estado !== 'baja' && actualizada.estado === 'baja') {
+    actualizada.fechaBaja = new Date().toISOString().slice(0, 10);
+  } else if (actualizada.estado === 'activo') {
+    actualizada.fechaBaja = null;
+  }
   await guardarPersona(actualizada);
-  return { status: 200, body: { ok: true, persona: actualizada } };
+  // 16/09/2026 ("desde personas... que ese sector sea el que mande" +
+  // "este rol deberia poder editar y agregar personas"): `rolAcceso`
+  // sólo viene si el form de acceso estuvo presente en este guardado
+  // (undefined en cualquier caller viejo/otro campo) --
+  // sincronizarAccesoDesdePersona ya sabe reconciliar aunque no venga
+  // (re-sincroniza nombre/email/unidad si hay una cuenta vinculada, sin
+  // tocar el rol). Pero SÓLO se llama si quien edita es admin de
+  // verdad -- alguien de RRHH no-admin puede editar la Persona igual,
+  // simplemente sin tocar para nada su acceso al sistema (ni para
+  // crear/revocar/cambiar rol, ni para el resync automático de nombre/
+  // email/unidad -- eso espera a que un admin vuelva a guardar).
+  const usuarioExistente = await buscarUsuarioDePersona(id);
+  let usuarioResultado = usuarioExistente;
+  if (esAdmin(solicitante)) {
+    const acceso = payload.rolAcceso !== undefined || payload.usuarioLogin !== undefined || payload.passwordAcceso !== undefined
+      ? { rolAcceso: payload.rolAcceso, usuarioLogin: payload.usuarioLogin, passwordAcceso: payload.passwordAcceso }
+      : undefined;
+    usuarioResultado = await sincronizarAccesoDesdePersona(actualizada, acceso, usuarioExistente);
+  }
+  return { status: 200, body: { ok: true, persona: actualizada, acceso: usuarioResultado ? { usuario: usuarioResultado.usuario, rol: usuarioResultado.rol } : null } };
 }
 
 // 21/08/2026 ("todos los usuarios puedan agregar o modificar su
@@ -515,7 +905,7 @@ async function accionCrearObjetivo(payload, solicitante) {
 }
 
 async function accionEditarObjetivo(payload, solicitante) {
-  const { id, titulo, meta, peso, fechaFin } = payload || {};
+  const { id, titulo, meta, peso, fechaFin, justificacion } = payload || {};
   const objetivo = await leerObjetivo(id);
   if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
   const persona = await leerPersona(objetivo.personaId);
@@ -539,25 +929,62 @@ async function accionEditarObjetivo(payload, solicitante) {
   }
   if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
 
-  objetivo.titulo = String(titulo).trim();
-  objetivo.meta = String(meta).trim();
-  objetivo.peso = pesoNum;
+  // 09/09/2026 ("Si se edita un objetivo, que quede registro del
+  // cambio realizado"): antes de pisar los valores viejos, se compara
+  // campo por campo contra lo nuevo y se agrega 1 entrada a
+  // historialCambios sólo por los campos que de verdad cambiaron (una
+  // edición que reenvía los mismos valores no ensucia el historial con
+  // una entrada vacía). `objetivo.historialCambios` puede no existir
+  // todavía en objetivos viejos, creados antes de este cambio -- se
+  // inicializa acá, no hace falta una migración aparte.
+  const valoresNuevos = { titulo: String(titulo).trim(), meta: String(meta).trim(), peso: pesoNum, fechaFin: String(fechaFin) };
+  const cambios = {};
+  Object.keys(valoresNuevos).forEach((campo) => {
+    if (objetivo[campo] !== valoresNuevos[campo]) cambios[campo] = { de: objetivo[campo], a: valoresNuevos[campo] };
+  });
+  if (Object.keys(cambios).length) {
+    // 10/09/2026 ("agregar una justificación del cambio, redactada por
+    // quien modifica"): si de verdad cambió algo de la definición del
+    // objetivo (título/meta/peso/fecha), el editor tiene que explicar
+    // por qué -- queda guardado junto al antes/quién/cuándo.
+    if (!justificacion || !String(justificacion).trim()) {
+      throw httpError(400, { ok: false, error: 'Para cambiar un objetivo ya cargado tenés que escribir la justificación del cambio.' });
+    }
+    if (!Array.isArray(objetivo.historialCambios)) objetivo.historialCambios = [];
+    objetivo.historialCambios.push({
+      fecha: new Date().toISOString(),
+      editadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null, nombre: solicitante.nombre || null },
+      justificacion: String(justificacion).trim(),
+      cambios,
+    });
+  }
+
+  objetivo.titulo = valoresNuevos.titulo;
+  objetivo.meta = valoresNuevos.meta;
+  objetivo.peso = valoresNuevos.peso;
   // Si se corre la fecha límite, los recordatorios ya mandados para la
   // fecha VIEJA dejan de tener sentido -- se resetea para que el cron
   // (talento-recordatorios.js) vuelva a avisar según la nueva fecha.
-  if (objetivo.fechaFin !== String(fechaFin)) objetivo.recordatoriosEnviados = [];
-  objetivo.fechaFin = String(fechaFin);
+  if (objetivo.fechaFin !== valoresNuevos.fechaFin) objetivo.recordatoriosEnviados = [];
+  objetivo.fechaFin = valoresNuevos.fechaFin;
   await guardarObjetivo(objetivo);
   return { status: 200, body: { ok: true, objetivo } };
 }
 
+// 09/09/2026 ("Si se edita un objetivo, que quede registro del cambio
+// realizado (solo admin puede borrarlo)"): a diferencia de crear/editar
+// (donde el supervisor de la persona ya puede, ver puedeGestionarObjetivo),
+// BORRAR un objetivo queda reservado a admin/RR.HH. -- un objetivo ya
+// cargado (con o sin historial de cambios, con o sin resultado puesto)
+// es un registro de evaluación de desempeño; un supervisor puede
+// corregirlo, pero hacerlo desaparecer del todo es una decisión de
+// política, no de gestión de equipo del día a día.
 async function accionEliminarObjetivo(payload, solicitante) {
   const { id } = payload || {};
   const objetivo = await leerObjetivo(id);
   if (!objetivo) throw httpError(404, { ok: false, error: 'El objetivo no existe.' });
-  const persona = await leerPersona(objetivo.personaId);
-  if (!(await puedeGestionarObjetivo(solicitante, persona))) {
-    throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar objetivos de esta persona.' });
+  if (!esAdmin(solicitante)) {
+    throw httpError(403, { ok: false, error: 'Sólo un admin/RR.HH. puede eliminar un objetivo ya cargado.' });
   }
   await eliminarObjetivo(id);
   return { status: 200, body: { ok: true } };
@@ -689,8 +1116,9 @@ async function accionGuardarVacacionPeriodo(payload, solicitante) {
   const diasTomados = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
   const anioNum = inicio.getFullYear();
 
-  const { diasCorresponden, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, anioNum);
+  const { diasCorresponden: diasBase, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, anioNum);
   if (errorDias) throw httpError(400, { ok: false, error: errorDias });
+  const diasCorresponden = diasBase + await obtenerDiasArrastre(personaId, anioNum);
   const periodosDeEseAnio = (await leerVacacionesPeriodos()).filter(v => v.personaId === personaId && v.anio === anioNum);
   const diasYaTomados = periodosDeEseAnio.reduce((s, v) => s + (Number(v.diasTomados) || 0), 0);
   if (diasYaTomados + diasTomados > diasCorresponden) {
@@ -708,6 +1136,34 @@ async function accionGuardarVacacionPeriodo(payload, solicitante) {
   return { status: 200, body: { ok: true, periodo } };
 }
 
+// 07/09/2026 ("los que hayan quedado pendiente de goce del período
+// anterior... que los pueda configurar sólo RRHH"): a diferencia de
+// accionGuardarVacacionPeriodo (cualquier admin/supervisor, un período
+// real ya tomado), esto es ADMIN-ONLY -- es una decisión de política
+// de la compañía (cuánto arrastre se reconoce), no un hecho que un
+// supervisor pueda registrar por su equipo. Upsert por personaId+anio
+// (mismo criterio que competencia) -- volver a guardar el mismo año
+// reemplaza el valor anterior, no lo suma.
+async function accionGuardarVacacionArrastre(payload, solicitante) {
+  if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo RR.HH./admin puede configurar el arrastre de vacaciones.' });
+  const { personaId, anio, dias, comentario } = payload || {};
+  const persona = await leerPersona(personaId);
+  if (!persona) throw httpError(404, { ok: false, error: 'La persona no existe.' });
+  const anioNum = Number(anio);
+  if (!Number.isInteger(anioNum)) throw httpError(400, { ok: false, error: 'Falta el año que recibe el arrastre.' });
+  const diasNum = Number(dias);
+  if (!Number.isFinite(diasNum) || diasNum < 0) throw httpError(400, { ok: false, error: 'Los días de arrastre deben ser un número mayor o igual a 0.' });
+
+  const arrastre = {
+    id: personaId + '_' + anioNum, personaId, anio: anioNum, dias: Math.round(diasNum),
+    comentario: comentario ? String(comentario).trim() : '',
+    configuradoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fecha: new Date().toISOString(),
+  };
+  await guardarVacacionArrastre(arrastre);
+  return { status: 200, body: { ok: true, arrastre } };
+}
+
 async function accionEliminarVacacionPeriodo(payload, solicitante) {
   const { id } = payload || {};
   if (!id) throw httpError(400, { ok: false, error: 'Falta el id del período a eliminar.' });
@@ -717,6 +1173,14 @@ async function accionEliminarVacacionPeriodo(payload, solicitante) {
   if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar este período.' });
   }
+  // 09/09/2026 ("registro de quién borra una vacación/novedad
+  // aprobada"): se guarda una foto completa ANTES de borrar -- ver
+  // guardarAuditoriaBaja en _talento-store.js.
+  await guardarAuditoriaBaja({
+    id: nuevoId('audbaja'), tipo: 'vacacionPeriodo', personaId: periodo.personaId,
+    borradoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fecha: new Date().toISOString(), datosBorrados: periodo,
+  });
   await eliminarVacacionPeriodo(id);
   return { status: 200, body: { ok: true } };
 }
@@ -756,10 +1220,15 @@ async function accionCrearLicencia(payload, solicitante) {
   }
   validarMotivoLicencia(payload);
   const { inicio, fin } = validarFechasLicencia(fechaInicio, fechaFin);
+  // 07/09/2026 ("permitir cargar las novedades que requieren
+  // certificado aunque no adjunten el certificado y que puedan
+  // agregarlo posteriormente"): antes esto bloqueaba el alta entera si
+  // el motivo requería certificado y no venía adjunto -- ahora se
+  // guarda igual con certificado:null; MOTIVOS_LICENCIA_CON_CERTIFICADO
+  // se sigue usando, pero sólo para decidir qué queda "pendiente" (ver
+  // certLink en el sub-app y el badge de Novedades), ya no para
+  // rechazar el guardado.
   const certificadoValidado = validarCertificado(certificado);
-  if (MOTIVOS_LICENCIA_CON_CERTIFICADO.includes(motivo) && !certificadoValidado) {
-    throw httpError(400, { ok: false, error: 'Este motivo requiere adjuntar un certificado.' });
-  }
   const dias = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
 
   const licencia = {
@@ -788,10 +1257,12 @@ async function accionEditarLicencia(payload, solicitante) {
   // 19/08/2026: si no se manda un certificado nuevo en la edición, se
   // conserva el que ya estaba (no se pisa con null) -- salvo que el
   // nuevo motivo ya no lo requiera, en cuyo caso se limpia.
+  // 07/09/2026 ("permitir cargar... aunque no adjunten el
+  // certificado... agregarlo posteriormente"): ya no bloquea si sigue
+  // faltando -- esta misma acción (editarLicencia) es justamente el
+  // camino para agregarlo después, así que no puede exigirlo para
+  // dejar pasar cualquier otro cambio (fechas, comentario, etc.).
   const certificadoFinal = certificadoValidado || (MOTIVOS_LICENCIA_CON_CERTIFICADO.includes(motivo) ? licencia.certificado : null);
-  if (MOTIVOS_LICENCIA_CON_CERTIFICADO.includes(motivo) && !certificadoFinal) {
-    throw httpError(400, { ok: false, error: 'Este motivo requiere adjuntar un certificado.' });
-  }
   const dias = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
 
   const actualizada = {
@@ -813,8 +1284,231 @@ async function accionEliminarLicencia(payload, solicitante) {
   if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para eliminar esta licencia.' });
   }
+  // 09/09/2026 ("registro de quién borra una vacación/novedad
+  // aprobada"): mismo criterio que accionEliminarVacacionPeriodo.
+  await guardarAuditoriaBaja({
+    id: nuevoId('audbaja'), tipo: 'licencia', personaId: licencia.personaId,
+    borradoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fecha: new Date().toISOString(), datosBorrados: licencia,
+  });
   await eliminarLicencia(id);
   return { status: 200, body: { ok: true } };
+}
+
+// 08/09/2026 ("sumar flujo en Novedades similar al de vacaciones,
+// donde cada colaborador puede solicitar/informar cualquier novedad...
+// en el flujo esto le llega a su superior inmediato para dar
+// aprobación/consentimiento. y luego queda pendiente subir el
+// comprobante... hasta que el campo de archivo esté completo"): mismo
+// circuito EXACTO que Vacaciones (solicitudVacacion) pero para
+// Licencias -- pendiente -> aprobada (crea la Licencia real recién
+// ACÁ, no antes) | rechazada | cancelada (el propio dueño, mientras
+// siga pendiente). A diferencia de accionCrearLicencia (admin/
+// supervisor cargando un hecho YA sucedido para su equipo), esto es
+// AUTOSERVICIO -- puedeCrearSolicitud ya cubre los 2 casos (uno mismo,
+// o admin/supervisor informando en nombre de otro) con la MISMA regla
+// que Vacaciones. El certificado sigue siendo opcional acá también
+// (mismo criterio que accionCrearLicencia desde la 1ra vuelta de este
+// pedido) -- puede subirse después, ver accionSubirCertificadoLicenciaPropia.
+async function accionCrearSolicitudLicencia(payload, solicitante) {
+  const { personaId, motivo, fechaInicio, fechaFin, certificado, comentario } = payload || {};
+  const persona = await leerPersona(personaId);
+  if (!(await puedeCrearSolicitud(solicitante, persona))) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para informar una novedad para esta persona.' });
+  }
+  validarMotivoLicencia(payload);
+  const { inicio, fin } = validarFechasLicencia(fechaInicio, fechaFin);
+  const certificadoValidado = validarCertificado(certificado);
+  const dias = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
+
+  const solicitud = {
+    id: nuevoId('sollic'), personaId, motivo, fechaInicio, fechaFin, dias,
+    certificado: certificadoValidado || null,
+    comentario: comentario ? String(comentario).trim() : '',
+    estado: 'pendiente', fechaSolicitud: new Date().toISOString(),
+    resueltoPor: null, fechaResolucion: null, comentarioResolucion: '', licenciaCreadaId: null,
+    notificacionEmail: { enviado: false, motivo: null },
+  };
+  // Mismo criterio "esperar el resultado del email antes de responder"
+  // que accionCrearSolicitudVacaciones -- ver el comentario ahí sobre
+  // el caso real de Mercedes Viqueria que motivó el cambio.
+  try {
+    const usuarios = await leerUsuarios();
+    const emails = resolverEmailsAprobadores(persona, usuarios, await leerPersonas());
+    if (!emails.length) {
+      solicitud.notificacionEmail.motivo = 'Sin aprobadores con email configurado.';
+    } else {
+      const { subject, html } = emailNuevaSolicitudLicencia({ persona, solicitud });
+      const resultados = await Promise.all(emails.map(to => enviarEmail({ to, subject, html })));
+      solicitud.notificacionEmail.enviado = resultados.some(r => r && r.ok);
+      if (!solicitud.notificacionEmail.enviado) {
+        solicitud.notificacionEmail.motivo = (resultados.find(r => r && r.error) || {}).error || 'Resend no aceptó el envío.';
+      }
+    }
+  } catch (e) {
+    solicitud.notificacionEmail.motivo = String(e && e.message || e);
+  }
+  await guardarSolicitudLicencia(solicitud);
+  return { status: 200, body: { ok: true, solicitud } };
+}
+
+async function notificarResolucionSolicitudLicencia(persona, actualizada) {
+  const notificacionEmail = { enviado: false, motivo: null };
+  try {
+    const usuarios = await leerUsuarios();
+    const propio = usuarios.find(u => u.personaId === persona.id);
+    if (!propio || !propio.email) {
+      notificacionEmail.motivo = 'La persona no tiene usuario con email configurado.';
+    } else {
+      const resultado = await enviarEmail(Object.assign({ to: propio.email }, emailSolicitudLicenciaResuelta({ persona, solicitud: actualizada })));
+      notificacionEmail.enviado = !!(resultado && resultado.ok);
+      if (!notificacionEmail.enviado) notificacionEmail.motivo = (resultado && resultado.error) || 'Resend no aceptó el envío.';
+    }
+  } catch (e) {
+    notificacionEmail.motivo = String(e && e.message || e);
+  }
+  return notificacionEmail;
+}
+
+async function accionAprobarSolicitudLicencia(payload, solicitante) {
+  const { solicitudId, comentarioResolucion } = payload || {};
+  if (!solicitudId) throw httpError(400, { ok: false, error: 'Falta el id de la solicitud.' });
+  const solicitud = await leerSolicitudLicencia(solicitudId);
+  if (!solicitud) throw httpError(404, { ok: false, error: 'La solicitud no existe.' });
+
+  // Idempotente: doble click en "Aprobar" no debe duplicar la Licencia.
+  if (solicitud.estado === 'aprobada') {
+    const licencia = solicitud.licenciaCreadaId ? await leerLicencia(solicitud.licenciaCreadaId) : null;
+    return { status: 200, body: { ok: true, solicitud, licencia } };
+  }
+  if (solicitud.estado === 'rechazada') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue rechazada -- no se puede aprobar. Si corresponde, pedile a la persona que la informe de nuevo.' });
+  }
+  if (solicitud.estado === 'cancelada') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue cancelada.' });
+  }
+
+  const persona = await leerPersona(solicitud.personaId);
+  // Mismo aprobador que Vacaciones: admin, supervisor directo, o
+  // gerente de la misma unidad -- "su superior inmediato" en la
+  // práctica es el supervisor directo, pero se deja el mismo fallback
+  // ya establecido en vez de una regla nueva sólo para Novedades.
+  if (!(await esAprobadorDeVacaciones(solicitante, persona))) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para aprobar esta novedad.' });
+  }
+
+  // Recién ACÁ se crea la Licencia real -- antes de aprobarse, la
+  // "novedad" sólo existe como solicitud, no aparece en el historial
+  // de Novedades ni cuenta para nada.
+  const licencia = {
+    id: nuevoId('lic'), personaId: solicitud.personaId, motivo: solicitud.motivo, motivoOtroTexto: '',
+    fechaInicio: solicitud.fechaInicio, fechaFin: solicitud.fechaFin, dias: solicitud.dias,
+    certificado: solicitud.certificado || null,
+    comentario: solicitud.comentario,
+    cargadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fecha: new Date().toISOString(),
+  };
+  await guardarLicencia(licencia);
+
+  const actualizada = Object.assign({}, solicitud, {
+    estado: 'aprobada', licenciaCreadaId: licencia.id,
+    resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fechaResolucion: new Date().toISOString(),
+    comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
+  });
+  actualizada.notificacionEmail = await notificarResolucionSolicitudLicencia(persona, actualizada);
+  await guardarSolicitudLicencia(actualizada);
+
+  return { status: 200, body: { ok: true, solicitud: actualizada, licencia } };
+}
+
+async function accionRechazarSolicitudLicencia(payload, solicitante) {
+  const { solicitudId, comentarioResolucion } = payload || {};
+  if (!solicitudId) throw httpError(400, { ok: false, error: 'Falta el id de la solicitud.' });
+  const solicitud = await leerSolicitudLicencia(solicitudId);
+  if (!solicitud) throw httpError(404, { ok: false, error: 'La solicitud no existe.' });
+
+  if (solicitud.estado === 'rechazada') {
+    return { status: 200, body: { ok: true, solicitud } };
+  }
+  if (solicitud.estado === 'aprobada') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue aprobada -- no se puede rechazar. Si hace falta deshacerla, borrá la novedad ya cargada desde la pestaña Novedades.' });
+  }
+  if (solicitud.estado === 'cancelada') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue cancelada.' });
+  }
+  // 09/09/2026 ("motivo obligatorio al rechazar"): un rechazo sin
+  // explicación es la fuente típica de fricción entre colaborador y
+  // supervisor -- ya existía el campo, ahora se exige no vacío.
+  if (!comentarioResolucion || !String(comentarioResolucion).trim()) {
+    throw httpError(400, { ok: false, error: 'Para rechazar tenés que indicar el motivo.' });
+  }
+
+  const persona = await leerPersona(solicitud.personaId);
+  if (!(await esAprobadorDeVacaciones(solicitante, persona))) {
+    throw httpError(403, { ok: false, error: 'No tenés permiso para rechazar esta novedad.' });
+  }
+
+  const actualizada = Object.assign({}, solicitud, {
+    estado: 'rechazada',
+    resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fechaResolucion: new Date().toISOString(),
+    comentarioResolucion: String(comentarioResolucion).trim(),
+  });
+  actualizada.notificacionEmail = await notificarResolucionSolicitudLicencia(persona, actualizada);
+  await guardarSolicitudLicencia(actualizada);
+
+  return { status: 200, body: { ok: true, solicitud: actualizada } };
+}
+
+// El propio dueño se retracta de una solicitud TODAVÍA pendiente --
+// mismo criterio que accionCancelarSolicitudVacaciones.
+async function accionCancelarSolicitudLicencia(payload, solicitante) {
+  const { solicitudId } = payload || {};
+  if (!solicitudId) throw httpError(400, { ok: false, error: 'Falta el id de la solicitud.' });
+  const solicitud = await leerSolicitudLicencia(solicitudId);
+  if (!solicitud) throw httpError(404, { ok: false, error: 'La solicitud no existe.' });
+
+  if (solicitud.estado === 'cancelada') {
+    return { status: 200, body: { ok: true, solicitud } };
+  }
+  if (solicitud.estado !== 'pendiente') {
+    throw httpError(409, { ok: false, error: 'Esta solicitud ya fue ' + (solicitud.estado === 'aprobada' ? 'aprobada' : 'rechazada') + ' -- ya no se puede cancelar.' });
+  }
+  if (solicitud.personaId !== solicitante.personaId) {
+    throw httpError(403, { ok: false, error: 'Sólo podés cancelar tus propias solicitudes.' });
+  }
+
+  const actualizada = Object.assign({}, solicitud, {
+    estado: 'cancelada',
+    resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
+    fechaResolucion: new Date().toISOString(),
+    comentarioResolucion: '',
+  });
+  await guardarSolicitudLicencia(actualizada);
+  return { status: 200, body: { ok: true, solicitud: actualizada } };
+}
+
+// 08/09/2026 ("queda pendiente subir el comprobante... hasta que el
+// campo de archivo esté completo"): self-service acotado -- a
+// diferencia de accionEditarLicencia (admin/supervisor sobre
+// cualquiera de su equipo, cualquier campo), esto SÓLO deja tocar el
+// certificado, y SÓLO de la propia licencia (licencia.personaId debe
+// ser la del propio solicitante) -- sin importar el rol, cualquiera
+// puede subir el comprobante de SU PROPIA novedad ya aprobada.
+async function accionSubirCertificadoLicenciaPropia(payload, solicitante) {
+  const { id, certificado } = payload || {};
+  if (!id) throw httpError(400, { ok: false, error: 'Falta el id de la novedad.' });
+  const licencia = await leerLicencia(id);
+  if (!licencia) throw httpError(404, { ok: false, error: 'La novedad no existe.' });
+  if (!solicitante.personaId || licencia.personaId !== solicitante.personaId) {
+    throw httpError(403, { ok: false, error: 'Sólo podés subir el comprobante de tu propia novedad.' });
+  }
+  const certificadoValidado = validarCertificado(certificado);
+  if (!certificadoValidado) throw httpError(400, { ok: false, error: 'Subí un archivo válido.' });
+  const actualizada = Object.assign({}, licencia, { certificado: certificadoValidado });
+  await guardarLicencia(actualizada);
+  return { status: 200, body: { ok: true, licencia: actualizada } };
 }
 
 async function accionCrearSolicitudVacaciones(payload, solicitante) {
@@ -835,8 +1529,9 @@ async function accionCrearSolicitudVacaciones(payload, solicitante) {
   const diasSolicitados = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
   const anioNum = inicio.getFullYear();
 
-  const { diasCorresponden, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, anioNum);
+  const { diasCorresponden: diasBase, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, anioNum);
   if (errorDias) throw httpError(400, { ok: false, error: errorDias });
+  const diasCorresponden = diasBase + await obtenerDiasArrastre(personaId, anioNum);
   const [periodos, solicitudes] = await Promise.all([leerVacacionesPeriodos(), leerSolicitudesVacaciones()]);
   const periodosDelAnio = periodos.filter(v => v.personaId === personaId && v.anio === anioNum);
   const pendientesDelAnio = solicitudes.filter(s => s.personaId === personaId && s.anio === anioNum && s.estado === 'pendiente');
@@ -871,7 +1566,7 @@ async function accionCrearSolicitudVacaciones(payload, solicitante) {
     // 01/09/2026: resolverAprobadores (no sólo los emails) -- cada
     // aprobador recibe su PROPIO link firmado a su nombre (rol +
     // personaId), ver emailNuevaSolicitud/firmarAccionEmail.
-    const aprobadores = resolverAprobadores(persona, usuarios);
+    const aprobadores = resolverAprobadores(persona, usuarios, await leerPersonas());
     if (!aprobadores.length) {
       solicitud.notificacionEmail.motivo = 'Sin aprobadores con email configurado.';
     } else {
@@ -952,7 +1647,7 @@ async function accionSolicitarCancelacionVacaciones(payload, solicitante) {
   });
   try {
     const usuarios = await leerUsuarios();
-    const aprobadores = resolverAprobadores(persona, usuarios);
+    const aprobadores = resolverAprobadores(persona, usuarios, await leerPersonas());
     if (!aprobadores.length) {
       actualizada.notificacionEmail.motivo = 'Sin aprobadores con email configurado.';
     } else {
@@ -986,7 +1681,7 @@ async function accionAprobarSolicitudVacaciones(payload, solicitante) {
   }
 
   const persona = await leerPersona(solicitud.personaId);
-  if (!esAprobadorDeVacaciones(solicitante, persona)) {
+  if (!(await esAprobadorDeVacaciones(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para aprobar esta solicitud.' });
   }
 
@@ -1014,8 +1709,9 @@ async function accionAprobarSolicitudVacaciones(payload, solicitante) {
   // que se pidió (ej. se cargó otro período en el medio). NO se cuentan
   // otras solicitudes pendientes acá -- esta es la que se está resolviendo
   // ahora, sólo importa contra lo YA tomado de verdad.
-  const { diasCorresponden, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, solicitud.anio);
+  const { diasCorresponden: diasBase, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, solicitud.anio);
   if (errorDias) throw httpError(400, { ok: false, error: errorDias });
+  const diasCorresponden = diasBase + await obtenerDiasArrastre(solicitud.personaId, solicitud.anio);
   const periodosDelAnio = (await leerVacacionesPeriodos()).filter(v => v.personaId === solicitud.personaId && v.anio === solicitud.anio);
   const { diasYaTomados } = calcularSaldoVacaciones(diasCorresponden, periodosDelAnio, []);
   if (diasYaTomados + solicitud.diasSolicitados > diasCorresponden) {
@@ -1061,9 +1757,17 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
   if (solicitud.estado === 'cancelada') {
     throw httpError(409, { ok: false, error: 'Esta solicitud ya fue cancelada.' });
   }
+  // 09/09/2026 ("motivo obligatorio al rechazar"): mismo criterio que
+  // Novedades (accionRechazarSolicitudLicencia) -- aplica también a
+  // rechazar un pedido de CANCELACIÓN (mantener la aprobación
+  // original), porque ahí también hay alguien esperando una
+  // explicación de por qué no se le dejó cancelar.
+  if (!comentarioResolucion || !String(comentarioResolucion).trim()) {
+    throw httpError(400, { ok: false, error: 'Para rechazar tenés que indicar el motivo.' });
+  }
 
   const persona = await leerPersona(solicitud.personaId);
-  if (!esAprobadorDeVacaciones(solicitante, persona)) {
+  if (!(await esAprobadorDeVacaciones(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para rechazar esta solicitud.' });
   }
 
@@ -1075,7 +1779,7 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
       estado: 'aprobada',
       resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
       fechaResolucion: new Date().toISOString(),
-      comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
+      comentarioResolucion: String(comentarioResolucion).trim(),
     });
     actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada, 'cancelacion_rechazada');
     await guardarSolicitudVacacion(actualizada);
@@ -1086,7 +1790,7 @@ async function accionRechazarSolicitudVacaciones(payload, solicitante) {
     estado: 'rechazada',
     resueltoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
     fechaResolucion: new Date().toISOString(),
-    comentarioResolucion: comentarioResolucion ? String(comentarioResolucion).trim() : '',
+    comentarioResolucion: String(comentarioResolucion).trim(),
   });
   actualizada.notificacionEmail = await notificarResolucionSolicitud(persona, actualizada, 'rechazada');
   await guardarSolicitudVacacion(actualizada);
@@ -1137,12 +1841,57 @@ async function accionCancelarSolicitudVacaciones(payload, solicitante) {
 // sólo admin. Reaccionar y comentar siguen abiertos a todos (no se
 // tocó accionToggleReaccion/accionCrearComentarioMuro), sólo se
 // restringe quién arranca un post nuevo.
+// 26/09/2026 ("agrega un permiso para editar el Muro"): admin sigue
+// pudiendo publicar siempre -- ahora además cualquier persona con
+// 'muro_editar' tildado en Apps (ver puedeEditarMuro en _talento-auth.js)
+// también puede, sin necesidad de ser admin.
+// 09/10/2026 ("que puedas arrobar a colaboradores"): ids de personas mencionadas con @ en el texto. Sólo se guardan ids de personas que existen (máximo 20, sin repetidos).
+async function validarMenciones(menciones) {
+  if (!Array.isArray(menciones)) return [];
+  const ids = Array.from(new Set(menciones.map(String))).slice(0, 20);
+  const personas = await Promise.all(ids.map(id => leerPersona(id).catch(() => null)));
+  return ids.filter((id, i) => personas[i]);
+}
+// 09/10/2026 ("agrega para poder sumar un link directamente, incluso embebe YouTube, Meta, etc"): un link por publicación, con la vista previa que armó api/talento-link-preview.js
+// (título/descripción/imagen/sitio). Se sanean los textos y sólo se acepta una imagen https; el reproductor embebido (YouTube, Vimeo, Facebook, Instagram, TikTok) lo arma el cliente
+// desde la URL con una lista fija de dominios, nunca desde un valor guardado.
+function validarLinkPost(link) {
+  if (!link) return null;
+  let u;
+  try { u = new URL(String(link.url || '')); } catch (e) { throw httpError(400, { ok: false, error: 'El link no es válido.' }); }
+  if (!/^https?:$/.test(u.protocol) || u.username || u.password) throw httpError(400, { ok: false, error: 'El link no es válido.' });
+  const corto = (t, n) => String(t || '').slice(0, n);
+  let imagen = '';
+  try { const iu = new URL(String(link.imagen || '')); if (iu.protocol === 'https:') imagen = iu.href.slice(0, 500); } catch (e) { /* sin imagen */ }
+  return { url: u.href.slice(0, 500), titulo: corto(link.titulo, 200), descripcion: corto(link.descripcion, 300), imagen, sitio: corto(link.sitio, 80), vertical: !!link.vertical };
+}
+// Aviso por mail a las personas mencionadas (best-effort, igual que el resto de los mails de Talento: si Resend falla la publicación igual se guarda). Usa el email de la ficha de la
+// persona y, si no tiene, el de su usuario. No se avisa a quien se menciona a sí mismo. Devuelve cuántos mails salieron y quiénes no tienen email cargado.
+async function notificarMencionesMuro(ids, autorNombre, autorPersonaId, texto, donde) {
+  const res = { enviados: 0, sinEmail: [] };
+  try {
+    const destinos = (ids || []).filter(id => id !== autorPersonaId);
+    if (!destinos.length) return res;
+    const [personas, usuarios] = await Promise.all([Promise.all(destinos.map(id => leerPersona(id).catch(() => null))), leerUsuarios().catch(() => [])]);
+    await Promise.all(personas.map(async persona => {
+      if (!persona) return;
+      const usuario = usuarios.find(u => u.personaId === persona.id);
+      const to = persona.email || (usuario && usuario.email) || '';
+      if (!to) { res.sinEmail.push(persona.nombre); return; }
+      const r = await enviarEmail(Object.assign({ to }, emailMencionMuro({ persona, autorNombre, texto, donde })));
+      if (r && r.ok) res.enviados++;
+    }));
+  } catch (e) { console.warn('notificarMencionesMuro:', e && e.message); }
+  return res;
+}
 async function accionCrearPost(payload, solicitante) {
-  if (solicitante.rol !== 'admin') throw httpError(403, { ok: false, error: 'Sólo RR.HH./Admin puede publicar en el Muro.' });
-  const { texto, imagen } = payload || {};
+  if (!puedeEditarMuro(solicitante)) throw httpError(403, { ok: false, error: 'No tenés permiso para publicar en el Muro.' });
+  const { texto, imagen, video, menciones, link } = payload || {};
+  const linkValidado = validarLinkPost(link);
   const textoLimpio = texto ? String(texto).trim() : '';
   const imagenValidada = validarImagenPost(imagen);
-  if (!textoLimpio && !imagenValidada) throw httpError(400, { ok: false, error: 'El post no puede estar vacío.' });
+  const videoValidado = validarVideoPost(video);
+  if (!textoLimpio && !imagenValidada && !videoValidado && !linkValidado) throw httpError(400, { ok: false, error: 'El post no puede estar vacío.' });
   let autorNombre = solicitante.nombre || 'RR.HH.';
   if (solicitante.personaId) {
     const persona = await leerPersona(solicitante.personaId);
@@ -1150,19 +1899,64 @@ async function accionCrearPost(payload, solicitante) {
   }
   const post = {
     id: nuevoId('post'), autorId: solicitante.personaId || null, autorNombre,
-    texto: textoLimpio, imagen: imagenValidada || null, fecha: new Date().toISOString(), likes: [],
+    texto: textoLimpio, imagen: imagenValidada || null, video: videoValidado || null, link: linkValidado, menciones: await validarMenciones(menciones), fecha: new Date().toISOString(), likes: [],
   };
   await guardarPost(post);
-  return { status: 200, body: { ok: true, post } };
+  const avisos = post.menciones.length ? await notificarMencionesMuro(post.menciones, autorNombre, solicitante.personaId || null, post.texto) : { enviados: 0, sinEmail: [] };
+  return { status: 200, body: { ok: true, post, mencionesAvisadas: avisos.enviados, mencionesSinEmail: avisos.sinEmail } };
+}
+
+// 08/10/2026 ("en el Muro: poder poner videos"): el video NO viaja dentro del post (pesa demasiado para Redis ni para el límite de 4,5 MB de una función): se sube por trozos
+// a Vercel Blob con api/talento-video.js y el post sólo guarda la URL. Se acepta únicamente una URL de ESE almacenamiento y de esa carpeta (nunca un link cualquiera).
+const VIDEO_URL_RE = /^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\/talento-videos\/[A-Za-z0-9._-]+$/;
+function validarVideoPost(video) {
+  if (!video) return '';
+  const u = String(video);
+  if (!VIDEO_URL_RE.test(u)) throw httpError(400, { ok: false, error: 'El video no es válido -- volvé a subirlo.' });
+  return u;
+}
+async function borrarVideoBlob(url) {
+  if (!url || !VIDEO_URL_RE.test(String(url))) return;
+  try { const { del } = require('@vercel/blob'); await del(String(url)); } catch (e) { console.error('borrarVideoBlob:', e && e.message); }
+}
+
+// 08/10/2026 ("poder editar las publicaciones una vez que se suban (solo nos permite borrar o comentar)"): edita el texto y permite quitar la foto o el video.
+// Misma regla de permiso que borrar: quien tiene permiso de editar el Muro, o el autor.
+async function accionEditarPost(payload, solicitante) {
+  const { id, texto, quitarImagen, quitarVideo, quitarLink, menciones, imagen: imagenNueva, video: videoNuevo, link: linkNuevo } = payload || {};
+  const post = await leerPost(id);
+  if (!post) throw httpError(404, { ok: false, error: 'El post no existe (puede que ya se haya borrado).' });
+  const puede = puedeEditarMuro(solicitante) || (solicitante.personaId && post.autorId === solicitante.personaId);
+  if (!puede) throw httpError(403, { ok: false, error: 'Sólo podés editar tus propios posts.' });
+  const textoLimpio = texto != null ? String(texto).trim() : (post.texto || '');
+  // 09/10/2026 ("permití reemplazar foto, video y link al editar"): además de quitar, se puede mandar uno NUEVO (reemplaza al actual o lo agrega); lo nuevo gana sobre "quitar"
+  let imagen = quitarImagen ? null : (post.imagen || null);
+  let video = quitarVideo ? null : (post.video || null);
+  let link = quitarLink ? null : (post.link || null);
+  if (imagenNueva) imagen = validarImagenPost(imagenNueva) || imagen;
+  if (videoNuevo) video = validarVideoPost(videoNuevo) || video;
+  if (linkNuevo) link = validarLinkPost(linkNuevo) || link;
+  if (!textoLimpio && !imagen && !video && !link) throw httpError(400, { ok: false, error: 'El post no puede quedar vacío -- escribí algo o borralo.' });
+  if (post.video && post.video !== video) await borrarVideoBlob(post.video);   // el video anterior (quitado o reemplazado) se borra del almacenamiento
+  const nuevo = { ...post, texto: textoLimpio, imagen, video, link, editado: true, fechaEdicion: new Date().toISOString() };
+  let avisos = { enviados: 0, sinEmail: [] };
+  if (menciones !== undefined) {
+    nuevo.menciones = await validarMenciones(menciones);
+    const nuevas = nuevo.menciones.filter(id => !(post.menciones || []).includes(id));   // sólo se avisa a quienes se agregaron en esta edición
+    if (nuevas.length) avisos = await notificarMencionesMuro(nuevas, post.autorNombre, post.autorId || null, nuevo.texto);
+  }
+  await guardarPost(nuevo);
+  return { status: 200, body: { ok: true, post: nuevo, mencionesAvisadas: avisos.enviados, mencionesSinEmail: avisos.sinEmail } };
 }
 
 async function accionEliminarPost(payload, solicitante) {
   const { id } = payload || {};
   const post = await leerPost(id);
   if (!post) throw httpError(404, { ok: false, error: 'El post no existe (puede que ya se haya borrado).' });
-  const puedeBorrar = esAdmin(solicitante) || (solicitante.personaId && post.autorId === solicitante.personaId);
+  const puedeBorrar = puedeEditarMuro(solicitante) || (solicitante.personaId && post.autorId === solicitante.personaId);
   if (!puedeBorrar) throw httpError(403, { ok: false, error: 'Sólo podés borrar tus propios posts.' });
   await eliminarPost(id);
+  if (post.video) await borrarVideoBlob(post.video);
   return { status: 200, body: { ok: true } };
 }
 
@@ -1198,10 +1992,15 @@ async function accionToggleReaccion(payload, solicitante) {
 // usuarios"): mismo criterio de autoría/moderación que los posts --
 // cualquiera de los 4 roles comenta, borra sólo el propio autor o
 // admin.
+// 09/10/2026 ("no quiero que nadie haga comentarios, por ahora ocultalos"): los comentarios del Muro están desactivados. Los ya escritos se conservan; para volver a habilitarlos alcanza con poner esto en true
+// (y COMENTARIOS_MURO_ACTIVOS en el sub-app de Talento).
+const COMENTARIOS_MURO_ACTIVOS = false;
 async function accionCrearComentarioMuro(payload, solicitante) {
-  const { postId, texto } = payload || {};
+  if (!COMENTARIOS_MURO_ACTIVOS) throw httpError(403, { ok: false, error: 'Los comentarios del Muro están desactivados por ahora.' });
+  const { postId, texto, menciones } = payload || {};
   const textoLimpio = texto ? String(texto).trim() : '';
   if (!textoLimpio) throw httpError(400, { ok: false, error: 'El comentario no puede estar vacío.' });
+  if (textoLimpio.length > 2000) throw httpError(400, { ok: false, error: 'El comentario es demasiado largo (máx. 2000 caracteres).' });
   const post = await leerPost(postId);
   if (!post) throw httpError(404, { ok: false, error: 'El post no existe (puede que ya se haya borrado).' });
   let autorNombre = solicitante.nombre || 'RR.HH.';
@@ -1213,15 +2012,18 @@ async function accionCrearComentarioMuro(payload, solicitante) {
     id: nuevoId('coment'), postId, autorId: solicitante.personaId || null, autorNombre,
     texto: textoLimpio, fecha: new Date().toISOString(),
   };
+  // 09/10/2026 ("aplicá lo mismo a los comentarios"): los comentarios también aceptan @menciones (con el mismo aviso por mail)
+  comentario.menciones = (await validarMenciones(menciones)).slice(0, 10);
   await guardarComentarioMuro(comentario);
-  return { status: 200, body: { ok: true, comentario } };
+  const avisos = comentario.menciones.length ? await notificarMencionesMuro(comentario.menciones, autorNombre, solicitante.personaId || null, comentario.texto, 'un comentario del Muro') : { enviados: 0, sinEmail: [] };
+  return { status: 200, body: { ok: true, comentario, mencionesAvisadas: avisos.enviados, mencionesSinEmail: avisos.sinEmail } };
 }
 
 async function accionEliminarComentarioMuro(payload, solicitante) {
   const { id } = payload || {};
   const comentario = await leerComentarioMuro(id);
   if (!comentario) throw httpError(404, { ok: false, error: 'El comentario no existe (puede que ya se haya borrado).' });
-  const puedeBorrar = esAdmin(solicitante) || (solicitante.personaId && comentario.autorId === solicitante.personaId);
+  const puedeBorrar = puedeEditarMuro(solicitante) || (solicitante.personaId && comentario.autorId === solicitante.personaId);
   if (!puedeBorrar) throw httpError(403, { ok: false, error: 'Sólo podés borrar tus propios comentarios.' });
   await eliminarComentarioMuro(id);
   return { status: 200, body: { ok: true } };
@@ -1262,6 +2064,48 @@ async function accionMarcarLeidoChat(payload, solicitante) {
   return { status: 200, body: { ok: true, marcados: propios.length } };
 }
 
+// 07/09/2026 ("tampoco te permite enviarlo por mail... que te permita
+// redactar el mensaje desde un pop-up y luego lo envie automatico
+// desde la casilla central, pero si decide responder que se responda
+// a la casilla de la persona que envio el mensaje"): a diferencia de
+// accionEnviarMensaje (chat interno, sólo entre cuentas logueadas de
+// esta app), esto manda un email REAL a la persona elegida desde la
+// tarjeta de contacto del Organigrama -- destinatario resuelto por
+// personaId (tiene que tener email cargado en su ficha), remitente
+// SIEMPRE la casilla central (REMITENTE en _talento-email.js, mismo
+// criterio que el resto de las notificaciones), con Reply-To a la
+// casilla real de quien lo escribió -- así una respuesta le llega
+// directo a esa persona, no se pierde en la casilla central.
+async function accionEnviarMensajeContacto(payload, solicitante) {
+  const { personaId, mensaje } = payload || {};
+  const mensajeLimpio = mensaje ? String(mensaje).trim() : '';
+  if (!mensajeLimpio) throw httpError(400, { ok: false, error: 'Escribí un mensaje antes de enviar.' });
+  if (mensajeLimpio.length > 4000) throw httpError(400, { ok: false, error: 'El mensaje es demasiado largo (máx. 4000 caracteres).' });
+  const destinatario = await leerPersona(personaId);
+  if (!destinatario) throw httpError(404, { ok: false, error: 'La persona no existe.' });
+  if (!destinatario.email) throw httpError(400, { ok: false, error: 'Esa persona no tiene un email cargado en su ficha.' });
+
+  // Mismo criterio que accionActualizarMiPerfil: admin/gerente no
+  // tienen una Persona propia -- su email vive en su registro de
+  // Usuario en ese caso.
+  let deEmail = null;
+  if (solicitante.personaId) {
+    const remitente = await leerPersona(solicitante.personaId);
+    deEmail = remitente && remitente.email ? remitente.email : null;
+  } else {
+    const registroUsuario = await leerUsuario(solicitante.usuario);
+    deEmail = registroUsuario && registroUsuario.email ? registroUsuario.email : null;
+  }
+  if (!deEmail) {
+    throw httpError(400, { ok: false, error: 'No tenés un email cargado en tu perfil -- hace falta para que una respuesta te llegue a vos. Cargalo en "Mi Cuenta" y volvé a intentar.' });
+  }
+
+  const { subject, html } = emailMensajeContacto({ deNombre: solicitante.nombre || solicitante.usuario, mensaje: mensajeLimpio });
+  const resultado = await enviarEmail({ to: destinatario.email, subject, html, replyTo: deEmail });
+  if (!resultado.ok) throw httpError(502, { ok: false, error: 'No se pudo enviar el email: ' + (resultado.error || 'error desconocido') });
+  return { status: 200, body: { ok: true } };
+}
+
 const ACCIONES = {
   crearPersona: accionCrearPersona,
   editarPersona: accionEditarPersona,
@@ -1274,6 +2118,7 @@ const ACCIONES = {
   agregarNotaObjetivo: accionAgregarNotaObjetivo,
   guardarCompetencia: accionGuardarCompetencia,
   guardarVacacionPeriodo: accionGuardarVacacionPeriodo,
+  guardarVacacionArrastre: accionGuardarVacacionArrastre,
   crearSolicitudVacaciones: accionCrearSolicitudVacaciones,
   solicitarCancelacionVacaciones: accionSolicitarCancelacionVacaciones,
   aprobarSolicitudVacaciones: accionAprobarSolicitudVacaciones,
@@ -1281,6 +2126,8 @@ const ACCIONES = {
   cancelarSolicitudVacaciones: accionCancelarSolicitudVacaciones,
   eliminarVacacionPeriodo: accionEliminarVacacionPeriodo,
   crearPost: accionCrearPost,
+  cargarFotosPersonas: accionCargarFotosPersonas,
+  editarPost: accionEditarPost,
   eliminarPost: accionEliminarPost,
   toggleReaccion: accionToggleReaccion,
   crearComentarioMuro: accionCrearComentarioMuro,
@@ -1288,8 +2135,14 @@ const ACCIONES = {
   crearLicencia: accionCrearLicencia,
   editarLicencia: accionEditarLicencia,
   eliminarLicencia: accionEliminarLicencia,
+  crearSolicitudLicencia: accionCrearSolicitudLicencia,
+  aprobarSolicitudLicencia: accionAprobarSolicitudLicencia,
+  rechazarSolicitudLicencia: accionRechazarSolicitudLicencia,
+  cancelarSolicitudLicencia: accionCancelarSolicitudLicencia,
+  subirCertificadoLicenciaPropia: accionSubirCertificadoLicenciaPropia,
   enviarMensaje: accionEnviarMensaje,
   marcarLeidoChat: accionMarcarLeidoChat,
+  enviarMensajeContacto: accionEnviarMensajeContacto,
 };
 
 module.exports = async function handler(req, res) {

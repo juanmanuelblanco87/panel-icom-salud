@@ -11,9 +11,9 @@
    valor que YA es mayoritario en la mayoría de las 9 pantallas. */
 :root{
   /* Marca / acento */
-  --accent:#1a3d70;
-  --accent-hover:#14305a;
-  --accent-soft:#EEF3FB;
+  --accent:#007067;
+  --accent-hover:#005a52;
+  --accent-soft:#E6F2F1;
 
   /* Semánticos */
   --ok:#0F7A5A;
@@ -25,10 +25,14 @@
 
   /* Texto y bordes (grises) */
   --ink:#222222;
-  --muted:#999999;
-  --faint:#cccccc;
+  --ink-soft:#555555;   /* 10/09/2026: gris medio de texto -- consolida #555/#666 usados a mano en varias pantallas (ver auditoría UX Talento). Entre --ink y --muted. */
+  --muted:#6b6b6b;      /* 08/10/2026: era #999 (2,85:1 sobre blanco, no pasa AA). #6b6b6b da 5,3:1. Todos los usos de --muted son texto sobre fondo claro (verificado en las 9 pantallas). */
+  --faint:#cccccc;      /* 08/10/2026: sólo para bordes/decoración (1,5:1). NO usar para texto: usar --muted. */
   --line:#e0dfd8;
   --line-input:#dddddd;
+
+  /* Superficies muy claras (fondos de tarjeta secundaria, hover, filas) */
+  --surface-2:#f6f6f4;  /* 10/09/2026: consolida los ~7 blancos-grisáceos casi iguales (#f5f5f5/#fafafa/#f2f2f2/...) que se venían escribiendo a mano. */
 
   /* Radios */
   --radius-sm:6px;

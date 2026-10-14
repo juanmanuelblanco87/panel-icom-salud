@@ -131,19 +131,41 @@ module.exports = async function handler(req, res) {
         return;
       }
       let personaNombre = registro.nombre || registro.usuario;
+      // 08/09/2026 ("cerrar los accesos... que no vean la existencia de
+      // las otras apps en el menu lateral") + 08/09/2026 (2da vuelta,
+      // "deja todas las opciones... por si mañana tenemos una
+      // necesidad distinta"): el shell necesita saber QUÉ apps mostrar
+      // en el sidebar desde el momento del login mismo (todavía no
+      // cargó nada de Talento) -- se resuelve acá, leyendo la Persona
+      // vinculada. Cada canal de unidad de negocio es su PROPIO token
+      // dentro de appsPermitidas (ver calcularAppsPermitidas en
+      // talento-guardar.js) -- ya no hace falta un booleano aparte
+      // "todas las unidades sí/no", el shell simplemente mira si cada
+      // token de canal está en la lista. `rol==='admin'` (RR.HH.) nunca
+      // pasa por acá -- el shell lo trata aparte como "todas las apps".
+      let appsPermitidas = ['gestion_talento']; // default seguro si no hay Persona vinculada (ej. cuentas admin sin ficha)
       if (registro.personaId) {
         const persona = await leerPersona(registro.personaId);
-        if (persona) personaNombre = persona.nombre;
+        if (persona) {
+          personaNombre = persona.nombre;
+          appsPermitidas = Array.isArray(persona.appsPermitidas) ? persona.appsPermitidas : ['gestion_talento'];
+        }
       }
       // 14/08/2026: se agrega `token` -- a partir de acá el cliente lo
       // manda como "Authorization: Bearer <token>" en cada pedido, y el
       // resto de los endpoints lo verifican en vez de confiar en
       // rol/personaId sueltos que mande el cliente (ver _talento-auth.js).
+      // 24/09/2026 ("permiso para aprobar Mercado Libre"): appsPermitidas
+      // se firma DENTRO del token (no sólo se manda suelto en el body de
+      // abajo) -- hace falta que quede verificado server-side para que
+      // puedeAprobarMeli (_talento-auth.js) pueda confiar en él sin
+      // volver a leer la Persona en cada pedido a meli-aceptar-propuesta/
+      // meli-crear-descuento.
       const token = firmarSesion({
         usuario: registro.usuario, rol: registro.rol, personaId: registro.personaId,
-        unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre,
+        unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, appsPermitidas,
       });
-      res.status(200).json({ ok: true, rol: registro.rol, personaId: registro.personaId, unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, token });
+      res.status(200).json({ ok: true, rol: registro.rol, personaId: registro.personaId, unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, appsPermitidas, token });
       return;
     }
 

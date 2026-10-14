@@ -62,11 +62,65 @@ async function accionCrearUsuario(payload, solicitante) {
   const registro = {
     usuario, salt, hash, rol,
     personaId: (rol === 'supervisor' || rol === 'colaborador') ? personaId : null,
-    unidadNegocio: rol === 'gerente' ? String(unidadNegocio).trim() : null,
+    // 16/09/2026 ("Mariano Bigliani Jefe en RRHH no esta pudiendo ver
+    // todas las apps de Talento... RRHH sea cual sea su jerarquia tiene
+    // que poder ver toda la app"): ANTES esto forzaba unidadNegocio a
+    // null salvo que el rol fuera 'gerente' -- por diseño, en ese
+    // momento unidadNegocio sólo existía para el flujo de aprobación de
+    // vacaciones por unidad (gerente). Pero esRRHH() (ver
+    // _talento-auth.js, agregado 15/09/2026) también mira este mismo
+    // campo para dar visibilidad total a un Colaborador/Supervisor de
+    // RRHH -- con el forzado a null de acá, esa cuenta NUNCA podía
+    // quedar marcada como RRHH sin importar qué se mandara desde el
+    // cliente, así que ese fix nunca podía surtir efecto para nadie que
+    // no fuera 'gerente'. Se guarda para cualquier rol si vino (trim'eado,
+    // '' -> null) -- gerente sigue siendo el único que lo REQUIERE (ver
+    // validación de arriba), los demás lo tienen simplemente disponible.
+    unidadNegocio: (unidadNegocio && String(unidadNegocio).trim()) ? String(unidadNegocio).trim() : null,
     nombre, email,
   };
   await guardarUsuario(registro);
   return { status: 200, body: { ok: true, usuario: { usuario, rol: registro.rol, personaId: registro.personaId, unidadNegocio: registro.unidadNegocio, nombre: registro.nombre, email: registro.email } } };
+}
+
+// 16/09/2026 (mismo pedido de arriba): hasta ahora NO existía forma de
+// corregir un acceso ya creado -- sólo crearUsuario (alta) y
+// cambiarPassword (sólo la clave). Sin esto, arreglar la cuenta de
+// alguien que quedó mal armada (ej. sin unidadNegocio='RRHH') exigía
+// borrar y recrear el usuario a mano, arriesgando perder el vínculo con
+// su historial. Mismos campos y misma validación que crearUsuario,
+// salvo password (no se toca acá -- ver cambiarPassword) y usuario (la
+// clave de login no se puede renombrar, evita dejar 2 registros
+// huérfanos si alguien cambia el CUIL/usuario a mitad de camino).
+async function accionEditarUsuario(payload, solicitante) {
+  if (!esAdmin(solicitante)) throw httpError(403, { ok: false, error: 'Sólo un admin puede editar accesos.' });
+  const usuario = String((payload && payload.usuario) || '').trim();
+  const rol = payload && payload.rol;
+  const personaId = (payload && payload.personaId) || null;
+  const unidadNegocio = (payload && payload.unidadNegocio) || null;
+  const nombre = String((payload && payload.nombre) || '').trim();
+  const email = String((payload && payload.email) || '').trim();
+
+  const existente = await leerUsuario(usuario);
+  if (!existente) throw httpError(404, { ok: false, error: 'Ese usuario no existe.' });
+
+  const errores = [];
+  if (!ROLES_VALIDOS.includes(rol)) errores.push('Rol inválido: debe ser admin, supervisor, colaborador o gerente.');
+  if ((rol === 'supervisor' || rol === 'colaborador') && !personaId) errores.push('Este rol tiene que estar vinculado a una persona del padrón.');
+  if (rol === 'gerente' && !(unidadNegocio && String(unidadNegocio).trim())) errores.push('Un gerente tiene que estar vinculado a una unidad de negocio.');
+  if (!email || !/\S+@\S+\.\S+/.test(email)) errores.push('Falta un email válido (se usa para las notificaciones).');
+  if (personaId && !(await leerPersona(personaId))) errores.push('La persona vinculada no existe.');
+  if (errores.length) throw httpError(400, { ok: false, error: errores.join(' ') });
+
+  const registro = Object.assign({}, existente, {
+    rol,
+    personaId: (rol === 'supervisor' || rol === 'colaborador') ? personaId : null,
+    unidadNegocio: (unidadNegocio && String(unidadNegocio).trim()) ? String(unidadNegocio).trim() : null,
+    nombre: nombre || existente.nombre,
+    email,
+  });
+  await guardarUsuario(registro);
+  return { status: 200, body: { ok: true, usuario: { usuario: registro.usuario, rol: registro.rol, personaId: registro.personaId, unidadNegocio: registro.unidadNegocio, nombre: registro.nombre, email: registro.email } } };
 }
 
 async function accionCambiarPassword(payload, solicitante) {
@@ -131,6 +185,7 @@ async function accionMiCuenta(payload, solicitante) {
 
 const ACCIONES = {
   crearUsuario: accionCrearUsuario,
+  editarUsuario: accionEditarUsuario,
   cambiarPassword: accionCambiarPassword,
   cambiarMiPassword: accionCambiarMiPassword,
   miCuenta: accionMiCuenta,

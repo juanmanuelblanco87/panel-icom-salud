@@ -46,7 +46,7 @@ function pagina({ titulo, colorTitulo, cuerpoHtml }) {
     + '<img src="' + LOGO_URL + '" width="170" alt="ICOM Salud" style="max-width:170px;height:auto">'
     + '</div>'
     + '<div style="padding:28px 32px;color:#1f2b23;font-size:14px;line-height:1.55">'
-    + '<p style="margin:0 0 16px;font-size:17px;font-weight:bold;color:' + (colorTitulo || '#14305a') + '">' + titulo + '</p>'
+    + '<p style="margin:0 0 16px;font-size:17px;font-weight:bold;color:' + (colorTitulo || '#005a52') + '">' + titulo + '</p>'
     + cuerpoHtml
     + '</div></div></body></html>';
 }

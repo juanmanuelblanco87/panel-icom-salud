@@ -139,4 +139,58 @@ function verificarAccionEmail(token) {
   return payload; // {solicitudId, accion, rol, personaId, nombre, exp}
 }
 
-module.exports = { generarSaltYHash, passwordValida, firmarSesion, verificarSesion, requerirSesion, firmarAccionEmail, verificarAccionEmail };
+// 15/09/2026 ("el gerente de RRHH no puede ver ni descargar las
+// novedades (agrupadas de todos)... RRHH sea cual sea su jerarquia
+// tiene que poder ver toda la app de Talento"): hasta ahora "ser
+// RR.HH." se identificaba con UNA sola cosa, `rol==='admin'` (ver
+// ROL_LABEL en la app: admin se etiqueta literalmente "RR.HH./Admin").
+// Eso deja afuera a alguien de RR.HH. que quedó cargado con un rol de
+// jerarquía más chica (gerente/supervisor) -- ese rol lo scopea a SU
+// propia unidad de negocio (ver talento-data.js/talento-guardar.js),
+// exactamente lo opuesto de lo que necesita RR.HH. (ver a TODA la
+// empresa, sea cual sea su nivel puntual adentro del área). Se agrega
+// acá, en un solo lugar, el criterio: admin YA ve todo (sin cambios);
+// además, cualquiera cuya `unidadNegocio` sea "RRHH" (con o sin
+// puntos/espacios, sin importar mayúsculas) también ve todo, aunque su
+// `rol` sea gerente/supervisor/colaborador -- para no tener que
+// duplicar esta comparación (y sus variantes de escritura) en cada
+// archivo que filtra por unidad.
+function normalizarUnidad(s) {
+  return String(s || '').toUpperCase().replace(/[.\s]/g, '');
+}
+function esRRHH(solicitante) {
+  if (!solicitante) return false;
+  if (solicitante.rol === 'admin') return true;
+  return normalizarUnidad(solicitante.unidadNegocio) === 'RRHH';
+}
+
+// 24/09/2026 ("coloca un permiso para aprobar Mercado Libre así podemos
+// sumar colaboradores con esa condición"): permiso GRANULAR, separado de
+// ser admin -- se guarda como un token más dentro de
+// persona.appsPermitidas (ver APPS_VALIDAS en talento-guardar.js,
+// 'meli_aprobar'; RR.HH. lo tilda a mano por persona, no se otorga por
+// defecto). talento-login.js firma appsPermitidas DENTRO del token de
+// sesión (no sólo en el body de la respuesta) para que quede verificado
+// acá server-side -- nunca se confía en lo que mande el cliente suelto.
+// admin sigue teniendo el permiso siempre, sin necesidad de tildarlo.
+function puedeAprobarMeli(solicitante) {
+  if (!solicitante) return false;
+  if (solicitante.rol === 'admin') return true;
+  return Array.isArray(solicitante.appsPermitidas) && solicitante.appsPermitidas.includes('meli_aprobar');
+}
+
+// 26/09/2026 ("agrega en Personas un permiso para editar el Muro al igual que
+// tenemos el de aprobar Mercado Libre"): mismo mecanismo que puedeAprobarMeli --
+// permiso GRANULAR, separado de ser admin, guardado como un token más dentro de
+// persona.appsPermitidas (ver APPS_VALIDAS en talento-guardar.js, 'muro_editar';
+// RR.HH. lo tilda a mano por persona, no se otorga por defecto). admin sigue
+// pudiendo publicar/moderar el Muro siempre, sin necesidad de tildarlo.
+function puedeEditarMuro(solicitante) {
+  if (!solicitante) return false;
+  if (solicitante.rol === 'admin') return true;
+  return Array.isArray(solicitante.appsPermitidas) && solicitante.appsPermitidas.includes('muro_editar');
+}
+
+module.exports = {
+  generarSaltYHash, passwordValida, firmarSesion, verificarSesion, requerirSesion, firmarAccionEmail, verificarAccionEmail, esRRHH, puedeAprobarMeli, puedeEditarMuro,
+};
