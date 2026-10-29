@@ -73,6 +73,25 @@
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 // 17/10/2026: libro de órdenes de venta (ver api/_ov-ledger.js) -- lo cerrado (hasta anteayer) sale de archivos, sólo hoy/ayer se piden en vivo a Oppen.
 const { planificarSegmentos, leerOrdenesLedger, leerOrdenesReciente } = require('./_ov-ledger');
+// 29/10/2026 ("Sub-Grupo de Clientes también en órdenes de venta de Cirugía General"): Customer.SubGroupCode de Oppen (lo sincroniza api/actualizar-customer-grupos.js). Las órdenes del libro no traen el código
+// de cliente, sólo el nombre -> se cruza por nombre normalizado (sólo ~589 clientes tienen sub-grupo, un nombre repetido entre un cliente con sub-grupo y otro sin él es el único riesgo).
+const { head: headBlobOv } = require('@vercel/blob');
+function normNombreCliente(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ''); }
+let _subPorNombreCache = null;
+async function leerSubGrupoPorNombre() {
+  const ahora = Date.now();
+  if (_subPorNombreCache && ahora - _subPorNombreCache.t < 5 * 60 * 1000) return _subPorNombreCache.mapa;
+  let mapa = {};
+  try {
+    const info = await headBlobOv('customer_grupos.json');
+    const r = await fetch(info.url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    Object.keys(d.subNombres || {}).forEach((cod) => { if (d.subNombres[cod] && d.mapaSub && d.mapaSub[cod]) mapa[d.subNombres[cod]] = d.mapaSub[cod]; });
+  } catch (e) { mapa = {}; }
+  _subPorNombreCache = { t: ahora, mapa };
+  return mapa;
+}
 
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
@@ -440,6 +459,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const token = await getToken();
+    const subPorNombre = await leerSubGrupoPorNombre();
     const url = new URL(req.url, 'http://x');
     const fromDate = url.searchParams.get('from') || firstDayOfCurrentMonth();
     const toDate = url.searchParams.get('to') || null;
@@ -508,6 +528,7 @@ module.exports = async function handler(req, res) {
           ? normalizeVendedor(ord.MedicalSalesRepresentative)
           : normalizeVendedor(ord.SalesManInstitution);
         const cliente = ord.CustName ? String(ord.CustName).trim() : 'Sin Cliente';
+        const subGrupoCliente = subPorNombre[normNombreCliente(ord.CustName)] || null;   // 29/10/2026: Customer.SubGroupCode (NAC/PROV/MUN/...) o null
         const tipoOperacion = normalizeTipoOperacion(ord.OperationType);
         // 31/08/2026 ("Es importante en ordenes de venta conocer
         // Especialidad (CLASE CR) agrega el cuadro debajo de TIPO"): ver
@@ -604,6 +625,7 @@ module.exports = async function handler(req, res) {
             vendedorCliente,
             vendedorInstitucion,
             cliente,
+            subGrupoCliente,
             tipoOperacion,
             especialidad,
             clase,

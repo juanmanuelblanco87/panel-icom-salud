@@ -2632,6 +2632,22 @@ html[data-tema="nuevo"] .sb-icon .eic{width:17px;height:17px;vertical-align:0}
           </div>
         </div>
 
+        <div class="erp-card" id="ovSubGrupoClienteCard">
+          <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>Por Sub-Grupo de Clientes</span>
+            <span class="erp-count" id="ovSubGrupoClienteFilterNote" style="display:none;cursor:pointer;color:#007067" onclick="ovClearSubGrupoClienteFilter()" title="Tocar para quitar el filtro"></span>
+          </h2>
+          <div class="erp-toolbar">
+            <span class="erp-count" id="ovSubGrupoClienteCount"></span>
+          </div>
+          <div class="erp-table-wrap">
+            <table class="erp-table">
+              <thead><tr><th>Sub-Grupo de Clientes</th><th class="num">Cirugías</th><th class="num">Precio Pr</th><th class="num">Unidades</th><th class="num">Total Neto</th><th class="num">Peso</th><th class="num" id="ovSubGrupoClienteVarHead" style="display:none">Var.</th></tr></thead>
+              <tbody id="ovSubGrupoClienteBody"><tr><td colspan="6" class="pm-empty"><span class="pm-spin"></span>Cargando datos del ERP…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="erp-card" id="ovInstitucionCard">
           <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
             <span>Por Institución</span>
@@ -3316,10 +3332,10 @@ function icomResetFiltrosPane(name){
       vaciar(ids); erpRenderAll();
     }else if(name === 'monitor_ov'){
       const ids = ['ovClienteSearch','ovSubgrupoSearch','ovSkuSearch'];
-      const hay = ovClienteSelected.size || ovTipoOperacionSelected.size || ovEspecialidadSelected.size || ovInstitucionSelected.size || ovMedicoSelected.size || ovSubgrupoSelected.size
+      const hay = ovClienteSelected.size || ovTipoOperacionSelected.size || ovEspecialidadSelected.size || ovInstitucionSelected.size || ovSubGrupoClienteSelected.size || ovMedicoSelected.size || ovSubgrupoSelected.size
         || ovEtiquetaSelected.size || ovVendInstExcluded.size || ovVendClienteExcluded.size || lleno(ids);
       if(!hay) return;
-      ovClienteSelected = new Map(); ovTipoOperacionSelected = new Set(); ovEspecialidadSelected = new Set(); ovInstitucionSelected = new Set(); ovMedicoSelected = new Set();
+      ovClienteSelected = new Map(); ovTipoOperacionSelected = new Set(); ovEspecialidadSelected = new Set(); ovInstitucionSelected = new Set(); ovSubGrupoClienteSelected = new Set(); ovMedicoSelected = new Set();
       ovSubgrupoSelected = new Map(); ovEtiquetaSelected = new Set(); ovVendInstExcluded = new Set(); ovVendClienteExcluded = new Set();
       vaciar(ids); ovRenderAll();
     }else if(name === 'dashboard'){
@@ -5473,6 +5489,12 @@ const ERP_PROVEEDOR_SIN_CATEGORIZAR = 'Sin proveedor cargado en oppen.io';
 let erpSubgrupoSelected = new Map();         // key normalizada -> texto a mostrar
 
 // "A, B" o "A, B +N" -- resumen de la selección múltiple para el cartel "Filtrando por:"
+// 29/10/2026: nombres de los sub-grupos de clientes (Customer.SubGroupCode de Oppen, que no expone un catálogo) -- los pasó el dueño. Un código que no figure acá se muestra tal cual.
+const ERP_SUBGRUPOS_CLIENTE = {
+  'PROV': 'PROV. BUENOS AIRES', 'PAMI': 'PAMI', 'PAG': 'PAGADORES', 'OTHER': 'OTROS PAGADORES',
+  'NAC': 'NACION', 'MUN': 'MUNICIPIOS', 'IOMA': 'IOMA', 'BAC': 'BAC CABA',
+};
+function erpSubGrupoNombre(cod){ return ERP_SUBGRUPOS_CLIENTE[String(cod == null ? '' : cod).toUpperCase()] || cod; }
 function erpListaFiltro(items){
   const a = Array.from(items);
   return a.length <= 2 ? a.join(', ') : a.slice(0,2).join(', ') + ' +' + (a.length-2);
@@ -11941,7 +11963,7 @@ function erpRenderSubGrupoClienteTable(){
   if(filterNote){
     if(erpSubGrupoClienteSelected.size){
       filterNote.style.display = 'inline';
-      filterNote.textContent = 'Filtrando por: ' + erpListaFiltro(erpSubGrupoClienteSelected) + ' ✕';
+      filterNote.textContent = 'Filtrando por: ' + erpListaFiltro(Array.from(erpSubGrupoClienteSelected).map(erpSubGrupoNombre)) + ' ✕';
     }else{
       filterNote.style.display = 'none';
       filterNote.textContent = '';
@@ -11971,7 +11993,7 @@ function erpRenderSubGrupoClienteTable(){
     const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareByLabel[r.label])+'</td>' : '';
     return '<tr onclick="erpToggleSubGrupoCliente(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para sumar este sub-grupo de clientes al filtro (podés elegir varios; tocar de nuevo para quitarlo)" '
       + 'style="cursor:pointer;'+(selected ? 'background:#e6f2f1;font-weight:700' : '')+'">'
-      + '<td>'+(selected ? '☑ ' : '')+r.label+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td><td class="num">'+erpFmtGM(r.totalNeto, r.totalCosto)+'</td>'+varCell+'</tr>';
+      + '<td>'+(selected ? '☑ ' : '')+erpSubGrupoNombre(r.label)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td><td class="num">'+erpFmtGM(r.totalNeto, r.totalCosto)+'</td>'+varCell+'</tr>';
   }).join('');
 }
 
@@ -12968,6 +12990,7 @@ let ovEspecialidadSelected = new Set();
 // filtra el resto de los cuadros) que ovEspecialidadSelected/
 // ovTipoOperacionSelected -- row.institucionNombre/row.medicoNombre.
 let ovInstitucionSelected = new Set();
+let ovSubGrupoClienteSelected = new Set();   // 29/10/2026: Por Sub-Grupo de Clientes (Monitor OV, Cirugía General)
 let ovMedicoSelected = new Set();
 let ovSubgrupoSelected = new Map();          // key normalizada -> texto a mostrar
 // 01/09/2026 ("Por proveedor reemplazarla por la de Etiquetas"): "Por
@@ -13447,6 +13470,7 @@ function ovRowPassesFilters(row, skip){
   if(!skip.tipoOperacion && ovTipoOperacionSelected.size && !ovTipoOperacionSelected.has(row.tipoOperacion)) return false;
   if(!skip.especialidad && ovEspecialidadSelected.size && !ovEspecialidadSelected.has(row.especialidad)) return false;
   if(!skip.institucion && ovInstitucionSelected.size && !ovInstitucionSelected.has(row.institucionNombre)) return false;
+  if(!skip.subGrupoCliente && ovSubGrupoClienteSelected.size && !ovSubGrupoClienteSelected.has(row.subGrupoCliente || 'Sin sub-grupo')) return false;
   if(!skip.medico && ovMedicoSelected.size && !ovMedicoSelected.has(row.medicoNombre)) return false;
   if(!skip.etiqueta && ovEtiquetaSelected.size && !ovEtiquetaSelected.has(row.etiqueta)) return false;
   if(!skip.clasificacion && ovHasActiveClasificacionFilter(skip.sel) && !ovSkuMatchesClasificacionFilter(row.sku, skip.sel)) return false;
@@ -13458,7 +13482,7 @@ function ovGetFilteredData(data, skip){
   if(!data) return {bySku:{}, totals:{unidades:0,totalNeto:0}};
   const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
     || ovVendClienteExcluded.size > 0 || ovClienteSelected.size > 0 || ovTipoOperacionSelected.size > 0 || ovEspecialidadSelected.size > 0
-    || ovInstitucionSelected.size > 0 || ovMedicoSelected.size > 0 || ovEtiquetaSelected.size > 0 || ovHasActiveClasificacionFilter();
+    || ovInstitucionSelected.size > 0 || ovSubGrupoClienteSelected.size > 0 || ovMedicoSelected.size > 0 || ovEtiquetaSelected.size > 0 || ovHasActiveClasificacionFilter();
   if(!anyFilter){
     return {bySku: data.bySku, totals: data.totals};
   }
@@ -13520,7 +13544,7 @@ function ovComputeCanalTotals(data){
   if(!data || !data.byCanal) return {};
   const anyOtherFilter = ovVendInstExcluded.size > 0 || ovVendClienteExcluded.size > 0
     || ovClienteSelected.size > 0 || ovTipoOperacionSelected.size > 0 || ovEspecialidadSelected.size > 0
-    || ovInstitucionSelected.size > 0 || ovMedicoSelected.size > 0 || ovEtiquetaSelected.size > 0 || ovHasActiveClasificacionFilter();
+    || ovInstitucionSelected.size > 0 || ovSubGrupoClienteSelected.size > 0 || ovMedicoSelected.size > 0 || ovEtiquetaSelected.size > 0 || ovHasActiveClasificacionFilter();
   if(!anyOtherFilter) return data.byCanal;
   return ovComputeRowGroupTotals(row=>row.canal, {canal:true}, data);
 }
@@ -13534,6 +13558,9 @@ function ovComputeEspecialidadTotals(data){
 // por row.institucionNombre/row.medicoNombre en vez de row.especialidad.
 function ovComputeInstitucionTotals(data){
   return ovComputeRowGroupTotals(row=>row.institucionNombre, {institucion:true}, data);
+}
+function ovComputeSubGrupoClienteTotals(data){
+  return ovComputeRowGroupTotals(row=>row.subGrupoCliente || 'Sin sub-grupo', {subGrupoCliente:true}, data);
 }
 function ovComputeMedicoTotals(data){
   return ovComputeRowGroupTotals(row=>row.medicoNombre, {medico:true}, data);
@@ -13564,7 +13591,7 @@ function ovComputeFilteredOrderCount(data){
   // ovComputeCanalTotals al agregar esos 2 filtros).
   const anyFilter = ovCanalExcluded.size > 0 || ovVendInstExcluded.size > 0
     || ovVendClienteExcluded.size > 0 || ovClienteSelected.size > 0 || ovTipoOperacionSelected.size > 0 || ovEspecialidadSelected.size > 0
-    || ovInstitucionSelected.size > 0 || ovMedicoSelected.size > 0 || ovEtiquetaSelected.size > 0;
+    || ovInstitucionSelected.size > 0 || ovSubGrupoClienteSelected.size > 0 || ovMedicoSelected.size > 0 || ovEtiquetaSelected.size > 0;
   if(!anyFilter) return data.ordersProcessed || 0;
   const seen = new Set();
   (data.rows||[]).forEach(row=>{
@@ -14038,6 +14065,65 @@ function ovRenderInstitucionTable(){
   }).join('');
 }
 
+// 29/10/2026 ("Sub-Grupo de Clientes también en órdenes de venta de Cirugía General"): clon de Por Institución agrupando por row.subGrupoCliente (sin dato = "Sin sub-grupo").
+function ovToggleSubGrupoCliente(label){
+  if(ovSubGrupoClienteSelected.has(label)) ovSubGrupoClienteSelected.delete(label); else ovSubGrupoClienteSelected.add(label);
+  ovRenderAll();
+}
+function ovClearSubGrupoClienteFilter(){
+  ovSubGrupoClienteSelected = new Set();
+  ovRenderAll();
+}
+function ovRenderSubGrupoClienteTable(){
+  const body = document.getElementById('ovSubGrupoClienteBody');
+  if(!body) return;
+  const varHead = document.getElementById('ovSubGrupoClienteVarHead');
+  const compareOn = ovCompareEnabled && !!OV_COMPARE_DATA;
+  if(varHead) varHead.style.display = compareOn ? '' : 'none';
+  const countSpan = document.getElementById('ovSubGrupoClienteCount');
+  const filterNote = document.getElementById('ovSubGrupoClienteFilterNote');
+  if(!OV_VIEW_DATA){
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin datos.</td></tr>';
+    return;
+  }
+  if(filterNote){
+    if(ovSubGrupoClienteSelected.size){
+      filterNote.style.display = 'inline';
+      filterNote.textContent = 'Filtrando por: ' + erpListaFiltro(Array.from(ovSubGrupoClienteSelected).map(erpSubGrupoNombre)) + ' ✕';
+    }else{
+      filterNote.style.display = 'none';
+      filterNote.textContent = '';
+    }
+  }
+  const totals = ovComputeSubGrupoClienteTotals();
+  const cirugias = ovComputeGroupOrderCounts(row=>row.subGrupoCliente || 'Sin sub-grupo', {subGrupoCliente:true});
+  let compareByLabel = null;
+  let rows;
+  if(compareOn){
+    // union de etiquetas de ambos períodos: lo que vendía antes y ahora no (o al revés) también aparece (Nuevo/Desapareció)
+    const merged = erpBuildCompareRows(totals, ovComputeSubGrupoClienteTotals(OV_COMPARE_DATA));
+    compareByLabel = {};
+    merged.forEach(r=>{ compareByLabel[r.label] = r; });
+    rows = merged.map(r=>({label:r.label, unidades:r.unidades, totalNeto:r.totalNeto, cirugias: cirugias[r.label]||0}));
+  }else{
+    rows = Object.entries(totals).map(([label, v])=>({label, unidades:v.unidades, totalNeto:v.totalNeto, cirugias: cirugias[label]||0}));
+  }
+  rows.sort((a,b)=>b.totalNeto - a.totalNeto);
+  if(countSpan) countSpan.textContent = rows.length + (rows.length===1 ? ' sub-grupo' : ' sub-grupos');
+  if(!rows.length){
+    body.innerHTML = '<tr><td colspan="6" class="pm-empty">Sin órdenes este día.</td></tr>';
+    return;
+  }
+  const grandTotal = rows.reduce((a,r)=>a+r.totalNeto, 0);
+  body.innerHTML = rows.map(r=>{
+    const selected = ovSubGrupoClienteSelected.has(r.label);
+    const varCell = compareOn ? '<td class="num">'+erpFmtVarCell(compareByLabel[r.label])+'</td>' : '';
+    return '<tr onclick="ovToggleSubGrupoCliente(\''+erpJsStrEscape(r.label)+'\')" title="Tocar para sumar este sub-grupo de clientes al filtro (podés elegir varios; tocar de nuevo para quitarlo)" '
+      + 'style="cursor:pointer;'+(selected ? 'background:#e6f2f1;font-weight:700' : '')+'">'
+      + '<td>'+(selected ? '☑ ' : '')+(erpSubGrupoNombre(r.label)||'<span class="muted">—</span>')+'</td><td class="num">'+erpFmtInt(r.cirugias)+'</td><td class="num">'+erpFmtAvgPrice(r.totalNeto, r.unidades)+'</td><td class="num">'+erpFmtInt(r.unidades)+'</td><td class="num">'+erpFmtMoney(r.totalNeto)+'</td><td class="num">'+erpFmtPct(r.totalNeto, grandTotal)+'</td>'+varCell+'</tr>';
+  }).join('');
+}
+
 function ovToggleMedico(label){
   if(ovMedicoSelected.has(label)) ovMedicoSelected.delete(label); else ovMedicoSelected.add(label);
   ovRenderAll();
@@ -14266,6 +14352,7 @@ function ovRenderAll(){
   ovRenderTipoOperacionTable();
   ovRenderEspecialidadTable();
   ovRenderInstitucionTable();
+  ovRenderSubGrupoClienteTable();   // 29/10/2026
   ovRenderMedicoTable();
   ovRenderDetalleOrdenes();
 }
@@ -14446,6 +14533,9 @@ function ovGoThisMonth(){
 // (ver ese bloque, mismo comentario original de Juan Manuel, 27/07/2026).
 function ovUpdateChannelSpecificUI(channel){
   const isCirugiaEstetica = channel === 'cirugia_estetica';
+  // 29/10/2026 ("Sub-Grupo de Clientes también en órdenes de venta de Cirugía General"): sólo Cirugía General
+  const ovSubGrupoCard = document.getElementById('ovSubGrupoClienteCard');
+  if(ovSubGrupoCard) ovSubGrupoCard.style.display = (channel === 'cirugia_general') ? '' : 'none';
   const vendInstSection = document.getElementById('ovVendInstSection');
   if(vendInstSection) vendInstSection.style.display = isCirugiaEstetica ? 'none' : '';
   const vendClienteTitle = document.getElementById('ovVendClienteTitle');
@@ -14504,6 +14594,7 @@ function ovSwitchToChannelView(channel){
   // sentido arrastrar un filtro de Institución de Cirugía General a
   // Cirugía Estética, mismo comentario original de arriba).
   ovInstitucionSelected = new Set();
+  ovSubGrupoClienteSelected = new Set();
   ovMedicoSelected = new Set();
   ovActiveQuickRangeKey = 'hoy';
   const today = erpTodayStr();

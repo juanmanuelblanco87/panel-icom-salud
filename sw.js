@@ -550,7 +550,7 @@
 // 14/10/2026: menos espacio arriba en todas las pantallas (franja de estado dentro de la fila del título).
 // 14/10/2026: rueda de carga al cambiar de período/unidad (Ventas en Vivo, Monitor OV, Nubimetrics): no se muestran datos del período anterior.
 // 14/10/2026: la capa de carga ahora es translúcida (se ve lo de abajo) con la rueda al centro.
-const CACHE_NAME = 'icom-shell-v316';
+const CACHE_NAME = 'icom-shell-v318';
 const SHELL_URLS = [
   '/',
   '/icom_panel_unificado.html',

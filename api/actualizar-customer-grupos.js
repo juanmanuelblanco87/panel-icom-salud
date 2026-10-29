@@ -38,6 +38,9 @@ const BASE_URL = ROOT + '/genericapi/ICOMGENERAL';
 const PAGE_LIMIT = 1000;
 const SOFT_DEADLINE_MS = 250_000; // maxDuration abajo es 280s -- deja ~30s de margen para escribir el blob y responder
 
+// 29/10/2026 (Sub-Grupo de Clientes en órdenes de venta): el libro de OV guarda el NOMBRE del cliente pero no su código, así que además de código->sub-grupo se guarda código->nombre normalizado
+// (sólo de los ~589 clientes con sub-grupo) y api/oppen-sales-orders.js cruza por nombre. Misma normalización en los dos archivos.
+function normNombreCliente(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ''); }
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
 async function getToken() {
@@ -118,7 +121,8 @@ module.exports = async function handler(req, res) {
     // catálogo con los nombres, se guarda el código). Como la API no deja filtrar por ese campo (422), hay que releer el catálogo ENTERO una vez para completarlo: se fuerza un bootstrap nuevo
     // (mapa de grupos se conserva mientras tanto) y se marca subV=1 cuando termina.
     estado.mapaSub = estado.mapaSub || {};
-    if (estado.subV !== 1 && estado.completo) { estado.completo = false; estado.offset = 0; }
+    estado.subNombres = estado.subNombres || {};
+    if (estado.subV !== 2 && estado.completo) { estado.completo = false; estado.offset = 0; }   // v2: además guarda el nombre normalizado del cliente (para órdenes de venta)
 
     let paginasEstaCorrida = 0;
     let clientesEstaCorrida = 0;
@@ -134,8 +138,8 @@ module.exports = async function handler(req, res) {
       const rows = page.data || [];
       for (const c of rows) {
         if (!c.Code) continue;
-        if (c.SubGroupCode) estado.mapaSub[c.Code] = String(c.SubGroupCode).trim();
-        else if (estado.mapaSub[c.Code]) delete estado.mapaSub[c.Code];   // se lo quitaron en Oppen
+        if (c.SubGroupCode) { estado.mapaSub[c.Code] = String(c.SubGroupCode).trim(); if (c.Name) estado.subNombres[c.Code] = normNombreCliente(c.Name); }
+        else if (estado.mapaSub[c.Code]) { delete estado.mapaSub[c.Code]; delete estado.subNombres[c.Code]; }   // se lo quitaron en Oppen
         const nombreGrupo = (c.GroupCode && estado.grupos[c.GroupCode]) || null;
         if (nombreGrupo) estado.mapa[c.Code] = nombreGrupo;
       }
@@ -151,7 +155,7 @@ module.exports = async function handler(req, res) {
       estado.offset = terminoEstaPasada ? 0 : offsetActual;
       if (terminoEstaPasada) {
         estado.completo = true;
-        estado.subV = 1;
+        estado.subV = 2;
         estado.ultimaSyncCompleta = new Date().toISOString();
       }
     } else if (terminoEstaPasada) {
