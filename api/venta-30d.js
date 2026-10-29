@@ -7,11 +7,13 @@
 // ver vercel.json) -- este endpoint es de sólo lectura, público, y actúa de
 // proxy simple: lee el blob actual y lo devuelve tal cual. Mismo patrón que
 // api/venta-6m-skuset.js y api/ventas-12m-sku-unidad.js.
+const { avisarSinSesion } = require('./_acceso-aviso');
 const { head } = require('@vercel/blob');
 
 const BLOB_PATHNAME = 'venta_30d.json';
 
 module.exports = async function handler(req, res) {
+  avisarSinSesion(req, 'venta-30d'); // 14/10/2026: modo aviso (sólo registra, ver _acceso-aviso.js)
   res.setHeader('Access-Control-Allow-Origin', '*');
   try {
     let info;

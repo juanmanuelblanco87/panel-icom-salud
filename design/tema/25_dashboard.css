@@ -1,0 +1,63 @@
+/* ═══ DASHBOARD / VENTAS EN VIVO: bloques de cifras, notas y P&L ═══
+   El JS de estas tarjetas arma el HTML con estilos en línea (11px en mayúsculas, 24px, #888, filas verdes de #eaf6ee…), así que se reescriben por atributo para que sigan
+   la misma estética que los indicadores de arriba: rótulo en 12px sin mayúsculas, cifra grande en 28px, notas en gris suave, tablas con filas aireadas. */
+html[data-tema="nuevo"] .dash-bloques{gap:22px 32px}
+html[data-tema="nuevo"] .dash-bloques [style*="text-transform:uppercase"]{font-size:12px !important;font-weight:500 !important;letter-spacing:0 !important;text-transform:none !important;color:var(--muted) !important;margin-bottom:6px !important}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:24px"]{font-size:28px !important;font-weight:700 !important;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:11px"]{font-size:12px !important;color:var(--muted) !important}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:14px;color:#888"]{font-size:13px !important}
+html[data-tema="nuevo"] .acc-solo-desktop{font-size:12px !important;color:var(--muted) !important;line-height:1.55;border-top:1px solid var(--line);padding-top:12px;margin-top:18px !important}
+/* notas "Cómo está calculado el P&L" y "ver más" */
+html[data-tema="nuevo"] .pnl-vermas-btn{font-size:12px;color:var(--muted)}
+html[data-tema="nuevo"] .pnl-vermas-btn:hover{color:var(--accent)}
+html[data-tema="nuevo"] .pnl-vermas-flecha{color:var(--muted)}
+/* tabla del P&L */
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) table{font-variant-numeric:tabular-nums;font-size:13px;border-collapse:collapse}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td{border-bottom:1px solid #EEF1F0;padding-top:7px !important;padding-bottom:7px !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr:first-child td{font-size:11px !important;font-weight:600 !important;letter-spacing:.05em;border-bottom:1px solid var(--line);padding-bottom:9px !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td:first-child[style*="color:#666"]{color:var(--ink-soft) !important;font-weight:500 !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) [style*="font-size:9px"]{font-size:10.5px !important;color:var(--muted) !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr[style*="eaf6ee"],html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr[style*="eaf6ee"] td{background:var(--accent-soft) !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td[style*="color:#007067;white-space:nowrap"][style*="font-size:12px"]{font-size:12px !important;letter-spacing:.02em}
+/* fichas seleccionables (Facturación por Unidad de Negocio, Vendedor, Cliente…): blancas, rótulo en minúscula, seleccionada = borde y fondo verde suave */
+html[data-tema="nuevo"] .sel-tile{border:1px solid var(--line);border-radius:14px;box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .sel-tile:hover{border-color:#B9D4D1;box-shadow:var(--sombra-hover)}
+html[data-tema="nuevo"] .sel-tile.on{background:#F4FAF9;border-color:var(--accent)}
+html[data-tema="nuevo"] .sel-tile.off{background:#fff;border-color:var(--line)}
+html[data-tema="nuevo"] .sel-tile .ic{background:var(--accent-soft);border:none;color:var(--accent)}
+html[data-tema="nuevo"] .sel-tile .lbl{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted)}
+html[data-tema="nuevo"] .sel-tile .val{font-size:18px;letter-spacing:-.01em}
+html[data-tema="nuevo"] .sel-tile .sub{font-size:12px;color:var(--muted)}
+html[data-tema="nuevo"] .sel-tile .chk{width:18px;height:18px;border:1.5px solid var(--line-input);font-size:11px}
+html[data-tema="nuevo"] .sel-tile.sm .val{font-size:15px}
+html[data-tema="nuevo"] .sel-tile.sm .lbl{font-size:11.5px}
+
+/* ═══ CELULAR (22/10/2026: «no se ve igual que el resto de los bloques, parece un Excel y los números con tantos dígitos me marean») ═══
+   - bloques de cifras: de una columna con cifras gigantes a fichas de 2 por fila (como los indicadores de arriba), con la cifra más chica y en formato corto ($ 14.610 M)
+   - P&L: un mes por vez (fichas ENE, FEB… arriba) como lista de conceptos; el encabezado de meses y las columnas de los demás meses se ocultan */
+.pnl-chips{display:none}
+/* columna T.<año> (acumulado de los meses cerrados): fondo suave y una línea que la separa de los meses */
+.pnl-tabla td[data-ym="T"]{background:rgba(0,112,103,.06);border-left:1px solid #cfe5e1}
+@media (max-width:640px){
+  html[data-tema="nuevo"] .dash-bloques{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch}
+  html[data-tema="nuevo"] .dash-bloques > div{background:var(--accent-soft);border-radius:12px;padding:12px 12px 10px}
+  /* 22/10/2026 («los cuadros están desalineados»): las 4 fichas son hijas directas salvo las 2 de abajo de «Acumulado del Año», que viven dentro de un contenedor display:contents y quedaban SIN fondo ni relleno (su texto arrancaba más a la izquierda que el de las de arriba).
+     Además una etiqueta de 2 líneas empujaba la cifra más abajo que la de la ficha vecina de 1 línea: toda etiqueta reserva 2 líneas, así las cifras quedan a la misma altura. */
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div{background:var(--accent-soft);border-radius:12px;padding:12px 12px 10px}
+  html[data-tema="nuevo"] .dash-bloques > div:not([style*="display:contents"]),
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div{display:flex;flex-direction:column}
+  html[data-tema="nuevo"] .dash-bloques > div:not([style*="display:contents"]) > div:first-child,
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div > div:first-child{min-height:2.6em;line-height:1.3}
+  html[data-tema="nuevo"] .dash-bloques [style*="font-size:24px"]{font-size:21px !important}
+  html[data-tema="nuevo"] .dash-bloques [style*="font-size:12px"]{line-height:1.3}
+  .pnl-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .pnl-chips::-webkit-scrollbar{display:none}
+  .pnl-chip{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink-soft);border-radius:999px;padding:7px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .pnl-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  html[data-tema="nuevo"] .pnl-tabla{font-size:14px !important}
+  .pnl-tabla col{min-width:0 !important}
+  .pnl-tabla tr:first-child{display:none}
+  .pnl-tabla td:first-child{white-space:normal !important;position:static !important;min-width:0 !important;line-height:1.3}
+  html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td{padding-top:10px !important;padding-bottom:10px !important}
+  .pnl-tabla-wrap{max-height:none !important}
+}

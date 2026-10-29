@@ -548,7 +548,9 @@
 // 14/10/2026: logo completo IcomSalud (con "El bienestar nos une") en login, menú y mails.
 // 14/10/2026: intro en verde (videos nuevos) + recarga/aviso automático cuando hay versión nueva.
 // 14/10/2026: menos espacio arriba en todas las pantallas (franja de estado dentro de la fila del título).
-const CACHE_NAME = 'icom-shell-v166';
+// 14/10/2026: rueda de carga al cambiar de período/unidad (Ventas en Vivo, Monitor OV, Nubimetrics): no se muestran datos del período anterior.
+// 14/10/2026: la capa de carga ahora es translúcida (se ve lo de abajo) con la rueda al centro.
+const CACHE_NAME = 'icom-shell-v316';
 const SHELL_URLS = [
   '/',
   '/icom_panel_unificado.html',
@@ -571,12 +573,21 @@ self.addEventListener('install', (event) => {
   );
 });
 
+// 20/10/2026 ("podemos forzar para que todas se actualicen?" -- colaboradores con la app «instalada» se quedaban con una versión vieja o trabada): cuando este service worker
+// reemplaza a uno anterior, además de tomar el control recarga todas las ventanas abiertas del panel (también las de la app instalada), así nadie sigue con código viejo.
+// La sesión se conserva (vive en sessionStorage de la misma pestaña/ventana). Sólo ocurre al actualizar de una versión a otra, no en la primera instalación.
+const RECARGA_FORZADA_EN = 'icom-shell-v276';
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then(names =>
-      Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))
-    ).then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const nombres = await caches.keys();
+    const habiaVersionVieja = nombres.some(n => n !== CACHE_NAME);
+    await Promise.all(nombres.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)));
+    await self.clients.claim();
+    // recarga forzada SÓLO en esta versión (la que reemplaza a las que ya estaban abiertas/instaladas); en las siguientes versiones el aviso «Hay una versión nueva» lo resuelve el panel (ver icomAvisarVersionNueva)
+    if (!habiaVersionVieja || CACHE_NAME !== RECARGA_FORZADA_EN) return;
+    const ventanas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    await Promise.all(ventanas.map(v => { try { return v.navigate(v.url).catch(() => null); } catch (e) { return null; } }));
+  })());
 });
 
 function esRecursoDelShell(url){
@@ -600,17 +611,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // 20/10/2026: RED PRIMERO. Antes se respondía con lo guardado (y se actualizaba atrás), así que quien tenía la app instalada veía SIEMPRE una versión vieja una vez más (y, si esa versión tenía un
+  // problema, seguía con él). Ahora se pide el panel a la red y sólo si no hay conexión (o tarda más de 6 s) se usa la copia guardada.
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
-    const cached = await cache.match(req);
-    const fresh = fetch(req).then(res => {
+    const red = fetch(req).then(res => {
       if(res && res.ok) cache.put(req, res.clone());
       return res;
-    }).catch(() => null);
-    // No bloquea la respuesta si ya hay algo en caché -- pero el service
-    // worker se mantiene vivo hasta que la actualización en 2do plano
-    // termine (si no, el navegador podría matarlo apenas responde).
-    event.waitUntil(fresh);
-    return cached || (await fresh) || fetch(req);
+    });
+    event.waitUntil(red.catch(() => null));
+    const limite = new Promise(r => setTimeout(() => r(null), 6000));
+    const res = await Promise.race([red.catch(() => null), limite]);
+    if(res) return res;
+    const cached = await cache.match(req);
+    if(cached) return cached;
+    return red.catch(() => fetch(req));
   })());
 });

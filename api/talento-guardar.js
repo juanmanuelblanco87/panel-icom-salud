@@ -103,14 +103,15 @@ const EPS = 1e-6;
 // ACCIÓN (publicar/moderar el Muro, ver accionCrearPost/accionEliminarPost/
 // accionEliminarComentarioMuro más abajo y puedeEditarMuro en _talento-auth.js),
 // deliberadamente opt-in, nunca un default automático.
-const APPS_VALIDAS = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'importaciones', 'gestion_talento', 'meli_aprobar', 'muro_editar'];
+const APPS_VALIDAS = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'importaciones', 'gestion_talento', 'meli_aprobar', 'muro_editar', 'correo'];
+// 15/10/2026 ("Correo y Calendario ... todos los usuarios nacen con acceso a esta app"): 'correo' es un ítem del sidebar que TODOS reciben por defecto (RR.HH. puede quitarlo desde Apps). Cada persona conecta SU cuenta de Google.
 const UNIDAD_A_CANAL_APP = { 'Ortopedia': 'minorista', 'Movilidad': 'movilidad', 'Cirugía Estética': 'cirugia_estetica', 'Cirugía': 'cirugia_general' };
 function calcularAppsPermitidas(funcion, unidadNegocio) {
   const f = (funcion || '').trim().toLowerCase();
   if (f === 'ceo') return APPS_VALIDAS.slice();
   if (f === 'gerente') {
     // "TODAS LAS UNIDADES DE NEGOCIO" -- los 4 canales, no sólo el propio.
-    const apps = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'gestion_talento'];
+    const apps = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'gestion_talento', 'correo'];
     // "APP Importaciones: CEO, Admin RRHH, Gerente Ortopedia y Gerente
     // de Movilidad" -- por combinación función+unidad, no por persona
     // puntual (si el día de mañana cambia quién ocupa el puesto, el
@@ -121,7 +122,7 @@ function calcularAppsPermitidas(funcion, unidadNegocio) {
   if (f === 'jefe' || f === 'coordinador') {
     // "ICOM... SOLO SU UNIDAD DE NEGOCIO" -- ventas_vivo + el canal
     // propio, no los otros 3.
-    const apps = ['ventas_vivo', 'gestion_talento'];
+    const apps = ['ventas_vivo', 'gestion_talento', 'correo'];
     const canalPropio = UNIDAD_A_CANAL_APP[unidadNegocio];
     if (canalPropio) apps.push(canalPropio);
     return apps;
@@ -129,7 +130,7 @@ function calcularAppsPermitidas(funcion, unidadNegocio) {
   // "CONSULTORES: ICOM, GESTION DE TALENTO" -- sin columna de unidad
   // en la tabla (a diferencia de Jefe/Coordinador), así que sin canal
   // propio forzado.
-  if (f === 'consultor') return ['ventas_vivo', 'gestion_talento'];
+  if (f === 'consultor') return ['ventas_vivo', 'gestion_talento', 'correo'];
   // 08/09/2026 (3ra vuelta, "Milagros Bravo supervisor en Ortopedia
   // solo ve Gestion de Talento" -- bug real): la tabla original dice
   // "SUPERVISORES: GESTION DE TALENTO, SOLO SU UNIDAD DE NEGOCIO" y
@@ -138,14 +139,14 @@ function calcularAppsPermitidas(funcion, unidadNegocio) {
   // no tiene ninguna), sólo que sin "ICOM" -- se los había agrupado
   // por error con Colaborador, dejándolos sin ver su propio canal.
   if (f === 'supervisor' || f === 'vendedor' || f === 'vendedora') {
-    const apps = ['gestion_talento'];
+    const apps = ['gestion_talento', 'correo'];
     const canalPropio = UNIDAD_A_CANAL_APP[unidadNegocio];
     if (canalPropio) apps.push(canalPropio);
     return apps;
   }
   // colaborador, y cualquier función no reconocida ("Otros" o texto
-  // libre): sólo Gestión de Talento, sin ningún canal.
-  return ['gestion_talento'];
+  // libre): sólo Gestión de Talento (+ Correo), sin ningún canal.
+  return ['gestion_talento', 'correo'];
 }
 function sanearApps(apps) {
   if (!Array.isArray(apps)) return [];
@@ -205,6 +206,18 @@ function diasFijosPorCohorteIngreso(ingreso) {
   if (ingreso >= new Date(2007, 0, 1)) return 28;
   return 35;
 }
+// 20/10/2026 ("Franco Schipizza y Néstor Roldán ya tienen pedidas las vacaciones pero les aparece todo disponible"): el panel cuenta el año de vacaciones como el PERÍODO Oct–Sep
+// (Oct 2026 – Sep 2027 = año 2026, ver anioVacacionesPeriodo en la app), pero acá el "anio" de cada período/solicitud se guardaba como el año CALENDARIO de la fecha de inicio: unas
+// vacaciones de enero de 2027 quedaban en 2027, la pantalla del período 2026 no las veía (todo disponible) y, al pedirlas de nuevo, el saldo de 2027 las rechazaba. Ahora el año
+// sale SIEMPRE de la fecha de inicio con el mismo criterio que la pantalla: de octubre a diciembre = ese año; de enero a setiembre = el año anterior.
+function anioVacacional(fechaISO) {
+  const m = String(fechaISO).match(/^(\d{4})-(\d{2})/);
+  if (!m) return new Date(fechaISO).getFullYear();
+  const y = Number(m[1]), mes = Number(m[2]);
+  return mes >= 10 ? y : y - 1;
+}
+function etiquetaPeriodoVacacional(anio) { return 'el período Oct ' + anio + ' – Sep ' + (anio + 1); }
+
 function calcularDiasVacaciones(fechaIngreso, anio) {
   if (!fechaIngreso) return { diasCorresponden: 0, antiguedadAnios: 0, proporcional: false, error: 'Sin fecha de ingreso.' };
   const ingreso = new Date(fechaIngreso + 'T00:00:00');
@@ -638,6 +651,7 @@ async function accionCrearPersona(payload, solicitante) {
     // cual; si no, se calcula el default según función+unidad -- ver
     // calcularAppsPermitidas arriba.
     appsPermitidas: Array.isArray(appsPermitidas) ? sanearApps(appsPermitidas) : calcularAppsPermitidas(funcion, unidadNegocio),
+    appsV2: true,   // la lista ya contempla 'correo' explícitamente (ver talento-login.js: las fichas viejas lo reciben solas)
     // Reservado para Fase 2 (Matriz de Talento 9-Box) -- no se usa todavía.
     potencialActual: null, boxActual: null,
   };
@@ -721,7 +735,7 @@ async function accionEditarPersona(payload, solicitante) {
   // explícito -- una edición que no toque el desplegable de Apps
   // conserva lo que ya tenía (nunca se recalcula solo por cambiar
   // función/unidad en una edición, a diferencia del alta).
-  if (payload.appsPermitidas !== undefined) actualizada.appsPermitidas = sanearApps(payload.appsPermitidas);
+  if (payload.appsPermitidas !== undefined) { actualizada.appsPermitidas = sanearApps(payload.appsPermitidas); actualizada.appsV2 = true; }
   // 07/09/2026 ("dar de baja... figure baja con la fecha que se aplicó
   // ese cambio"): por default fechaBaja se calcula sola, el mismo día
   // real del cambio de estado -- se completa en la transición
@@ -1114,7 +1128,7 @@ async function accionGuardarVacacionPeriodo(payload, solicitante) {
   if (fin < inicio) throw httpError(400, { ok: false, error: 'La fecha de fin no puede ser anterior a la de inicio.' });
 
   const diasTomados = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
-  const anioNum = inicio.getFullYear();
+  const anioNum = anioVacacional(fechaInicio);
 
   const { diasCorresponden: diasBase, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, anioNum);
   if (errorDias) throw httpError(400, { ok: false, error: errorDias });
@@ -1122,7 +1136,7 @@ async function accionGuardarVacacionPeriodo(payload, solicitante) {
   const periodosDeEseAnio = (await leerVacacionesPeriodos()).filter(v => v.personaId === personaId && v.anio === anioNum);
   const diasYaTomados = periodosDeEseAnio.reduce((s, v) => s + (Number(v.diasTomados) || 0), 0);
   if (diasYaTomados + diasTomados > diasCorresponden) {
-    throw httpError(400, { ok: false, error: 'Ese período supera el saldo disponible de ' + persona.nombre + ' para ' + anioNum
+    throw httpError(400, { ok: false, error: 'Ese período supera el saldo disponible de ' + persona.nombre + ' para ' + etiquetaPeriodoVacacional(anioNum)
       + ' (corresponden ' + diasCorresponden + ' días, ya tomó ' + diasYaTomados + ', este período suma ' + diasTomados + ').' });
   }
 
@@ -1527,7 +1541,7 @@ async function accionCrearSolicitudVacaciones(payload, solicitante) {
   if (fin < inicio) throw httpError(400, { ok: false, error: 'La fecha de fin no puede ser anterior a la de inicio.' });
 
   const diasSolicitados = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
-  const anioNum = inicio.getFullYear();
+  const anioNum = anioVacacional(fechaInicio);
 
   const { diasCorresponden: diasBase, error: errorDias } = calcularDiasVacaciones(persona.fechaIngreso, anioNum);
   if (errorDias) throw httpError(400, { ok: false, error: errorDias });
@@ -1537,7 +1551,7 @@ async function accionCrearSolicitudVacaciones(payload, solicitante) {
   const pendientesDelAnio = solicitudes.filter(s => s.personaId === personaId && s.anio === anioNum && s.estado === 'pendiente');
   const { diasYaTomados, diasYaPendientes, disponibles } = calcularSaldoVacaciones(diasCorresponden, periodosDelAnio, pendientesDelAnio);
   if (disponibles < diasSolicitados) {
-    throw httpError(400, { ok: false, error: 'Esta solicitud supera el saldo disponible de ' + persona.nombre + ' para ' + anioNum
+    throw httpError(400, { ok: false, error: 'Esta solicitud supera el saldo disponible de ' + persona.nombre + ' para ' + etiquetaPeriodoVacacional(anioNum)
       + ' (corresponden ' + diasCorresponden + ' días, ya tomó ' + diasYaTomados + ', tiene ' + diasYaPendientes + ' pendientes de resolución, esta solicitud pide ' + diasSolicitados + ').' });
   }
 
@@ -2035,22 +2049,38 @@ async function accionEliminarComentarioMuro(payload, solicitante) {
 // que admin/gerente -- que no tienen uno -- también puedan chatear).
 // `hilo` es el id determinístico de la conversación (ver
 // guardarMensaje en _talento-store.js).
+// 15/10/2026 ("el chat no permite pegar imágenes, agregar videos ni emojis, y quiero poder arrobar a alguien"): el mensaje puede llevar una imagen (URL de talento-chat-adjunto), un video
+// (URL de talento-video) y menciones a personas (ids; se les avisa por mail igual que en el Muro). Los emojis viajan dentro del texto.
+const CHAT_IMG_URL_RE = /^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\/talento-chat\/[A-Za-z0-9._-]+$/;
 async function accionEnviarMensaje(payload, solicitante) {
-  const { paraUsuario, texto } = payload || {};
-  const textoLimpio = texto ? String(texto).trim() : '';
-  if (!textoLimpio) throw httpError(400, { ok: false, error: 'El mensaje no puede estar vacío.' });
+  const { paraUsuario, texto, imagen, video, menciones } = payload || {};
+  const textoLimpio = texto ? String(texto).trim().slice(0, 4000) : '';
+  const imagenValida = imagen ? String(imagen) : '';
+  if (imagenValida && !CHAT_IMG_URL_RE.test(imagenValida)) throw httpError(400, { ok: false, error: 'La imagen no es válida -- volvé a pegarla.' });
+  const videoValido = validarVideoPost(video);
+  if (!textoLimpio && !imagenValida && !videoValido) throw httpError(400, { ok: false, error: 'El mensaje no puede estar vacío.' });
   const destino = String(paraUsuario || '').trim();
   if (!destino) throw httpError(400, { ok: false, error: 'Falta el destinatario.' });
   if (destino === solicitante.usuario) throw httpError(400, { ok: false, error: 'No podés mandarte un mensaje a vos mismo.' });
   const destinatario = await leerUsuario(destino);
   if (!destinatario) throw httpError(404, { ok: false, error: 'Ese destinatario no existe.' });
   const hilo = [solicitante.usuario, destino].sort().join('|');
+  const mencionesValidas = (await validarMenciones(menciones)).slice(0, 10);
   const mensaje = {
     id: nuevoId('msg'), hilo, deUsuario: solicitante.usuario, paraUsuario: destino,
     texto: textoLimpio, fecha: new Date().toISOString(), leido: false,
   };
+  if (imagenValida) mensaje.imagen = imagenValida;
+  if (videoValido) mensaje.video = videoValido;
+  if (mencionesValidas.length) mensaje.menciones = mencionesValidas;
   await guardarMensaje(mensaje);
-  return { status: 200, body: { ok: true, mensaje } };
+  let avisos = { enviados: 0, sinEmail: [] };
+  if (mencionesValidas.length) {
+    let autorNombre = solicitante.nombre || solicitante.usuario || 'Alguien';
+    if (solicitante.personaId) { const persona = await leerPersona(solicitante.personaId).catch(() => null); if (persona) autorNombre = persona.nombre; }
+    avisos = await notificarMencionesMuro(mencionesValidas, autorNombre, solicitante.personaId || null, textoLimpio, 'un mensaje de chat');
+  }
+  return { status: 200, body: { ok: true, mensaje, mencionesAvisadas: avisos.enviados, mencionesSinEmail: avisos.sinEmail } };
 }
 
 // Se llama al abrir una conversación -- marca como leídos todos los

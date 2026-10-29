@@ -1,0 +1,485 @@
+<script id="icomTemaJs">
+/* Tema "nuevo" (propuesta de diseño aprobada 20/10/2026: menú claro, Inter, tarjetas y chips al estilo Lightdash, mismos verdes). Es el diseño por defecto; ?tema=actual lo apaga en este navegador y ?tema=nuevo lo vuelve a prender.
+   Mientras no se apruebe para producción, quien no lo pide sigue viendo el diseño de siempre. Las sub-apps (iframes) heredan la elección del panel. Bloque generado desde design/tema.html con scripts/sync_tema.py. */
+(function(){
+  var t = 'nuevo'; // 20/10/2026: el tema nuevo pasó a ser el de todos (el usuario aprobó el diseño y pidió pasarlo a productivo). ?tema=actual lo apaga en ese navegador.
+  try{
+    var p = new URLSearchParams(location.search).get('tema');
+    if(p === 'nuevo' || p === 'actual'){ try{ localStorage.setItem('icom_tema', p); }catch(e){} t = p; }
+    else{
+      var g = null; try{ g = localStorage.getItem('icom_tema'); }catch(e){}
+      if(g === 'nuevo' || g === 'actual') t = g;
+      else if(window.parent && window.parent !== window){ var h = window.parent.document.documentElement.getAttribute('data-tema'); if(h) t = h; }
+    }
+    if(window.parent && window.parent !== window && !p){ var h2 = window.parent.document.documentElement.getAttribute('data-tema'); if(h2) t = h2; }
+  }catch(e){}
+  document.documentElement.setAttribute('data-tema', t);
+  if(t === 'nuevo'){
+    // la tipografía se pide SIN bloquear el dibujo de la página (media=print y se activa al terminar de bajar): si Google Fonts tarda o está filtrado en esa red, el panel carga igual con la letra del sistema
+    var l = document.createElement('link'); l.rel = 'stylesheet'; l.media = 'print'; l.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
+    l.onload = function(){ l.media = 'all'; };
+    document.head.appendChild(l);
+  }
+  // Red de seguridad (20/10/2026, "la página no responde" en un equipo): si el diseño nuevo se queda trabado al cargar -- y la persona cierra la pestaña o elige "Salir de la página" --
+  // la próxima vez que abra el panel se detecta que la carga anterior nunca llegó a "estar sana"; a la segunda vez seguida vuelve sola al diseño anterior y lo recuerda en ese navegador.
+  // Sólo corre en la ventana principal (no en las sub-apps) y sólo si hay localStorage.
+  try{
+    if(t === 'nuevo' && window.parent === window && !p){
+      // cuenta sólo si abandonó la carga anterior después de 5 s o más (recargas apuradas, F5, no cuentan)
+      var ahora = Date.now(), ult = Number(localStorage.getItem('icom_tema_inicio') || 0), fallos = Number(localStorage.getItem('icom_tema_fallos') || 0);
+      if(ult && ahora - ult > 5000 && ahora - ult < 10 * 60 * 1000){ fallos++; localStorage.setItem('icom_tema_fallos', String(fallos)); }
+      if(fallos >= 2){
+        localStorage.setItem('icom_tema', 'actual'); localStorage.removeItem('icom_tema_fallos'); localStorage.removeItem('icom_tema_inicio');
+        document.documentElement.setAttribute('data-tema', 'actual');
+      }else{
+        localStorage.setItem('icom_tema_inicio', String(ahora));
+        var ultimoLatido = Date.now(), peorHueco = 0;
+        var latido = setInterval(function(){ var n = Date.now(); if(n - ultimoLatido > peorHueco) peorHueco = n - ultimoLatido; ultimoLatido = n; }, 200);
+        setTimeout(function(){
+          clearInterval(latido);
+          if(peorHueco < 4000){ localStorage.removeItem('icom_tema_inicio'); localStorage.removeItem('icom_tema_fallos'); }   // cargó y respondió bien: todo en orden
+        }, 15000);
+      }
+    }
+  }catch(e){}
+})();
+/* ── Íconos de línea (tema nuevo): reemplazan los emojis de la interfaz por trazos sobrios del color del texto. ──
+   El emoji queda en el texto (se puede copiar y los textos no cambian para el resto del código): sólo se oculta y se dibuja encima un ícono con CSS mask.
+   Sólo se tocan los emojis "de interfaz" de la tabla; caritas, manos, corazones y demás (chat, mensajes, selector de emojis del correo) no se tocan. */
+(function(){
+  if(document.documentElement.getAttribute('data-tema') !== 'nuevo') return;
+  var P = {
+    'alert':'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+    'alert-circle':'<circle cx="12" cy="12" r="9"/><path d="M12 7.5V13M12 16.5h.01"/>',
+    'box':'<path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3.3 7.5 12 12l8.7-4.5M12 12v9"/>',
+    'check-circle':'<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
+    'check':'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    'x-circle':'<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
+    'radio':'<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
+    'pencil':'<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
+    'bolt':'<path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>',
+    'download':'<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+    'arrow-up':'<path d="M12 20V5M6 11l6-6 6 6"/>',
+    'trash':'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    'refresh':'<path d="M20 11a8 8 0 0 0-14.5-3.5L4 9M4 4v5h5M4 13a8 8 0 0 0 14.5 3.5L20 15M20 20v-5h-5"/>',
+    'dollar':'<path d="M12 3v18M16 7.5C15 6.5 13.7 6 12 6c-2.2 0-4 1-4 2.8 0 4 8 2 8 6.2 0 1.8-1.8 3-4 3-1.8 0-3.2-.6-4.2-1.7"/>',
+    'clipboard':'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>',
+    'calendar':'<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    'info':'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>',
+    'bag':'<path d="M5 8h14l-1 12H6L5 8z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
+    'cross':'<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M12 9v6M9 12h6"/>',
+    'user':'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
+    'users':'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5s6.5 1.9 6.5 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c2.3.6 3.5 2.2 3.5 5.2"/>',
+    'hourglass':'<path d="M6 3h12M6 21h12M7 3c0 5 3 6 5 9-2 3-5 4-5 9M17 3c0 5-3 6-5 9 2 3 5 4 5 9"/>',
+    'tag':'<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1"/>',
+    'shuffle':'<path d="M3 7h4c4 0 6 10 10 10h4M3 17h4c1.5 0 2.7-1.2 3.7-2.7M14 8.5C15 7.5 16 7 17 7h4M18 4l3 3-3 3M18 14l3 3-3 3"/>',
+    'wheelchair':'<circle cx="12" cy="4.5" r="1.8"/><path d="M12 8v6h5l2 5M12 11h5M8.5 12a5 5 0 1 0 6 7.5"/>',
+    'search':'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+    'camera':'<path d="M4 8h3l1.5-2.5h7L17 8h3v11H4V8z"/><circle cx="12" cy="13" r="3.5"/>',
+    'star':'<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8-4.3-4.1 5.9-.9L12 3.5z"/>',
+    'folder':'<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12z"/>',
+    'store':'<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3"/><path d="M10 20v-5h4v5"/>',
+    'building':'<rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M9 7.5h2M13 7.5h2M9 11.5h2M13 11.5h2M10 21v-4h4v4"/>',
+    'syringe':'<path d="M18 3l3 3M15 6l3 3M14 7L5 16v3h3l9-9M9 12l3 3M3 21l3-3"/>',
+    'phone':'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A15 15 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+    'message':'<path d="M4 5h16v11H9l-5 4V5z"/>',
+    'pin':'<path d="M12 21s7-6 7-11.5a7 7 0 0 0-14 0C5 15 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+    'sliders':'<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+    'sun':'<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>',
+    'film':'<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M8 5v14M16 5v14M3.5 9.5H8M16 9.5h4.5M3.5 14.5H8M16 14.5h4.5"/>',
+    'bars':'<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
+    'trend':'<path d="M3 17l6-6 4 4 8-9M15 6h6v6"/>',
+    'globe':'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+    'activity':'<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+    'save':'<path d="M5 4h11l3 3v13H5V4z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
+    'mail':'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 6 8.5-6"/>',
+    'briefcase':'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2M3 13h18"/>',
+    'wallet':'<path d="M4 7a2 2 0 0 1 2-2h12v4M4 7v11a2 2 0 0 0 2 2h14V9H6a2 2 0 0 1-2-2z"/><circle cx="16.5" cy="14.5" r="1"/>',
+    'ship':'<path d="M3 17l2 3h14l2-3-9-3-9 3zM12 14V4M12 6l5 4h-5M12 8L8 11h4"/>',
+    'cart':'<path d="M3 4h2.5l2 11h10l2-8H7"/><circle cx="9" cy="19.5" r="1.3"/><circle cx="17" cy="19.5" r="1.3"/>',
+    'arrow-ur':'<path d="M7 17L17 7M8 7h9v9"/>',
+    'undo':'<path d="M9 7L4 12l5 5M4 12h10a6 6 0 0 1 6 6"/>',
+    'arrows-v':'<path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/>',
+    'printer':'<path d="M7 9V3.5h10V9M7 17H4.5V9h15v8H17M7 14h10v6.5H7V14z"/>',
+    'image':'<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 18l5-5 4 4 3-3 4 4"/>',
+    'target':'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    'trophy':'<path d="M8 4h8v6a4 4 0 0 1-8 0V4zM8 6H4v2a3 3 0 0 0 4 3M16 6h4v2a3 3 0 0 1-4 3M12 14v4M8.5 20h7"/>',
+    'ban':'<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+    'tri-down':'<path d="M5 8h14l-7 10z"/>',
+    'compass':'<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5 5-2z"/>',
+    'map':'<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6zM9 4v14M15 6v14"/>',
+    'bot':'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 8V4.5M9 13.5h.01M15 13.5h.01M9.5 16.5h5"/>',
+    'ruler':'<path d="M3 17L17 3l4 4L7 21l-4-4zM7 13l2 2M10 10l2 2M13 7l2 2"/>',
+    'palette':'<path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2-.6-1.2.2-2.5 1.6-2.5H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="8" cy="11" r="1"/><circle cx="12" cy="7.5" r="1"/><circle cx="16" cy="11" r="1"/>',
+    'megaphone':'<path d="M4 10v4h3l8 4V6L7 10H4zM18 9a4 4 0 0 1 0 6"/>',
+    'clock':'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M5 4L3 6M19 4l2 2"/>',
+    'coffee':'<path d="M5 9h11v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9zM16 10h2a2.5 2.5 0 0 1 0 5h-2M8 4v2M12 4v2"/>',
+    'gift':'<rect x="3.5" y="8" width="17" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12M12 8c-2 0-4-1-4-2.5S10 3 12 5c2-2 4-1 4 .5S14 8 12 8z"/>',
+    'sparkles':'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z"/>',
+    'bulb':'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+    'link':'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+    'file':'<path d="M6 3h8l5 5v13H6V3zM14 3v5h5M9 13h6M9 17h6"/>',
+    'pause':'<path d="M8 5v14M16 5v14"/>',
+    'truck':'<path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>',
+    'scale':'<path d="M12 4v16M6 20h12M5 7h14M5 7l-3 7a3.5 3.5 0 0 0 6 0L5 7zM19 7l-3 7a3.5 3.5 0 0 0 6 0l-3-7z"/>',
+    'power':'<path d="M12 3v9M6.4 6.8a8 8 0 1 0 11.2 0"/>',
+    'help':'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7M12 17h.01"/>'
+  };
+  // emoji -> ícono (sin el selector de variación U+FE0F, que se acepta de forma opcional)
+  var M = {
+    '⚠':'alert','🚨':'alert-circle','📦':'box','🧊':'box','✅':'check-circle','✔':'check','☑':'check','❌':'x-circle',
+    '📡':'radio','✏':'pencil','📝':'pencil','⚡':'bolt','⬇':'download','⬆':'arrow-up','🗑':'trash','🔄':'refresh',
+    '💲':'dollar','📋':'clipboard','📅':'calendar','🗓':'calendar','ℹ':'info','🤝':'bag','🏥':'cross',
+    '🧑‍💼':'user','👥':'users','⏳':'hourglass','🏷':'tag','🔀':'shuffle','♿':'wheelchair',
+    '🔍':'search','🔎':'search','🔭':'search','📷':'camera','🎂':'gift','🎁':'gift','⭐':'star',
+    '🗂':'folder','📂':'folder','🏪':'store','🏬':'building','🏢':'building','🏭':'building',
+    '💉':'syringe','📞':'phone','💬':'message','📍':'pin','📌':'pin','⚙':'sliders','🏖':'sun','☀':'sun',
+    '🎬':'film','📊':'bars','📈':'trend','🌐':'globe','🩺':'activity','💾':'save','✉':'mail',
+    '💼':'briefcase','💰':'wallet','🚢':'ship','🛒':'cart','↗':'arrow-ur','↩':'undo','↕':'arrows-v',
+    '🖨':'printer','🖼':'image','🎯':'target','🏆':'trophy','🚫':'ban','⛔':'ban','🔻':'tri-down',
+    '🧭':'compass','🗺':'map','🤖':'bot','📐':'ruler','🎨':'palette','📢':'megaphone','📣':'megaphone',
+    '⏰':'clock','☕':'coffee','🎉':'sparkles','✨':'sparkles','🌟':'sparkles','💡':'bulb','🔗':'link',
+    '📄':'file','⏸':'pause','🚚':'truck','🛵':'truck','❔':'help','⚖':'scale','⏻':'power',
+    // semáforo: puntos de color en vez de círculos de emoji
+    '🟢':'dot-ok','🟡':'dot-warn','🔴':'dot-err'
+  };
+  var claves = Object.keys(M).sort(function(a, b){ return b.length - a.length; });
+  var RE = new RegExp('(' + claves.join('|') + ')\\uFE0F?', 'g');
+  var TEST = new RegExp(claves.join('|'));
+
+  // una regla de CSS por ícono (máscara con el dibujo; el color lo pone el texto que lo rodea)
+  var css = '';
+  Object.keys(P).forEach(function(k){
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + P[k] + '</svg>';
+    var u = 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
+    css += 'html[data-tema="nuevo"] .eic[data-i="' + k + '"]{-webkit-mask-image:' + u + ';mask-image:' + u + '}\n';
+  });
+  var st = document.createElement('style'); st.id = 'icomIconosCss'; st.textContent = css; document.head.appendChild(st);
+
+  // contenido escrito por personas (mensajes, muro, cuerpo de correos) y selectores de emojis: se muestran tal cual
+  var CONTENIDO = '.eic,.emoji-panel,.rd-emojis,.post-item-texto,.chat-burbuja,.lector-cuerpo,.fila-cuerpo,.cuerpo,.ag-cuerpo,[data-emojis-reales]';
+  var SALTAR = 'SCRIPT,STYLE,TEXTAREA,OPTION,INPUT,TITLE,NOSCRIPT';
+  function saltar(n){
+    for(var p = n.parentNode; p && p.nodeType === 1; p = p.parentNode){
+      if(SALTAR.indexOf(p.tagName) > -1 || p.isContentEditable || (p.matches && p.matches(CONTENIDO))) return true;
+    }
+    return false;
+  }
+  function procesarTexto(n){
+    var t = n.nodeValue;
+    if(!t || !n.parentNode || !TEST.test(t) || saltar(n)) return;
+    var frag = document.createDocumentFragment(), ult = 0, m;
+    RE.lastIndex = 0;
+    while((m = RE.exec(t))){
+      if(m.index > ult) frag.appendChild(document.createTextNode(t.slice(ult, m.index)));
+      var s = document.createElement('span');
+      s.className = 'eic'; s.setAttribute('data-i', M[m[1]]); s.setAttribute('aria-hidden', 'true'); s.textContent = m[0];
+      frag.appendChild(s);
+      ult = m.index + m[0].length;
+    }
+    if(ult < t.length) frag.appendChild(document.createTextNode(t.slice(ult)));
+    n.parentNode.replaceChild(frag, n);
+  }
+  function recorrer(raiz){
+    if(!raiz) return;
+    if(raiz.nodeType === 3){ procesarTexto(raiz); return; }
+    if(raiz.nodeType !== 1 || SALTAR.indexOf(raiz.tagName) > -1) return;
+    var w = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, null), lista = [], n;
+    while((n = w.nextNode())) if(TEST.test(n.nodeValue)) lista.push(n);
+    lista.forEach(function(x){ try{ procesarTexto(x); }catch(e){ window.__icError = String(e); } });
+  }
+  // setTimeout y no rAF: en pestañas en segundo plano rAF no corre
+  var cola = [], prog = false;
+  // La cola se procesa en tandas de ~10 ms (si hay mucho para convertir, sigue en la próxima pasada en vez de trabar la página) y, si por algún motivo gasta más de 2,5 s en total, el motor se apaga solo
+  // (los emojis quedan como están: nada se rompe).
+  var gastado = 0, apagado = false, obs = null;
+  function procesarCola(){
+    if(apagado){ cola = []; prog = false; return; }
+    var t0 = performance.now(), hechos = 0;
+    while(hechos < cola.length){
+      var x = cola[hechos++];
+      try{ if(x.isConnected) recorrer(x); }catch(e){ window.__icError = String(e); }
+      if(performance.now() - t0 > 10) break;
+    }
+    cola = cola.slice(hechos);
+    gastado += performance.now() - t0;
+    if(gastado > 2500){ apagado = true; if(obs) obs.disconnect(); cola = []; prog = false; return; }
+    if(cola.length){ setTimeout(procesarCola, 30); } else { prog = false; }
+  }
+  function programar(){ if(prog) return; prog = true; setTimeout(procesarCola, 40); }
+  function iniciar(){
+    recorrer(document.body);
+    obs = new MutationObserver(function(muts){
+      muts.forEach(function(m){
+        if(m.type === 'characterData') cola.push(m.target);
+        else m.addedNodes.forEach(function(x){ if(!(x.nodeType === 1 && x.classList.contains('eic'))) cola.push(x); });
+      });
+      if(cola.length) programar();
+    });
+    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+  window.icomIconos = { recorrer: recorrer };
+  if(document.body) iniciar(); else document.addEventListener('DOMContentLoaded', iniciar);
+})();
+</script>
+<style id="icomTemaCss">
+/* ═══ TEMA NUEVO ═══ (todo cuelga de html[data-tema="nuevo"]; sin ese atributo no cambia nada) */
+html[data-tema="nuevo"]{
+  --fondo:#F4F6F5; --superficie:#fff;
+  --accent-soft:#E6F2F1; --accent-soft-2:#CDE5E2;
+  --ink:#1C2624; --ink-soft:#56615E; --muted:#66716D; --faint:#C9D0CD;
+  --line:#E4E8E7; --line-input:#D3D9D7; --surface-2:#F7F9F8;
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px;
+  --ok:#1E8E5A; --ok-bg:#E4F4EB; --warn:#B26A00; --warn-bg:#FFF1D6; --danger:#C5392A; --danger-bg:#FCE8E5;
+  --sombra:0 1px 2px rgba(16,40,36,.04),0 4px 14px rgba(16,40,36,.05);
+  --sombra-hover:0 2px 4px rgba(16,40,36,.06),0 10px 26px rgba(16,40,36,.08);
+}
+html[data-tema="nuevo"] *{font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html[data-tema="nuevo"],html[data-tema="nuevo"] body{background:var(--fondo);color:var(--ink);-webkit-font-smoothing:antialiased}
+
+/* ── tarjetas: un solo estilo (borde fino, esquina 16, sombra suave); los fondos de tono de los indicadores se conservan ── */
+html[data-tema="nuevo"] .card,
+html[data-tema="nuevo"] .stk-kpi,
+html[data-tema="nuevo"] .metric,
+html[data-tema="nuevo"] .kpi-card,
+html[data-tema="nuevo"] .erp-kpi,
+html[data-tema="nuevo"] .modal,
+html[data-tema="nuevo"] .modal-box{border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .card{background:#fff}
+html[data-tema="nuevo"] .kpi-card,html[data-tema="nuevo"] .erp-kpi,html[data-tema="nuevo"] .stk-kpi,html[data-tema="nuevo"] .metric{transition:box-shadow .15s}
+html[data-tema="nuevo"] .kpi-card:hover,html[data-tema="nuevo"] .erp-kpi:hover,html[data-tema="nuevo"] .stk-kpi:hover,html[data-tema="nuevo"] .metric:hover{box-shadow:var(--sombra-hover)}
+
+/* ── botones ── */
+html[data-tema="nuevo"] .btn,html[data-tema="nuevo"] .btn-secondary,html[data-tema="nuevo"] .modo-btn,html[data-tema="nuevo"] .pm-btn{border-radius:10px;border-color:var(--line-input);font-weight:600;transition:border-color .12s,color .12s,background .12s}
+html[data-tema="nuevo"] .btn:hover,html[data-tema="nuevo"] .btn-secondary:hover,html[data-tema="nuevo"] .modo-btn:hover{border-color:var(--accent);color:var(--accent)}
+html[data-tema="nuevo"] .btn-primary,html[data-tema="nuevo"] .btn.primary,html[data-tema="nuevo"] .btn.pri{border-radius:10px;font-weight:600}
+
+/* ── periodos / vistas: control segmentado (en vez de botones sueltos) ── */
+html[data-tema="nuevo"] .mode-toggle{display:inline-flex;gap:2px;padding:3px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sombra);max-width:100%}
+html[data-tema="nuevo"] .mode-toggle button,html[data-tema="nuevo"] .mode-toggle .modo-btn{border:none;background:transparent;border-radius:9px;color:var(--ink-soft);font-weight:600;box-shadow:none}
+html[data-tema="nuevo"] .mode-toggle button:hover{background:#F0F3F2;color:var(--ink);border:none}
+html[data-tema="nuevo"] .mode-toggle button.active,html[data-tema="nuevo"] .mode-toggle .modo-btn.active{background:var(--accent);color:#fff}
+
+/* ── tablas: encabezado discreto y filas con aire (las clases propias de cada app, como .col7d, conservan su tinte) ── */
+:where(html[data-tema="nuevo"]) thead th{background:#FAFBFB;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+:where(html[data-tema="nuevo"]) tbody td{border-bottom-color:#EEF1F0}
+:where(html[data-tema="nuevo"]) tbody tr:hover td{background:#FAFCFB}
+html[data-tema="nuevo"] td.num,html[data-tema="nuevo"] th.num{font-variant-numeric:tabular-nums}
+html[data-tema="nuevo"] .pill{font-weight:600}
+
+/* ── encabezado de cada app: blanco con línea fina ── */
+html[data-tema="nuevo"] header{background:#fff;border-bottom:1px solid var(--line);box-shadow:none}
+
+/* ═══ SHELL: menú claro ═══ */
+html[data-tema="nuevo"] #sidebar{background:#fff;color:var(--ink-soft);border-right:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-top{background:#fff;box-shadow:none;border-bottom:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-logo-text{color:var(--muted)}
+html[data-tema="nuevo"] .sb-section-label{color:var(--muted);font-weight:600;letter-spacing:.07em}
+html[data-tema="nuevo"] .sb-item,html[data-tema="nuevo"] .sb-logout{color:var(--ink-soft);border-left:none;border-radius:10px;margin:1px 10px;font-weight:500;transition:background .12s,color .12s}
+html[data-tema="nuevo"] .sb-item:hover,html[data-tema="nuevo"] .sb-logout:hover{background:#F0F3F2;color:var(--ink)}
+html[data-tema="nuevo"] .sb-item.active{background:var(--accent-soft);color:var(--accent-hover);font-weight:600;border-left:none}
+html[data-tema="nuevo"] .sb-channel-caret{color:var(--muted)}
+html[data-tema="nuevo"] .sb-apps-group{border-left:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-sesion-info{border-top:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-sesion-row:hover{background:#F0F3F2}
+html[data-tema="nuevo"] .sb-sesion-texto{color:var(--ink)}
+html[data-tema="nuevo"] .sb-badge{box-shadow:none}
+html[data-tema="nuevo"] #sidebar::-webkit-scrollbar-thumb{background:rgba(28,38,36,.18)}
+html[data-tema="nuevo"] #sidebar::-webkit-scrollbar-thumb:hover{background:rgba(28,38,36,.3)}
+html[data-tema="nuevo"] #sidebarBackdrop.show{background:rgba(16,40,36,.35)}
+
+/* barra superior del celular: blanca, con el título en tinta */
+@media (max-width:768px){
+  html[data-tema="nuevo"] #mobileTopBar{background:#fff;border-bottom:1px solid var(--line);box-shadow:none}
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span,
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span::before,
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span::after{background:var(--accent)}
+  /* 21/10/2026 ("todo ese espacio vacío arriba", iPhone): la barra baja de 52 a 44 px y muestra el título de la pantalla (con la unidad abajo, chico); el título y la «ceja» repetidos
+     dentro de la pantalla se sacan en celular, así el contenido arranca unos 70 px más arriba. */
+  html[data-tema="nuevo"] #mobileTopBar{height:calc(44px + env(safe-area-inset-top,0px));gap:10px}
+  html[data-tema="nuevo"] #appShell{padding-top:calc(44px + env(safe-area-inset-top,0px))}
+  html[data-tema="nuevo"] #sidebar{top:calc(44px + env(safe-area-inset-top,0px))}
+  html[data-tema="nuevo"] #mobileTopBarTitle{color:var(--ink);font-weight:600}
+  html[data-tema="nuevo"] #mobileTopBarTitle small{color:var(--accent)}
+  html[data-tema="nuevo"] .erp-header::before{display:none !important}
+  html[data-tema="nuevo"] .erp-header > div:first-child{display:none !important}
+  html[data-tema="nuevo"] .htitle[data-ceja]::before{display:none !important}
+  html[data-tema="nuevo"] #sidebar{box-shadow:6px 0 30px rgba(16,40,36,.18)}
+  html[data-tema="nuevo"] #sidebar:not(.mobile-open){box-shadow:none}   /* 21/10/2026: con el menú cerrado su sombra se filtraba como una franja gris en el borde izquierdo de todas las pantallas (iPhone) */
+}
+
+/* controles segmentados (Mensual/Quincenal/…, modos, atajos de período): el texto de cada botón queda centrado. Sólo ellos: los botones de listas y menús (Muro, Personas…) siguen alineados a la izquierda. */
+:where(html[data-tema="nuevo"]) :is(.periodo-tabs, .mode-toggle, .modo-group, .erp-seg) button{justify-content:center}
+
+
+/* ═══ SHELL: Ventas en Vivo (ERP) y Monitor OV ═══ */
+html[data-tema="nuevo"] .sb-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (min-width:769px){ html[data-tema="nuevo"] #sidebar:not(.collapsed){width:248px} }
+html[data-tema="nuevo"] .erp-header::before{content:attr(data-ceja);flex:0 0 100%;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:-4px}
+html[data-tema="nuevo"] .erp-header h1{font-size:24px;font-weight:700;letter-spacing:-.02em;color:var(--ink);line-height:1.15}
+html[data-tema="nuevo"] .erp-header p{font-size:13.5px;color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-status,html[data-tema="nuevo"] .erp-status.ok,html[data-tema="nuevo"] .erp-status.loading{background:#fff;border:1px solid var(--line);color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-status.ok{color:var(--ok)}
+html[data-tema="nuevo"] .erp-status.err{background:var(--danger-bg);border-color:#F0C4BC;color:var(--danger)}
+html[data-tema="nuevo"] .erp-status-updated{color:var(--muted)}
+/* periodos: control segmentado + chip de fecha + interruptor de comparar */
+html[data-tema="nuevo"] .erp-toolbar .pm-btn{border:1px solid var(--line-input);border-radius:10px;background:#fff;color:var(--ink);font-weight:600}
+html[data-tema="nuevo"] .erp-seg{display:inline-flex;gap:2px;padding:3px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sombra);max-width:100%;overflow-x:auto;scrollbar-width:none}
+html[data-tema="nuevo"] .erp-seg::-webkit-scrollbar{display:none}
+html[data-tema="nuevo"] .erp-seg .pm-btn{border:none;background:transparent;border-radius:9px;color:var(--ink-soft);box-shadow:none;white-space:nowrap;flex:0 0 auto}
+html[data-tema="nuevo"] .erp-seg .pm-btn:hover{background:#F0F3F2;color:var(--ink)}
+html[data-tema="nuevo"] .erp-seg .pm-btn.erp-quickbtn-active{background:var(--accent) !important;color:#fff !important;border:none !important}
+html[data-tema="nuevo"] .erp-btn-compare{border:1px solid var(--line);background:#fff;color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-cmp-sw{background:var(--line-input)}
+html[data-tema="nuevo"] .erp-daterange-popup{border:1px solid var(--line);border-radius:14px;box-shadow:var(--sombra-hover)}
+/* indicadores y tarjetas */
+html[data-tema="nuevo"] .erp-kpis{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+html[data-tema="nuevo"] .erp-kpi,html[data-tema="nuevo"] .erp-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .erp-kpi .lbl{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted)}
+html[data-tema="nuevo"] .erp-kpi .val{font-size:28px;font-weight:700;letter-spacing:-.02em;color:var(--ink)}
+html[data-tema="nuevo"] .erp-kpi-sub,html[data-tema="nuevo"] .erp-kpi-sub span{color:var(--muted)}
+html[data-tema="nuevo"] .erp-card h2{font-size:14px;font-weight:600;color:var(--ink)}
+html[data-tema="nuevo"] .erp-table-wrap,html[data-tema="nuevo"] .pm-table-wrap{border:1px solid var(--line);border-radius:var(--radius-md)}
+html[data-tema="nuevo"] .erp-count{background:var(--accent-soft);color:var(--accent-hover)}
+/* celular (primero): el control segmentado ocupa su propia fila con 5 partes iguales (palabra grande arriba, abreviatura abajo, como antes) */
+@media (max-width:700px){
+  html[data-tema="nuevo"] .erp-seg{order:5;flex:1 1 100%;display:flex;overflow:visible}
+  html[data-tema="nuevo"] .erp-seg .pm-btn{flex:1 1 0;min-width:0;padding:2px;font-size:clamp(11px,3.3vw,13px);line-height:1.15;white-space:normal;word-spacing:100vw;text-align:center;display:flex;align-items:center;justify-content:center}
+  html[data-tema="nuevo"] .erp-kpis{grid-template-columns:1fr 1fr;gap:10px}
+  html[data-tema="nuevo"] .erp-kpi{padding:14px 10px}
+  html[data-tema="nuevo"] .erp-kpi .val{font-size:22px;white-space:nowrap}
+}
+
+/* ═══ DASHBOARD / VENTAS EN VIVO: bloques de cifras, notas y P&L ═══
+   El JS de estas tarjetas arma el HTML con estilos en línea (11px en mayúsculas, 24px, #888, filas verdes de #eaf6ee…), así que se reescriben por atributo para que sigan
+   la misma estética que los indicadores de arriba: rótulo en 12px sin mayúsculas, cifra grande en 28px, notas en gris suave, tablas con filas aireadas. */
+html[data-tema="nuevo"] .dash-bloques{gap:22px 32px}
+html[data-tema="nuevo"] .dash-bloques [style*="text-transform:uppercase"]{font-size:12px !important;font-weight:500 !important;letter-spacing:0 !important;text-transform:none !important;color:var(--muted) !important;margin-bottom:6px !important}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:24px"]{font-size:28px !important;font-weight:700 !important;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:11px"]{font-size:12px !important;color:var(--muted) !important}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:14px;color:#888"]{font-size:13px !important}
+html[data-tema="nuevo"] .acc-solo-desktop{font-size:12px !important;color:var(--muted) !important;line-height:1.55;border-top:1px solid var(--line);padding-top:12px;margin-top:18px !important}
+/* notas "Cómo está calculado el P&L" y "ver más" */
+html[data-tema="nuevo"] .pnl-vermas-btn{font-size:12px;color:var(--muted)}
+html[data-tema="nuevo"] .pnl-vermas-btn:hover{color:var(--accent)}
+html[data-tema="nuevo"] .pnl-vermas-flecha{color:var(--muted)}
+/* tabla del P&L */
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) table{font-variant-numeric:tabular-nums;font-size:13px;border-collapse:collapse}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td{border-bottom:1px solid #EEF1F0;padding-top:7px !important;padding-bottom:7px !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr:first-child td{font-size:11px !important;font-weight:600 !important;letter-spacing:.05em;border-bottom:1px solid var(--line);padding-bottom:9px !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td:first-child[style*="color:#666"]{color:var(--ink-soft) !important;font-weight:500 !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) [style*="font-size:9px"]{font-size:10.5px !important;color:var(--muted) !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr[style*="eaf6ee"],html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr[style*="eaf6ee"] td{background:var(--accent-soft) !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td[style*="color:#007067;white-space:nowrap"][style*="font-size:12px"]{font-size:12px !important;letter-spacing:.02em}
+/* fichas seleccionables (Facturación por Unidad de Negocio, Vendedor, Cliente…): blancas, rótulo en minúscula, seleccionada = borde y fondo verde suave */
+html[data-tema="nuevo"] .sel-tile{border:1px solid var(--line);border-radius:14px;box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .sel-tile:hover{border-color:#B9D4D1;box-shadow:var(--sombra-hover)}
+html[data-tema="nuevo"] .sel-tile.on{background:#F4FAF9;border-color:var(--accent)}
+html[data-tema="nuevo"] .sel-tile.off{background:#fff;border-color:var(--line)}
+html[data-tema="nuevo"] .sel-tile .ic{background:var(--accent-soft);border:none;color:var(--accent)}
+html[data-tema="nuevo"] .sel-tile .lbl{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted)}
+html[data-tema="nuevo"] .sel-tile .val{font-size:18px;letter-spacing:-.01em}
+html[data-tema="nuevo"] .sel-tile .sub{font-size:12px;color:var(--muted)}
+html[data-tema="nuevo"] .sel-tile .chk{width:18px;height:18px;border:1.5px solid var(--line-input);font-size:11px}
+html[data-tema="nuevo"] .sel-tile.sm .val{font-size:15px}
+html[data-tema="nuevo"] .sel-tile.sm .lbl{font-size:11.5px}
+
+/* ═══ CELULAR (22/10/2026: «no se ve igual que el resto de los bloques, parece un Excel y los números con tantos dígitos me marean») ═══
+   - bloques de cifras: de una columna con cifras gigantes a fichas de 2 por fila (como los indicadores de arriba), con la cifra más chica y en formato corto ($ 14.610 M)
+   - P&L: un mes por vez (fichas ENE, FEB… arriba) como lista de conceptos; el encabezado de meses y las columnas de los demás meses se ocultan */
+.pnl-chips{display:none}
+/* columna T.<año> (acumulado de los meses cerrados): fondo suave y una línea que la separa de los meses */
+.pnl-tabla td[data-ym="T"]{background:rgba(0,112,103,.06);border-left:1px solid #cfe5e1}
+@media (max-width:640px){
+  html[data-tema="nuevo"] .dash-bloques{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch}
+  html[data-tema="nuevo"] .dash-bloques > div{background:var(--accent-soft);border-radius:12px;padding:12px 12px 10px}
+  /* 22/10/2026 («los cuadros están desalineados»): las 4 fichas son hijas directas salvo las 2 de abajo de «Acumulado del Año», que viven dentro de un contenedor display:contents y quedaban SIN fondo ni relleno (su texto arrancaba más a la izquierda que el de las de arriba).
+     Además una etiqueta de 2 líneas empujaba la cifra más abajo que la de la ficha vecina de 1 línea: toda etiqueta reserva 2 líneas, así las cifras quedan a la misma altura. */
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div{background:var(--accent-soft);border-radius:12px;padding:12px 12px 10px}
+  html[data-tema="nuevo"] .dash-bloques > div:not([style*="display:contents"]),
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div{display:flex;flex-direction:column}
+  html[data-tema="nuevo"] .dash-bloques > div:not([style*="display:contents"]) > div:first-child,
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div > div:first-child{min-height:2.6em;line-height:1.3}
+  html[data-tema="nuevo"] .dash-bloques [style*="font-size:24px"]{font-size:21px !important}
+  html[data-tema="nuevo"] .dash-bloques [style*="font-size:12px"]{line-height:1.3}
+  .pnl-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .pnl-chips::-webkit-scrollbar{display:none}
+  .pnl-chip{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink-soft);border-radius:999px;padding:7px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .pnl-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  html[data-tema="nuevo"] .pnl-tabla{font-size:14px !important}
+  .pnl-tabla col{min-width:0 !important}
+  .pnl-tabla tr:first-child{display:none}
+  .pnl-tabla td:first-child{white-space:normal !important;position:static !important;min-width:0 !important;line-height:1.3}
+  html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td{padding-top:10px !important;padding-bottom:10px !important}
+  .pnl-tabla-wrap{max-height:none !important}
+}
+
+/* ═══ SUB-APPS (Stocks, Sucursales, Forecast, Ortopedias, Mercado Libre, Nubimetrics, Quiebres, Alquileres, Talento) ═══
+   Primero el celular (se achica nada de lo que ya estaba pensado para el dedo); en escritorio se suma el rótulo sobre el título y más aire. */
+html[data-tema="nuevo"] header{padding:12px 16px}
+html[data-tema="nuevo"] .htitle{font-size:17px;font-weight:700;letter-spacing:-.01em;color:var(--ink);line-height:1.2}
+html[data-tema="nuevo"] .htitle span{font-size:13px;font-weight:400;color:var(--ink-soft)}
+html[data-tema="nuevo"] .hsesion,html[data-tema="nuevo"] .hsesion b{color:var(--ink-soft)}
+html[data-tema="nuevo"] .hsesion b{font-weight:600}
+
+/* campos de formulario: blancos, esquina 10, foco con halo verde */
+html[data-tema="nuevo"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="color"]),
+html[data-tema="nuevo"] select,
+html[data-tema="nuevo"] textarea{border:1px solid var(--line-input);border-radius:10px;background:#fff;color:var(--ink);transition:border-color .12s,box-shadow .12s}
+html[data-tema="nuevo"] input:focus,html[data-tema="nuevo"] select:focus,html[data-tema="nuevo"] textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+html[data-tema="nuevo"] ::placeholder{color:var(--muted);opacity:.85}
+
+/* pestañas y filtros de vista rápida: pastillas claras (la fila deslizable del celular no cambia) */
+html[data-tema="nuevo"] .tabs button,html[data-tema="nuevo"] .tab,html[data-tema="nuevo"] .suc-tab,html[data-tema="nuevo"] .org-filtro-btn{border-radius:999px;font-weight:600}
+
+/* modales y desplegables */
+html[data-tema="nuevo"] .modal,html[data-tema="nuevo"] .modal-box{box-shadow:0 18px 50px rgba(16,40,36,.22)}
+html[data-tema="nuevo"] .modal-overlay,html[data-tema="nuevo"] .overlay{background:rgba(16,40,36,.45)}
+
+/* etiquetas de estado */
+html[data-tema="nuevo"] .pill,html[data-tema="nuevo"] .badge{font-weight:600}
+
+/* escritorio: rótulo (unidad · app) sobre el título, título más grande y más aire */
+@media (min-width:769px){
+  html[data-tema="nuevo"] header{padding:16px 28px}
+  html[data-tema="nuevo"] .htitle{font-size:24px;letter-spacing:-.02em;line-height:1.15}
+  html[data-tema="nuevo"] .htitle[data-ceja]::before{content:attr(data-ceja);display:block;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+  html[data-tema="nuevo"] main{padding:20px 28px 48px}
+  html[data-tema="nuevo"] .wrap{padding:20px 28px 48px}
+}
+/* celular: el control segmentado nunca se parte en dos filas; se desliza de costado */
+@media (max-width:768px){
+  html[data-tema="nuevo"] .mode-toggle{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  html[data-tema="nuevo"] .mode-toggle::-webkit-scrollbar{display:none}
+  html[data-tema="nuevo"] .mode-toggle button,html[data-tema="nuevo"] .mode-toggle .modo-btn{flex:0 0 auto;white-space:nowrap}
+}
+
+/* campos en fila: si un rótulo ocupa 2 renglones, los controles de la fila igual quedan a la misma altura (alineados por abajo) */
+html[data-tema="nuevo"] .form-row,html[data-tema="nuevo"] .form-grid{align-items:flex-end}
+html[data-tema="nuevo"] .form-field{display:flex;flex-direction:column;justify-content:flex-end}
+html[data-tema="nuevo"] .form-field > label{line-height:1.25}
+
+/* celular: si la grilla de indicadores es de 2 columnas y queda uno suelto, ocupa todo el ancho (no queda a medias con un hueco al lado) */
+@media (max-width:640px){
+  html[data-tema="nuevo"] .stk-kpis > .stk-kpi:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .metrics > .metric:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .metric-bar > .metric:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .erp-kpis > .erp-kpi:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .kpi-row > .kpi-card:last-child:nth-child(odd){grid-column:1 / -1}
+}
+
+/* indicadores de las apps: sin el círculo con ícono arriba a la izquierda (se pisaba con rótulos largos en tarjetas angostas y recarga la vista); el dato ya se explica con su rótulo */
+html[data-tema="nuevo"] .kpi-row > .kpi-card > .kpi-icon{display:none}
+
+/* ═══ ÍCONOS DE LÍNEA (reemplazan los emojis; ver iconos_motor.js) ═══ */
+html[data-tema="nuevo"] .eic{display:inline-block;width:1.08em;height:1.08em;overflow:hidden;white-space:nowrap;text-indent:-100em;font-size:inherit;line-height:1;vertical-align:-.17em;background-color:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;flex-shrink:0;user-select:text}
+/* semáforo: puntos llenos en vez de círculos de emoji */
+html[data-tema="nuevo"] .eic[data-i^="dot-"]{width:.62em;height:.62em;border-radius:50%;vertical-align:.02em;margin:0 .12em;-webkit-mask:none;mask:none}
+html[data-tema="nuevo"] .eic[data-i="dot-ok"]{background-color:var(--ok,#1E8E5A)}
+html[data-tema="nuevo"] .eic[data-i="dot-warn"]{background-color:#E0A21A}
+html[data-tema="nuevo"] .eic[data-i="dot-err"]{background-color:var(--danger,#C8402F)}
+/* menú lateral: íconos de 17px alineados con la etiqueta; heredan el color del ítem (gris, verde si está activo) */
+html[data-tema="nuevo"] .sb-icon{width:18px;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+html[data-tema="nuevo"] .sb-icon .eic{width:17px;height:17px;vertical-align:0}
+
+</style>

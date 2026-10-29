@@ -107,6 +107,18 @@
     "api/talento-video.js": {
       "maxDuration": 60
     },
+    "api/talento-chat-adjunto.js": {
+      "maxDuration": 30
+    },
+    "api/google-correo.js": {
+      "maxDuration": 30
+    },
+    "api/google-agenda.js": {
+      "maxDuration": 30
+    },
+    "api/google-conectar.js": {
+      "maxDuration": 30
+    },
     "api/talento-link-preview.js": {
       "maxDuration": 15
     },
@@ -117,6 +129,21 @@
       "maxDuration": 30
     },
     "api/nubi-vigilancia.js": {
+      "maxDuration": 30
+    },
+    "api/facturas-sincronizar.js": {
+      "maxDuration": 180
+    },
+    "api/ov-sincronizar.js": {
+      "maxDuration": 180
+    },
+    "api/nubi-alias.js": {
+      "maxDuration": 120
+    },
+    "api/meli-promociones-refrescar.js": {
+      "maxDuration": 60
+    },
+    "api/meli-aplicar-promocion.js": {
       "maxDuration": 30
     }
   },
@@ -196,6 +223,22 @@
     {
       "path": "/api/nubi-vigilancia",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/facturas-sincronizar",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/facturas-sincronizar?modo=reconciliar",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/ov-sincronizar",
+      "schedule": "7-59/15 * * * *"
+    },
+    {
+      "path": "/api/ov-sincronizar?modo=reconciliar",
+      "schedule": "25 6 * * *"
     }
   ],
   "rewrites": [

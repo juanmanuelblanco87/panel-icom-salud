@@ -13,7 +13,7 @@
 // GET  ?itemId=MLA...  -> { ok, precioActual, precioLista, candidatas:[{promotionId,name,start,finish}] }
 // POST { itemId, sku, promotionId, dealPrice } -> { ok, estado, precioOferta, precioListaOferta, nombre }
 const { requerirSesion, puedeAprobarMeli } = require('./_talento-auth');
-const { meliGet, meliPost, obtenerItem, humanizarErrorMeli } = require('./_meli-api');
+const { meliGet, meliPost, obtenerItem, humanizarErrorMeli, refrescarOfertaEnItem } = require('./_meli-api');
 const { leerSnapshot, escribirSnapshot } = require('./_meli-store');
 
 function listaDePromos(data) {
@@ -98,6 +98,8 @@ module.exports = async function handler(req, res) {
         it.nombrePromocion = nombre;
         it.aporteMeliPct = null;
         it.aporteSellerPct = null;
+        await refrescarOfertaEnItem(it, itemId, true);
+        it.cambioTs = Date.now();
         await escribirSnapshot(snapshot);
       }
     }

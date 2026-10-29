@@ -141,15 +141,29 @@ function cadenaDeSupervisores(persona, personas) {
   }
   return ids;
 }
+// 22/10/2026 ("a Bernardo Irigoin le siguen cayendo los correos de autorización de todas las personas... que tenga permisos para aprobar pero que sólo le lleguen los de sus reportes
+// directos"): un usuario con `avisosSoloDirectos: true` (campo del usuario, ver api/talento-guardar.js) sigue pudiendo aprobar a quien su rol permita, pero los AVISOS POR EMAIL
+// (nueva solicitud, cancelación, novedades) le llegan únicamente cuando la persona es un reporte directo suyo (persona.supervisorId === su personaId). Con la regla de siempre un admin
+// recibía las de TODA la nómina.
+// 28/10/2026 ("a Ignacio Irigoin no le llegan los avisos de sus subordinados"): el usuario de un gerente/supervisor podía tener el campo email VACÍO aunque su ficha de persona sí tuviera correo
+// (caso Ignacio: usuario gerente de Movilidad con email null, persona con ignacio@icomsalud.com.ar) -- y como el aviso se arma sobre usuarios con email, quedaba afuera en silencio. Ahora, si el usuario
+// no tiene email, se usa el de su persona.
+// 28/10/2026 ("el correo de su ficha es el que hay que utilizar en todos los casos"): el correo de la FICHA de la persona manda siempre; el del usuario sólo se usa si la ficha no tiene ninguno.
 function resolverAprobadores(persona, usuarios, personas) {
   const vistos = new Set();
   const resultado = [];
   const cadena = cadenaDeSupervisores(persona, personas);
-  usuarios.forEach(u => {
+  const personaPorId = new Map((Array.isArray(personas) ? personas : []).map(p => [p.id, p]));
+  usuarios.forEach(u0 => {
+    const emailEfectivo = ((personaPorId.get(u0.personaId) || {}).email) || u0.email || null;
+    const u = emailEfectivo === u0.email ? u0 : Object.assign({}, u0, { email: emailEfectivo });
     if (!u.email || vistos.has(u.email)) return;
-    const esAprobador = u.rol === 'admin'
-      || (u.rol === 'supervisor' && cadena.has(u.personaId) && u.personaId !== persona.id)
-      || (u.rol === 'gerente' && u.unidadNegocio === persona.unidadNegocio);
+    const esAprobador = u.avisosSoloDirectos
+      ? (!!u.personaId && persona.supervisorId === u.personaId && u.personaId !== persona.id)
+      : (u.rol === 'admin'
+        || (u.rol === 'supervisor' && cadena.has(u.personaId) && u.personaId !== persona.id)
+        // 28/10/2026: un gerente recibe los de su unidad Y los de toda su cadena de reportes (aunque la persona sea de otra unidad, ej. Juan Andrés Irigoin, de Ortopedia, reporta a Ignacio Irigoin, gerente de Movilidad)
+        || (u.rol === 'gerente' && (u.unidadNegocio === persona.unidadNegocio || (cadena.has(u.personaId) && u.personaId !== persona.id))));
     if (!esAprobador) return;
     vistos.add(u.email);
     resultado.push(u);
@@ -373,11 +387,12 @@ function emailMensajeContacto({ deNombre, mensaje }) {
 // que lleva al panel (la publicación se ve en el Muro, que es lo primero que abre Talento).
 function emailMencionMuro({ persona, autorNombre, texto, donde }) {
   const extracto = String(texto || '').replace(/\*\*|~~/g, '').replace(/\s+/g, ' ').trim().slice(0, 280);
-  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:#005a52">Te mencionaron en el Muro</p>'
+  const lugar = /chat/i.test(String(donde || '')) ? 'el Chat' : 'el Muro';   // 15/10/2026: las menciones del chat avisan por el mismo mail
+  const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:#005a52">Te mencionaron en ' + lugar + '</p>'
     + '<p style="margin:0 0 14px">Hola ' + escapeHtml(persona.nombre) + ', <b>' + escapeHtml(autorNombre) + '</b> te mencionó en ' + escapeHtml(donde || 'una publicación') + ':</p>'
     + (extracto ? '<p style="margin:0 0 18px;padding:12px 16px;background:#f8faf8;border-left:3px solid #cfd8d0;border-radius:4px;color:#1f2b23">' + escapeHtml(extracto) + (String(texto || '').length > 280 ? '…' : '') + '</p>' : '')
-    + '<p style="margin:0 0 6px;text-align:center">' + botonAccion({ href: APP_BASE_URL, color: '#005a52', texto: 'Ver en el Muro' }) + '</p>';
-  return { subject: autorNombre + ' te mencionó en el Muro', html: wrapEmailHtml(cuerpo) };
+    + '<p style="margin:0 0 6px;text-align:center">' + botonAccion({ href: APP_BASE_URL, color: '#005a52', texto: lugar === 'el Chat' ? 'Abrir el chat' : 'Ver en el Muro' }) + '</p>';
+  return { subject: autorNombre + ' te mencionó en ' + lugar, html: wrapEmailHtml(cuerpo) };
 }
 
 module.exports = { emailMencionMuro, enviarEmail, resolverEmailsAprobadores, resolverAprobadores, emailNuevaSolicitud, emailSolicitudResuelta, emailRecordatorioObjetivo, emailNuevoObjetivo, emailMensajeContacto, emailNuevaSolicitudLicencia, emailSolicitudLicenciaResuelta, emailEscalamientoSolicitud };

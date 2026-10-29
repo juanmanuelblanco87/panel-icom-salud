@@ -75,7 +75,13 @@ async function fetchCustomerGroupMap(token) {
 async function fetchCustomerPage(token, offset, limit, updateTimeGt) {
   const params = new URLSearchParams({ __limit__: String(limit), __offset__: String(offset) });
   if (updateTimeGt) params.set('updateTime__gt', updateTimeGt);
-  const res = await fetch(`${BASE_URL}/Customer?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+  // 29/10/2026: Oppen contesta 429 (demasiadas consultas) cuando se pagina todo el catálogo; antes eso cortaba la corrida SIN guardar nada y el bootstrap volvía a empezar de cero. Ahora se espera y se reintenta.
+  let res;
+  for (let intento = 0; ; intento++) {
+    res = await fetch(`${BASE_URL}/Customer?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 429 && intento < 4) { await new Promise((r) => setTimeout(r, 3000 * Math.pow(2, intento))); continue; }
+    break;
+  }
   if (res.status === 401) { cachedToken = null; throw new Error('Token rechazado por oppen.io (401).'); }
   if (!res.ok) throw new Error(`Error consultando Customer (${res.status}).`);
   return res.json();
@@ -108,18 +114,28 @@ module.exports = async function handler(req, res) {
     const token = await getToken();
     const estado = await leerBlobActual();
     estado.grupos = await fetchCustomerGroupMap(token); // barato (9 filas), siempre fresco
+    // 29/10/2026 ("Por Sub-Grupo de Clientes"): Oppen sumó el campo Customer.SubGroupCode (NAC, PROV, MUN, BAC, PAG, OTHER...; sólo lo tiene cargado ~0,3% de los clientes, hoy PU y OS; no hay un
+    // catálogo con los nombres, se guarda el código). Como la API no deja filtrar por ese campo (422), hay que releer el catálogo ENTERO una vez para completarlo: se fuerza un bootstrap nuevo
+    // (mapa de grupos se conserva mientras tanto) y se marca subV=1 cuando termina.
+    estado.mapaSub = estado.mapaSub || {};
+    if (estado.subV !== 1 && estado.completo) { estado.completo = false; estado.offset = 0; }
 
     let paginasEstaCorrida = 0;
     let clientesEstaCorrida = 0;
     let hasMore = true;
+    let errorCorrida = null;
     let offsetActual = estado.completo ? 0 : (estado.offset || 0); // modo incremental siempre arranca en offset 0 -- el filtro updateTime__gt ya recorta el volumen
     const updateTimeGt = estado.completo ? estado.ultimaSyncCompleta : null;
 
     while (hasMore && (Date.now() - startedAt) < SOFT_DEADLINE_MS) {
-      const page = await fetchCustomerPage(token, offsetActual, PAGE_LIMIT, updateTimeGt);
+      let page;
+      try { page = await fetchCustomerPage(token, offsetActual, PAGE_LIMIT, updateTimeGt); }
+      catch (e) { errorCorrida = String(e.message || e); break; }   // se corta acá pero SE GUARDA lo avanzado: la próxima corrida retoma desde este offset
       const rows = page.data || [];
       for (const c of rows) {
         if (!c.Code) continue;
+        if (c.SubGroupCode) estado.mapaSub[c.Code] = String(c.SubGroupCode).trim();
+        else if (estado.mapaSub[c.Code]) delete estado.mapaSub[c.Code];   // se lo quitaron en Oppen
         const nombreGrupo = (c.GroupCode && estado.grupos[c.GroupCode]) || null;
         if (nombreGrupo) estado.mapa[c.Code] = nombreGrupo;
       }
@@ -135,6 +151,7 @@ module.exports = async function handler(req, res) {
       estado.offset = terminoEstaPasada ? 0 : offsetActual;
       if (terminoEstaPasada) {
         estado.completo = true;
+        estado.subV = 1;
         estado.ultimaSyncCompleta = new Date().toISOString();
       }
     } else if (terminoEstaPasada) {
@@ -159,7 +176,10 @@ module.exports = async function handler(req, res) {
       modo: estado.completo && !terminoEstaPasada ? 'incremental (en curso)' : estado.completo ? 'incremental (completa)' : terminoEstaPasada ? 'bootstrap (terminado)' : 'bootstrap (en curso)',
       paginasEstaCorrida,
       clientesEstaCorrida,
+      errorCorrida,
       totalEnMapa: Object.keys(estado.mapa).length,
+      totalSubGrupos: Object.keys(estado.mapaSub).length,
+      subV: estado.subV || 0,
       completo: estado.completo,
       offsetProximaCorrida: estado.offset,
       ultimaSyncCompleta: estado.ultimaSyncCompleta,

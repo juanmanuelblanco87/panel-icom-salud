@@ -48,3 +48,75 @@
   --fs-xl:20px;
   --fs-2xl:28px;
 }
+
+/* ── Capa móvil compartida (auditoría mobile, 15/10/2026) ──
+   Se estampa en el shell y en todas las sub-apps junto con los tokens. Sólo actúa en pantallas angostas (celular / ventana chica); en escritorio no cambia nada.
+   - Botones, selects e inputs de al menos 40 px de alto (antes la mayoría medía 22-30 px: difícil acertar con el dedo). Dentro de tablas queda en 32 px para no inflar las filas.
+   - Inputs a 16 px: con menos, iPhone hace zoom solo al tocar el campo y la pantalla queda "pasada".
+   - Se oculta el "usuario · rol" de cada sub-app (ya está en "Mi Cuenta" del menú) para ganar alto útil. */
+@media (max-width:700px){
+  button,select,.btn,.pm-btn,.xl-btn,.modo-btn,.sel-atajo,[role="button"]{min-height:40px}
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),select,textarea{min-height:40px;font-size:16px !important}
+  td button,td select,td input:not([type="checkbox"]):not([type="radio"]),td .btn,td .pm-btn,td .xl-btn{min-height:32px} /* checkbox/radio quedan con su tamaño: con alto forzado se deformaban en óvalos */
+  th.ordenable{min-height:36px}
+  #sesionInfo{display:none !important}
+  .foot-note{display:none !important} /* notas al pie ("Actualizado: ... Columnas 7d ..."): en celular sólo ocupan lugar */
+  .filtros-row-especial > .muted{display:none} /* se saca el rótulo "Vista rápida:"; la fila deslizable deja asomar el próximo botón cortado a la mitad */
+  #icomChipBar{display:none !important} /* los indicadores de sincronización viven en la barra verde del shell */
+  .htitle span,.hsub-explica{display:none !important} /* sin subtítulos explicativos: queda sólo el título de cada pantalla */
+  header{padding-top:8px;padding-bottom:8px}
+  /* Filtros / vistas rápidas / pestañas: una sola fila deslizable en vez de 4-5 líneas de botones apilados (fade a la derecha = "hay más"). Clase .chip-slider para filas nuevas. */
+  .chip-slider,.filtros-row-especial,.suc-tabs,.tabs:not(#tabsScroll),.org-filtro-unidades{
+    display:flex;flex-wrap:nowrap !important;overflow-x:auto;overflow-y:hidden;gap:8px;padding-right:28px;padding-bottom:2px;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;scroll-snap-type:x proximity;
+    -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 14px),transparent)}
+  .chip-slider::-webkit-scrollbar,.filtros-row-especial::-webkit-scrollbar,.suc-tabs::-webkit-scrollbar,.tabs:not(#tabsScroll)::-webkit-scrollbar,.org-filtro-unidades::-webkit-scrollbar{display:none}
+  .chip-slider > *,.filtros-row-especial > *,.suc-tabs > *,.tabs:not(#tabsScroll) > *,.org-filtro-unidades > *{flex:0 0 auto;scroll-snap-align:start;white-space:nowrap}
+  .chip-slider .mode-toggle,.filtros-row-especial .mode-toggle{flex-wrap:nowrap}
+  .filtros-row > .chip-slider{flex:1 1 100%;min-width:0}
+  /* la barra de scroll horizontal flotante es para mouse: en celular se desliza con el dedo y la barra tapa/pisa los toques */
+  #scrollHFloat{display:none !important}
+  .table-wrap{overflow-y:hidden;-webkit-overflow-scrolling:touch}
+}
+
+/* ── Tarjetas de indicadores (KPI) -- TODAS las pantallas, escritorio y celular (criterio de alineación, 15/10/2026) ──
+   Los números principales quedan CENTRADOS y en la MISMA línea visual en cada fila de tarjetas; los textos que los acompañan (etiqueta arriba, detalle abajo) se acomodan en el resto de la caja.
+   Cada tarjeta es una grilla que comparte sus filas con las vecinas (subgrid): si una tarjeta tiene una línea de más (o aparece/desaparece un detalle, una variación, "Total · Pausadas"...),
+   todas las de esa fila se reacomodan juntas y los números siguen alineados. :not(#_k) sube la especificidad para ganarle al CSS propio de cada pantalla sin pisar el display:none en línea de las filas ocultas. */
+.kpi-row:not(#_k){display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:12px;align-items:stretch}
+.erp-kpis:not(#_k),.stk-kpis:not(#_k),.metrics:not(#_k),.metric-bar:not(#_k){display:grid;align-items:stretch}
+.kpi-row > .kpi-card,.erp-kpis > .erp-kpi,.stk-kpis > .stk-kpi,.metrics > .metric,.metric-bar > .metric{
+  display:grid;grid-template-rows:subgrid;grid-row:span 4;row-gap:2px;align-content:stretch;justify-items:center;text-align:center;min-width:0;margin:0}
+.kpi-row > .kpi-card{position:relative;grid-template-columns:minmax(0,1fr);padding:14px 16px 12px;flex:none}
+.kpi-row > .kpi-card > .kpi-text{display:contents}
+/* el ícono va chico en la esquina superior izquierda (nunca tapa el número, que va centrado más abajo): el contenido (etiqueta · número · detalle) queda centrado en TODA la tarjeta y no se angosta por el ícono */
+.kpi-row > .kpi-card > .kpi-icon{position:absolute;left:8px;top:8px;width:26px;height:26px;min-width:26px;font-size:13px;opacity:.9;pointer-events:none}
+.kpi-row > .kpi-card .kpi-label{overflow-wrap:normal !important;word-break:normal !important;hyphens:none} /* sin cortar palabras ("CANCELACIONE S") */
+.kpi-row > .kpi-card .kpi-label,.kpi-row > .kpi-card .kpi-value,.kpi-row > .kpi-card .kpi-sub{grid-column:1}
+.kpi-row > .kpi-card .kpi-value{white-space:nowrap}
+.kpi-row > .kpi-card .kpi-label,.erp-kpis > .erp-kpi > .lbl,.stk-kpis > .stk-kpi > .lbl,.metrics > .metric > .metric-label,.metric-bar > .metric > .metric-label{align-self:end;margin:0;text-align:center}
+.kpi-row > .kpi-card .kpi-value,.erp-kpis > .erp-kpi > .val,.stk-kpis > .stk-kpi > .val,.metrics > .metric > .metric-value,.metric-bar > .metric > .metric-value{align-self:center;margin:0;text-align:center}
+.kpi-row > .kpi-card .kpi-sub,.erp-kpis > .erp-kpi > .erp-kpi-sub,.stk-kpis > .stk-kpi > .sub,.metrics > .metric > .metric-sub,.metric-bar > .metric > .metric-sub,.erp-kpis > .erp-kpi > .erp-kpi-delta{align-self:start;margin:0;text-align:center;justify-content:center}
+.metrics > .metric > .metric-bar-wrap{width:100%;align-self:end}
+/* Fila fija para cada pieza (1 etiqueta · 2 número · 3 detalle · 4 variación/barra): si una tarjeta NO tiene detalle, su variación igual cae en la fila 4 y queda a la altura de la de la tarjeta vecina */
+.kpi-row > .kpi-card .kpi-label,.erp-kpis > .erp-kpi > .lbl,.stk-kpis > .stk-kpi > .lbl,.metrics > .metric > .metric-label,.metric-bar > .metric > .metric-label{grid-row:1}
+.kpi-row > .kpi-card .kpi-value,.erp-kpis > .erp-kpi > .val,.stk-kpis > .stk-kpi > .val,.metrics > .metric > .metric-value,.metric-bar > .metric > .metric-value{grid-row:2}
+.kpi-row > .kpi-card .kpi-sub,.erp-kpis > .erp-kpi > .erp-kpi-sub,.stk-kpis > .stk-kpi > .sub,.metrics > .metric > .metric-sub,.metric-bar > .metric > .metric-sub{grid-row:3}
+.erp-kpis > .erp-kpi > .erp-kpi-delta,.metrics > .metric > .metric-bar-wrap{grid-row:4}
+.erp-kpis > .erp-kpi{grid-row:span 5} /* Ventas en Vivo: etiqueta · número · unidades · variación del total · variación de unidades */
+.erp-kpis > .erp-kpi > .erp-kpi-delta-un{grid-row:5}
+.exh-kpi{text-align:center}
+.exh-kpi .val{justify-content:center}
+@media (max-width:700px){
+  .kpi-row:not(#_k),.erp-kpis:not(#_k),.stk-kpis:not(#_k),.metrics:not(#_k),.metric-bar:not(#_k){grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .kpi-row > .kpi-card,.erp-kpis > .erp-kpi,.stk-kpis > .stk-kpi,.metrics > .metric,.metric-bar > .metric{padding:10px 8px}
+  .kpi-row > .kpi-card > .kpi-icon{display:none}
+  .kpi-row > .kpi-card:last-child:nth-child(odd){grid-column:1 / -1}
+  .exh-kpi .lbl{min-height:2.5em;display:flex;align-items:flex-end;justify-content:center;margin-bottom:4px}
+}
+
+/* Botón "Excel" de cada tabla: un ícono chico en una franja finita propia, arriba y a la derecha de SU tabla. Va en el flujo normal (no flota), así que no tapa encabezados ni datos de nadie. */
+.xl-barra{position:static;display:flex;justify-content:flex-end;align-items:center;height:auto !important;padding:2px 6px 3px !important;margin:0 !important;overflow:visible}
+.xl-barra .xl-btn{border:1px solid var(--line,#e0dfd8);background:#fff;color:var(--accent,#007067);cursor:pointer;font:inherit;position:static;width:28px;height:24px;min-width:0;min-height:0 !important;padding:0 !important;font-size:0 !important;line-height:0;display:flex;align-items:center;justify-content:center;border-radius:7px;box-shadow:none;overflow:hidden}
+.xl-barra .xl-btn:hover{background:var(--accent-soft,#e6f2f1);border-color:var(--accent,#007067)}
+.xl-barra .xl-btn::before{content:"";width:14px;height:14px;background:var(--accent,#007067);-webkit-mask:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5'/%3E%3Cpath d='M4 17v3h16v-3'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5'/%3E%3Cpath d='M4 17v3h16v-3'/%3E%3C/svg%3E") center/contain no-repeat}

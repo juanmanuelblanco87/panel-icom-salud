@@ -1,0 +1,56 @@
+/* ═══ SUB-APPS (Stocks, Sucursales, Forecast, Ortopedias, Mercado Libre, Nubimetrics, Quiebres, Alquileres, Talento) ═══
+   Primero el celular (se achica nada de lo que ya estaba pensado para el dedo); en escritorio se suma el rótulo sobre el título y más aire. */
+html[data-tema="nuevo"] header{padding:12px 16px}
+html[data-tema="nuevo"] .htitle{font-size:17px;font-weight:700;letter-spacing:-.01em;color:var(--ink);line-height:1.2}
+html[data-tema="nuevo"] .htitle span{font-size:13px;font-weight:400;color:var(--ink-soft)}
+html[data-tema="nuevo"] .hsesion,html[data-tema="nuevo"] .hsesion b{color:var(--ink-soft)}
+html[data-tema="nuevo"] .hsesion b{font-weight:600}
+
+/* campos de formulario: blancos, esquina 10, foco con halo verde */
+html[data-tema="nuevo"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="color"]),
+html[data-tema="nuevo"] select,
+html[data-tema="nuevo"] textarea{border:1px solid var(--line-input);border-radius:10px;background:#fff;color:var(--ink);transition:border-color .12s,box-shadow .12s}
+html[data-tema="nuevo"] input:focus,html[data-tema="nuevo"] select:focus,html[data-tema="nuevo"] textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+html[data-tema="nuevo"] ::placeholder{color:var(--muted);opacity:.85}
+
+/* pestañas y filtros de vista rápida: pastillas claras (la fila deslizable del celular no cambia) */
+html[data-tema="nuevo"] .tabs button,html[data-tema="nuevo"] .tab,html[data-tema="nuevo"] .suc-tab,html[data-tema="nuevo"] .org-filtro-btn{border-radius:999px;font-weight:600}
+
+/* modales y desplegables */
+html[data-tema="nuevo"] .modal,html[data-tema="nuevo"] .modal-box{box-shadow:0 18px 50px rgba(16,40,36,.22)}
+html[data-tema="nuevo"] .modal-overlay,html[data-tema="nuevo"] .overlay{background:rgba(16,40,36,.45)}
+
+/* etiquetas de estado */
+html[data-tema="nuevo"] .pill,html[data-tema="nuevo"] .badge{font-weight:600}
+
+/* escritorio: rótulo (unidad · app) sobre el título, título más grande y más aire */
+@media (min-width:769px){
+  html[data-tema="nuevo"] header{padding:16px 28px}
+  html[data-tema="nuevo"] .htitle{font-size:24px;letter-spacing:-.02em;line-height:1.15}
+  html[data-tema="nuevo"] .htitle[data-ceja]::before{content:attr(data-ceja);display:block;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+  html[data-tema="nuevo"] main{padding:20px 28px 48px}
+  html[data-tema="nuevo"] .wrap{padding:20px 28px 48px}
+}
+/* celular: el control segmentado nunca se parte en dos filas; se desliza de costado */
+@media (max-width:768px){
+  html[data-tema="nuevo"] .mode-toggle{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  html[data-tema="nuevo"] .mode-toggle::-webkit-scrollbar{display:none}
+  html[data-tema="nuevo"] .mode-toggle button,html[data-tema="nuevo"] .mode-toggle .modo-btn{flex:0 0 auto;white-space:nowrap}
+}
+
+/* campos en fila: si un rótulo ocupa 2 renglones, los controles de la fila igual quedan a la misma altura (alineados por abajo) */
+html[data-tema="nuevo"] .form-row,html[data-tema="nuevo"] .form-grid{align-items:flex-end}
+html[data-tema="nuevo"] .form-field{display:flex;flex-direction:column;justify-content:flex-end}
+html[data-tema="nuevo"] .form-field > label{line-height:1.25}
+
+/* celular: si la grilla de indicadores es de 2 columnas y queda uno suelto, ocupa todo el ancho (no queda a medias con un hueco al lado) */
+@media (max-width:640px){
+  html[data-tema="nuevo"] .stk-kpis > .stk-kpi:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .metrics > .metric:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .metric-bar > .metric:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .erp-kpis > .erp-kpi:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .kpi-row > .kpi-card:last-child:nth-child(odd){grid-column:1 / -1}
+}
+
+/* indicadores de las apps: sin el círculo con ícono arriba a la izquierda (se pisaba con rótulos largos en tarjetas angostas y recarga la vista); el dato ya se explica con su rótulo */
+html[data-tema="nuevo"] .kpi-row > .kpi-card > .kpi-icon{display:none}

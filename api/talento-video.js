@@ -31,7 +31,9 @@ module.exports = async function handler(req, res) {
   try {
     const solicitante = requerirSesion(req);
     if (!solicitante) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida -- volvé a iniciar sesión.' }); return; }
-    if (!puedeEditarMuro(solicitante)) { res.status(403).json({ ok: false, error: 'No tenés permiso para publicar en el Muro.' }); return; }
+    // 15/10/2026 ("el chat no permite agregar videos"): el chat interno también sube videos por acá (ambito:'chat'); para el Muro sigue valiendo el permiso de publicar.
+    const esChat = (req.body || {}).ambito === 'chat';
+    if (!esChat && !puedeEditarMuro(solicitante)) { res.status(403).json({ ok: false, error: 'No tenés permiso para publicar en el Muro.' }); return; }
     const { accion, uploadId } = req.body || {};
     if (!ID_RE.test(String(uploadId || ''))) { res.status(400).json({ ok: false, error: 'uploadId inválido.' }); return; }
 

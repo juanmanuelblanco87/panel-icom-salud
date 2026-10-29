@@ -105,6 +105,8 @@ const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
 // y se adjunta a cada fila -- mismo patrón que costoUnit (campo aditivo, no cambia nada del
 // resto del cálculo). Si el blob todavía no existe (bootstrap no corrió nunca) o falla la
 // lectura, se sigue igual sin romper nada -- grupoCliente queda null en cada fila.
+const { avisarSinSesion } = require('./_acceso-aviso');
+const { planificarSegmentos, leerFacturasLedger, leerFacturasReciente } = require('./_facturas-ledger');
 const { head: headBlob } = require('@vercel/blob');
 
 // 07/10/2026 ("FCN son ventas no facturadas todavía... al monto que dice Oppen hay que sumarle el
@@ -140,26 +142,25 @@ function ivaPctDeSku(sku, iva) {
 }
 function esOficinaFcn(office) { return /99$/.test(String(office || '').trim()); }
 const CUSTOMER_GRUPOS_BLOB_PATHNAME = 'customer_grupos.json';
-let customerGruposCache = null; // { mapa: {custCode: nombreGrupo}, cachedAt: epoch ms }
+let customerGruposCache = null; // { mapa: {custCode: nombreGrupo}, mapaSub: {custCode: SubGroupCode}, cachedAt: epoch ms }
 const CUSTOMER_GRUPOS_CACHE_MS = 5 * 60 * 1000; // 5 min -- el mapa cambia poco, no hace falta releer el blob en cada pedido
-async function fetchCustomerGruposMap() {
+async function leerCustomerGruposBlob() {
   const now = Date.now();
-  if (customerGruposCache && now - customerGruposCache.cachedAt < CUSTOMER_GRUPOS_CACHE_MS) {
-    return customerGruposCache.mapa;
-  }
+  if (customerGruposCache && now - customerGruposCache.cachedAt < CUSTOMER_GRUPOS_CACHE_MS) return customerGruposCache;
   try {
     const info = await headBlob(CUSTOMER_GRUPOS_BLOB_PATHNAME);
     const r = await fetch(info.url);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    const mapa = (data && data.mapa) || {};
-    customerGruposCache = { mapa, cachedAt: now };
-    return mapa;
+    customerGruposCache = { mapa: (data && data.mapa) || {}, mapaSub: (data && data.mapaSub) || {}, cachedAt: now };
   } catch (e) {
-    customerGruposCache = { mapa: {}, cachedAt: now }; // evita reintentar la lectura fallida en cada request de este mismo proceso "warm"
-    return {};
+    customerGruposCache = { mapa: {}, mapaSub: {}, cachedAt: now }; // evita reintentar la lectura fallida en cada request de este mismo proceso "warm"
   }
+  return customerGruposCache;
 }
+async function fetchCustomerGruposMap() { return (await leerCustomerGruposBlob()).mapa; }
+// 29/10/2026 ("Por Sub-Grupo de Clientes"): CustCode -> SubGroupCode de Oppen (lo arma el mismo cron, ver api/actualizar-customer-grupos.js). Sin dato = el cliente no tiene sub-grupo cargado.
+async function fetchCustomerSubGruposMap() { return (await leerCustomerGruposBlob()).mapaSub; }
 
 // Cache de token en memoria del proceso serverless. Sobrevive entre invocaciones
 // mientras la instancia esté "warm" (típico en polls frecuentes cada 5 min).
@@ -431,13 +432,15 @@ const OPERATION_TYPE_UNIT_MAP = {
   ML: 'minorista',
   IOMA: null, // excluida a propósito, ver comentario arriba
 };
+const TIPOS_DESCONOCIDOS_AVISADOS = new Set();
 function classifyUnidadNegocio(operationType) {
   const code = String(operationType || '').trim().toUpperCase();
   if (!code) return 'minorista'; // sin dato = histórico previo a esta clasificación
   if (Object.prototype.hasOwnProperty.call(OPERATION_TYPE_UNIT_MAP, code)) {
     return OPERATION_TYPE_UNIT_MAP[code]; // puede ser null (IOMA, a propósito)
   }
-  console.warn(`oppen-invoices: OperationType desconocido ("${operationType}"), se asume Minorista.`);
+  // un solo aviso por tipo y por instancia (antes: uno por CADA fila -- miles de líneas de log por pedido, que además frenaban la respuesta)
+  if (!TIPOS_DESCONOCIDOS_AVISADOS.has(code)) { TIPOS_DESCONOCIDOS_AVISADOS.add(code); console.warn(`oppen-invoices: OperationType desconocido ("${operationType}"), se asume Minorista.`); }
   return 'minorista';
 }
 
@@ -605,14 +608,17 @@ function horaDecimalDesdeTransTime(transTime) {
 }
 
 module.exports = async function handler(req, res) {
+  avisarSinSesion(req, 'oppen-invoices'); // 14/10/2026: modo aviso (sólo registra, ver _acceso-aviso.js)
   // CORS abierto solo a tu propio dominio de Vercel (mismo origen normalmente,
   // pero por si el panel se sirve desde otro subdominio del mismo proyecto).
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
 
   try {
-    const token = await getToken();
+    let _tokenOppen = null;
+    const tokenOppen = async () => _tokenOppen || (_tokenOppen = await getToken());
     const customerGruposMap = await fetchCustomerGruposMap();
+    const customerSubGruposMap = await fetchCustomerSubGruposMap();
     // Por defecto, mes en curso. Se puede pedir un rango puntual (para
     // recuperar un mes ya cerrado, ej. si se perdió el IndexedDB al mudar de
     // proyecto de Vercel) pasando ?from=YYYY-MM-DD&to=YYYY-MM-DD.
@@ -708,11 +714,9 @@ module.exports = async function handler(req, res) {
     const bySkuUnidadNegocio = {}; // sku -> unidad -> {unidades, totalNeto} -- ver comentario junto a su uso más abajo (inventario por unidad de negocio en Stocks)
     const rows = [];        // detalle por línea, para alimentar Seguimiento (applyParsedSales)
 
-    while (hasMore) {
-      const page = await fetchInvoicesPage(token, offset, LIMIT, fromDate, toDate);
-      const pageInvoices = page.data || [];
-
-      for (const inv of pageInvoices) {
+    // 14/10/2026 (libro de facturas): el cuerpo de lo que antes era `for (const inv of pageInvoices)` pasa a ser esta función, que se aplica igual a las
+    // facturas que vienen del libro (días cerrados) y a las que se piden en vivo a Oppen (hoy, ayer y lo que no esté en el libro).
+    const procesarFactura = async (inv) => {
         invoicesProcessed++;
         const unidadNegocio = classifyUnidadNegocio(inv.OperationType); // 'minorista'|'movilidad'|'cirugia_estetica'|'cirugia_general'|null (IOMA)
 
@@ -720,7 +724,7 @@ module.exports = async function handler(req, res) {
         // así cada unidad, cuando el shell la sincronice, recibe SOLO sus
         // propias facturas (IOMA, con unidadNegocio null, nunca coincide con
         // ningún filtro, queda afuera de las 4 unidades a propósito).
-        if (unidadNegocioFilter && unidadNegocio !== unidadNegocioFilter) continue;
+        if (unidadNegocioFilter && unidadNegocio !== unidadNegocioFilter) return;
         invoicesEnUnidad++;
 
         if (unidadNegocio) {
@@ -767,12 +771,16 @@ module.exports = async function handler(req, res) {
           ? normalizeVendedor(inv.MedicalSalesRepresentative)
           : normalizeVendedor(inv.SalesManInstitution);
         const cliente = inv.CustName ? String(inv.CustName).trim() : 'Sin Cliente';
+        // 20/10/2026 ("agregale a Cirugía y a Cirugía Estética la facturación por Nombre de Médico"): la factura trae DoctorName (confirmado contra producción: ~44% de las de Ethicon y ~97% de las de
+        // Cirugía Estética). Vacío = null, en el tablero se agrupa como "Sin médico".
+        const medico = inv.DoctorName ? String(inv.DoctorName).split(/\s+/).join(' ').trim() : null; // espacios dobles de Oppen ('DR. DANIEL HERNAN  MENDIONDO') -> uno solo, para no partir al mismo médico en dos filas
         const tipoOperacion = normalizeTipoOperacion(inv.OperationType);
         // "Por Grupo de Clientes" (Cirugía) -- ver comentario junto a fetchCustomerGruposMap.
         // CustCode es el mismo código que identifica al cliente en la factura (Customer.Code
         // en el catálogo sincronizado) -- null si el cliente no está en el mapa (bootstrap
         // todavía no llegó a ese cliente, o el cliente no tiene GroupCode cargado en Oppen).
         const grupoCliente = (inv.CustCode && customerGruposMap[inv.CustCode]) || null;
+        const subGrupoCliente = (inv.CustCode && customerSubGruposMap[inv.CustCode]) || null;   // 29/10/2026: Customer.SubGroupCode (ver fetchCustomerSubGruposMap)
         const horaDecimal = horaDecimalDesdeTransTime(inv.TransTime);
 
         // Juan Manuel, 27/07/2026: "En Cirugia Estetica hay ventas con
@@ -964,20 +972,66 @@ module.exports = async function handler(req, res) {
             vendedorCliente,
             vendedorInstitucion,
             cliente,
+            medico,
+            subGrupoCliente, // NAC/PROV/MUN/... (Customer.SubGroupCode) o null
             grupoCliente, // "OOSS"/"INSTITUCIÓN PRIVADA"/"INSTITUCIÓN PÚBLICA"/etc, o null -- ver fetchCustomerGruposMap
             tipoOperacion,
             sernr: inv.SerNr != null ? String(inv.SerNr) : null, // para poder contar facturas DISTINTAS al filtrar por Vendedor/Cliente (varias líneas comparten la misma factura)
           });
         }
-      }
+    };
 
-      hasMore = !!page.has_more;
-      offset += LIMIT;
-
-      // Salvaguarda: nunca más de 50 páginas (10.000 facturas) en una sola corrida,
-      // para no colgar la función serverless si algo sale mal con has_more.
-      if (offset > LIMIT * 50) break;
+    // Tramos: lo cerrado sale del libro (rápido, sin Oppen); lo reciente (hoy y ayer) y cualquier hueco se piden en vivo con la paginación de siempre.
+    // ?ledger=0 fuerza el camino viejo (todo en vivo) -- sirve para comparar resultados y como salida de emergencia.
+    let segmentos = [{ tipo: 'vivo', desde: fromDate, hasta: toDate }];
+    if (url.searchParams.get('ledger') !== '0') {
+      try { segmentos = await planificarSegmentos(fromDate, toDate); }
+      catch (e) { console.error('oppen-invoices: el libro de facturas no está disponible, se pide todo en vivo:', e); segmentos = [{ tipo: 'vivo', desde: fromDate, hasta: toDate }]; }
     }
+    let diasLibro = 0, tramosVivo = 0, atrasoReciente = -1;
+    // Oppen devuelve las facturas ordenadas por internalId (verificado 14/10/2026) y el resultado depende del orden en un detalle: el nombre que se muestra de un SKU es el
+    // de la PRIMERA línea que se procesa. Para que el libro dé exactamente lo mismo, cuando se mezclan tramos (libro + vivo) se juntan todas las facturas y se procesan
+    // ordenadas por internalId. Si es todo en vivo (camino viejo, ?ledger=0 o libro no disponible) se procesa en streaming, igual que siempre.
+    const hayLibro = segmentos.some((s) => s.tipo === 'ledger');
+    const juntas = [];
+    for (const seg of segmentos) {
+      if (seg.tipo === 'ledger') {
+        const facturas = await leerFacturasLedger(seg.desde, seg.hasta);
+        diasLibro += Math.round((Date.parse(seg.hasta) - Date.parse(seg.desde)) / 86400000) + 1;
+        for (const inv of facturas) juntas.push(inv);
+      } else {
+        tramosVivo++;
+        // El tramo en vivo se junta entero antes de procesarlo: si Oppen limita las consultas (429) a mitad de camino NO se cuenta nada dos veces y se puede
+        // usar la foto de hoy/ayer que el sincronizador guarda en la base cada 15 min (api/_facturas-ledger.js, leerFacturasReciente) en vez de mostrar un error.
+        let delTramo = [];
+        try {
+          let offsetSeg = 0;
+          let hayMas = true;
+          while (hayMas) {
+            const page = await fetchInvoicesPage(await tokenOppen(), offsetSeg, LIMIT, seg.desde, seg.hasta);
+            for (const inv of (page.data || [])) delTramo.push(inv);
+            hayMas = !!page.has_more;
+            offsetSeg += LIMIT;
+            // Salvaguarda: nunca más de 50 páginas (10.000 facturas) por tramo en vivo, para no colgar la función serverless si algo sale mal con has_more.
+            if (offsetSeg > LIMIT * 50) break;
+          }
+        } catch (errVivo) {
+          const rec = await leerFacturasReciente(seg.desde, seg.hasta);
+          if (!rec) throw errVivo;
+          console.error('oppen-invoices: Oppen no respondió, se usa la foto guardada de hoy/ayer (' + rec.atrasoMin + ' min de atraso):', errVivo && errVivo.message);
+          delTramo = rec.crudas;
+          atrasoReciente = Math.max(atrasoReciente, rec.atrasoMin);
+        }
+        for (const inv of delTramo) { if (hayLibro) juntas.push(inv); else await procesarFactura(inv); }
+      }
+    }
+    if (hayLibro) {
+      juntas.sort((a, b) => (Number(a.internalId) || 0) - (Number(b.internalId) || 0));
+      for (const inv of juntas) await procesarFactura(inv);
+    }
+    res.setHeader('X-Libro-Facturas', `dias-libro=${diasLibro};tramos-vivo=${tramosVivo}`);
+    if (atrasoReciente >= 0) res.setHeader('X-Libro-Reciente', 'atraso-min=' + atrasoReciente);
+    if (diasLibro === 0 && require('./_facturas-ledger').motivoError()) res.setHeader('X-Libro-Motivo', String(require('./_facturas-ledger').motivoError()).replace(/[^ -~]/g, ' '));
 
     const totals = Object.values(bySku).reduce(
       (acc, s) => ({ unidades: acc.unidades + s.unidades, totalNeto: acc.totalNeto + s.totalNeto }),

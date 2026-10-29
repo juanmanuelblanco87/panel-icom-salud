@@ -320,11 +320,12 @@ module.exports = async function handler(req, res) {
 
     if (state.phase === 'buscar') {
       const r = await escanearIds({
-        sellerId, startTime, maxMs: chunkMs, statusIndex: state.statusIndex, offset: state.offset, idsPorStatus: state.idsPorStatus,
+        sellerId, startTime, maxMs: chunkMs, statusIndex: state.statusIndex, offset: state.offset, idsPorStatus: state.idsPorStatus, scrollId: state.scrollId || null,
       });
       state.idsPorStatus = r.idsPorStatus;
       state.statusIndex = r.statusIndex;
       state.offset = r.offset;
+      state.scrollId = r.scrollId || null;
       if (r.completo) {
         // Se aplana a UNA lista de ids únicos (un mismo id no debería
         // repetirse entre statuses, pero .filter((v,i,a)=>a.indexOf(v)===i)
@@ -637,6 +638,8 @@ module.exports = async function handler(req, res) {
         state.itemsById[id].propuestaMeli = oferta ? oferta.propuestaMeli : null;
         // 07/10/2026: propuesta de Oferta Relámpago (LIGHTNING) todavía sin aceptar -- ver buscarOfertaDeItem.
         state.itemsById[id].propuestaRelampago = oferta ? (oferta.propuestaRelampago || null) : null;
+        state.itemsById[id].promociones = oferta ? (oferta.promociones || []) : [];
+        state.itemsById[id].promocionesV = 2;
         const item = state.itemsById[id];
         // 17/09/2026 ("Comision segun MeLi 3234,85 y según nuestro
         // calculo 5165 -- chequea estos casos"): bug real confirmado
@@ -885,6 +888,7 @@ module.exports = async function handler(req, res) {
       STATUSES.forEach((s) => { conteoPorStatus[s] = (state.idsPorStatus[s] || []).length; });
       await escribirSnapshot({
         items: state.itemsById,
+        escaneoId: new Date().toISOString(),
         completo: true,
         stats: {
           totalIds: state.idsFlat.length,

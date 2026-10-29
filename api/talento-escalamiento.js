@@ -75,7 +75,7 @@ async function procesarUnaColeccion({
     let nombreDestino = null;
     if (superior) {
       const usuarioDestino = usuarioPorPersonaId.get(superior.id);
-      email = usuarioDestino && usuarioDestino.email;
+      email = superior.email || (usuarioDestino && usuarioDestino.email);   // 28/10/2026: manda el correo de la ficha de la persona; el del usuario sólo si la ficha no tiene
       nombreDestino = superior.nombre;
     } else if (adminEmails.length) {
       email = adminEmails[0];
@@ -116,7 +116,8 @@ module.exports = async function handler(req, res) {
     ]);
     const personaPorId = new Map(personas.map((p) => [p.id, p]));
     const usuarioPorPersonaId = new Map(usuarios.filter((u) => u.personaId).map((u) => [u.personaId, u]));
-    const adminEmails = usuarios.filter((u) => u.rol === 'admin' && u.email).map((u) => u.email);
+    // el escalamiento final a «RR.HH.» no va a un admin con avisosSoloDirectos (22/10/2026: sólo quiere los de sus reportes directos)
+    const adminEmails = usuarios.filter((u) => u.rol === 'admin' && !u.avisosSoloDirectos).map((u) => (personaPorId.get(u.personaId) || {}).email || u.email).filter(Boolean);
 
     const vac = await procesarUnaColeccion({
       solicitudes: solicitudesVacaciones, guardar: guardarSolicitudVacacion, tipo: 'vacaciones', personaPorId, usuarioPorPersonaId, adminEmails,

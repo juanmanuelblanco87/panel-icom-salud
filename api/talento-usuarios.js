@@ -44,7 +44,10 @@ async function accionCrearUsuario(payload, solicitante) {
   const personaId = (payload && payload.personaId) || null;
   const unidadNegocio = (payload && payload.unidadNegocio) || null;
   const nombre = String((payload && payload.nombre) || usuario).trim();
-  const email = String((payload && payload.email) || '').trim();
+  const emailForm = String((payload && payload.email) || '').trim();
+  // 28/10/2026: si el usuario está vinculado a una persona, el email es el de su FICHA (no el que se tipee acá)
+  const fichaAlta = personaId ? await leerPersona(personaId) : null;
+  const email = (fichaAlta && fichaAlta.email) ? String(fichaAlta.email).trim() : emailForm;
 
   const errores = [];
   if (!usuario) errores.push('Falta el usuario.');
@@ -99,10 +102,13 @@ async function accionEditarUsuario(payload, solicitante) {
   const personaId = (payload && payload.personaId) || null;
   const unidadNegocio = (payload && payload.unidadNegocio) || null;
   const nombre = String((payload && payload.nombre) || '').trim();
-  const email = String((payload && payload.email) || '').trim();
+  const emailForm = String((payload && payload.email) || '').trim();
 
   const existente = await leerUsuario(usuario);
   if (!existente) throw httpError(404, { ok: false, error: 'Ese usuario no existe.' });
+  // 28/10/2026: el email manda el de la FICHA de la persona vinculada (si tiene); el del formulario sólo si no hay ficha o la ficha no tiene email
+  const fichaEdicion = (personaId || existente.personaId) ? await leerPersona(personaId || existente.personaId) : null;
+  const email = (fichaEdicion && fichaEdicion.email) ? String(fichaEdicion.email).trim() : emailForm;
 
   const errores = [];
   if (!ROLES_VALIDOS.includes(rol)) errores.push('Rol inválido: debe ser admin, supervisor, colaborador o gerente.');

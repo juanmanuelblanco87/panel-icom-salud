@@ -1,0 +1,10 @@
+/* ═══ ÍCONOS DE LÍNEA (reemplazan los emojis; ver iconos_motor.js) ═══ */
+html[data-tema="nuevo"] .eic{display:inline-block;width:1.08em;height:1.08em;overflow:hidden;white-space:nowrap;text-indent:-100em;font-size:inherit;line-height:1;vertical-align:-.17em;background-color:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;flex-shrink:0;user-select:text}
+/* semáforo: puntos llenos en vez de círculos de emoji */
+html[data-tema="nuevo"] .eic[data-i^="dot-"]{width:.62em;height:.62em;border-radius:50%;vertical-align:.02em;margin:0 .12em;-webkit-mask:none;mask:none}
+html[data-tema="nuevo"] .eic[data-i="dot-ok"]{background-color:var(--ok,#1E8E5A)}
+html[data-tema="nuevo"] .eic[data-i="dot-warn"]{background-color:#E0A21A}
+html[data-tema="nuevo"] .eic[data-i="dot-err"]{background-color:var(--danger,#C8402F)}
+/* menú lateral: íconos de 17px alineados con la etiqueta; heredan el color del ítem (gris, verde si está activo) */
+html[data-tema="nuevo"] .sb-icon{width:18px;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+html[data-tema="nuevo"] .sb-icon .eic{width:17px;height:17px;vertical-align:0}

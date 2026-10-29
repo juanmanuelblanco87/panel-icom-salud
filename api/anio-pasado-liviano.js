@@ -16,6 +16,7 @@
 //   GET                                  -> devuelve la foto tal cual (público, sólo lectura, caché de borde 1 h)
 //   GET con Authorization: Bearer CRON_SECRET  (cron diario) o ?secret=MAINTENANCE_SECRET  -> completa los meses que falten del año
 //        pasado (de a uno, dentro del tiempo disponible) y guarda; cuando cambia el año arma el nuevo solo. Si ya está completa no hace nada.
+const { avisarSinSesion } = require('./_acceso-aviso');
 const { put, head } = require('@vercel/blob');
 
 const BLOB_PATHNAME = 'anio_pasado_liviano.json';
@@ -42,6 +43,7 @@ function aLiviano(data) {
 }
 
 module.exports = async function handler(req, res) {
+  avisarSinSesion(req, 'anio-pasado-liviano'); // 14/10/2026: modo aviso (sólo registra, ver _acceso-aviso.js)
   res.setHeader('Access-Control-Allow-Origin', '*');
   try {
     const url = new URL(req.url, 'https://' + req.headers.host);

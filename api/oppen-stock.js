@@ -235,7 +235,9 @@ const EXCLUDED_DEPOS = new Set([]);
 const DEPO_CEN = 'DEPO-CEN';
 const DEPO_CEN_CANAL = 'Bella Vista';
 
+const { avisarSinSesion } = require('./_acceso-aviso');
 module.exports = async function handler(req, res) {
+  avisarSinSesion(req, 'oppen-stock'); // 14/10/2026: modo aviso (sólo registra, ver _acceso-aviso.js)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
 

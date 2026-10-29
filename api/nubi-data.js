@@ -6,7 +6,7 @@
 //   GET /api/nubi-data?mes=YYYY-MM -> { ok, mes, final, corteHasta, generatedAt, categorias:{ [id]: agregado } }
 //   GET /api/nubi-data?mes=YYYY-MM&sub=1 -> detalle por subcategoría del mes (se baja sólo cuando la app filtra por subcategoría)
 const { requerirSesion } = require('./_talento-auth');
-const { leerMes, leerSub, mesesDisponibles, leerProgreso } = require('./_nubi-store');
+const { leerMesRespaldo, leerSubRespaldo, mesesDisponibles, leerProgreso } = require('./_nubi-store');
 const { hoyART, resumen } = require('./_nubi-scan');
 const { nubiGet, categoriasAutorizadas } = require('./_nubi-api');
 
@@ -35,17 +35,17 @@ module.exports = async function handler(req, res) {
     if (mes) {
       if (!/^\d{4}-\d{2}$/.test(mes)) { res.status(400).json({ ok: false, error: 'mes inválido' }); return; }
       if (url.searchParams.get('sub') === '1') {
-        const s = await leerSub(mes);
+        const s = await leerSubRespaldo(mes);   // Vercel Blob y, si falta, la copia de Hostinger
         if (!s) { res.status(404).json({ ok: false, error: 'Todavía no hay detalle por subcategoría de ese mes (se completa en la próxima actualización).' }); return; }
         res.status(200).json({ ok: true, mes: s.mes, categorias: s.categorias });
         return;
       }
-      const d = await leerMes(mes);
+      const d = await leerMesRespaldo(mes);   // Vercel Blob y, si falta, la copia de Hostinger
       if (!d) { res.status(404).json({ ok: false, error: 'Todavía no hay datos de ese mes.' }); return; }
       res.status(200).json({ ok: true, mes: d.mes, final: !!d.final, corteHasta: d.corteHasta || null, generatedAt: d.generatedAt, categorias: d.categorias });
       return;
     }
-    const [meses, categorias, prog] = await Promise.all([mesesDisponibles(hoyART().mes), nombresCategorias(), leerProgreso()]);
+    const [meses, categorias, prog] = await Promise.all([mesesDisponibles(hoyART().mes, 24, { respaldo: true }), nombresCategorias(), leerProgreso()]);
     res.status(200).json({ ok: true, meses, categorias, hoy: hoyART().iso, progreso: prog ? resumen(prog) : null });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });

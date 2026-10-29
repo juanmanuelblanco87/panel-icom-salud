@@ -41,6 +41,7 @@ module.exports = async function handler(req, res) {
       .map(u => ({
         usuario: u.usuario,
         rol: u.rol,
+        personaId: u.personaId || null,   // para el botón de WhatsApp del chat (el teléfono sale de la ficha de la persona)
         nombre: (u.personaId && personaPorId[u.personaId]) ? personaPorId[u.personaId].nombre : (u.nombre || u.usuario),
       }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));

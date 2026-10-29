@@ -1,0 +1,87 @@
+/* ═══ TEMA NUEVO ═══ (todo cuelga de html[data-tema="nuevo"]; sin ese atributo no cambia nada) */
+html[data-tema="nuevo"]{
+  --fondo:#F4F6F5; --superficie:#fff;
+  --accent-soft:#E6F2F1; --accent-soft-2:#CDE5E2;
+  --ink:#1C2624; --ink-soft:#56615E; --muted:#66716D; --faint:#C9D0CD;
+  --line:#E4E8E7; --line-input:#D3D9D7; --surface-2:#F7F9F8;
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px;
+  --ok:#1E8E5A; --ok-bg:#E4F4EB; --warn:#B26A00; --warn-bg:#FFF1D6; --danger:#C5392A; --danger-bg:#FCE8E5;
+  --sombra:0 1px 2px rgba(16,40,36,.04),0 4px 14px rgba(16,40,36,.05);
+  --sombra-hover:0 2px 4px rgba(16,40,36,.06),0 10px 26px rgba(16,40,36,.08);
+}
+html[data-tema="nuevo"] *{font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html[data-tema="nuevo"],html[data-tema="nuevo"] body{background:var(--fondo);color:var(--ink);-webkit-font-smoothing:antialiased}
+
+/* ── tarjetas: un solo estilo (borde fino, esquina 16, sombra suave); los fondos de tono de los indicadores se conservan ── */
+html[data-tema="nuevo"] .card,
+html[data-tema="nuevo"] .stk-kpi,
+html[data-tema="nuevo"] .metric,
+html[data-tema="nuevo"] .kpi-card,
+html[data-tema="nuevo"] .erp-kpi,
+html[data-tema="nuevo"] .modal,
+html[data-tema="nuevo"] .modal-box{border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .card{background:#fff}
+html[data-tema="nuevo"] .kpi-card,html[data-tema="nuevo"] .erp-kpi,html[data-tema="nuevo"] .stk-kpi,html[data-tema="nuevo"] .metric{transition:box-shadow .15s}
+html[data-tema="nuevo"] .kpi-card:hover,html[data-tema="nuevo"] .erp-kpi:hover,html[data-tema="nuevo"] .stk-kpi:hover,html[data-tema="nuevo"] .metric:hover{box-shadow:var(--sombra-hover)}
+
+/* ── botones ── */
+html[data-tema="nuevo"] .btn,html[data-tema="nuevo"] .btn-secondary,html[data-tema="nuevo"] .modo-btn,html[data-tema="nuevo"] .pm-btn{border-radius:10px;border-color:var(--line-input);font-weight:600;transition:border-color .12s,color .12s,background .12s}
+html[data-tema="nuevo"] .btn:hover,html[data-tema="nuevo"] .btn-secondary:hover,html[data-tema="nuevo"] .modo-btn:hover{border-color:var(--accent);color:var(--accent)}
+html[data-tema="nuevo"] .btn-primary,html[data-tema="nuevo"] .btn.primary,html[data-tema="nuevo"] .btn.pri{border-radius:10px;font-weight:600}
+
+/* ── periodos / vistas: control segmentado (en vez de botones sueltos) ── */
+html[data-tema="nuevo"] .mode-toggle{display:inline-flex;gap:2px;padding:3px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sombra);max-width:100%}
+html[data-tema="nuevo"] .mode-toggle button,html[data-tema="nuevo"] .mode-toggle .modo-btn{border:none;background:transparent;border-radius:9px;color:var(--ink-soft);font-weight:600;box-shadow:none}
+html[data-tema="nuevo"] .mode-toggle button:hover{background:#F0F3F2;color:var(--ink);border:none}
+html[data-tema="nuevo"] .mode-toggle button.active,html[data-tema="nuevo"] .mode-toggle .modo-btn.active{background:var(--accent);color:#fff}
+
+/* ── tablas: encabezado discreto y filas con aire (las clases propias de cada app, como .col7d, conservan su tinte) ── */
+:where(html[data-tema="nuevo"]) thead th{background:#FAFBFB;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+:where(html[data-tema="nuevo"]) tbody td{border-bottom-color:#EEF1F0}
+:where(html[data-tema="nuevo"]) tbody tr:hover td{background:#FAFCFB}
+html[data-tema="nuevo"] td.num,html[data-tema="nuevo"] th.num{font-variant-numeric:tabular-nums}
+html[data-tema="nuevo"] .pill{font-weight:600}
+
+/* ── encabezado de cada app: blanco con línea fina ── */
+html[data-tema="nuevo"] header{background:#fff;border-bottom:1px solid var(--line);box-shadow:none}
+
+/* ═══ SHELL: menú claro ═══ */
+html[data-tema="nuevo"] #sidebar{background:#fff;color:var(--ink-soft);border-right:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-top{background:#fff;box-shadow:none;border-bottom:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-logo-text{color:var(--muted)}
+html[data-tema="nuevo"] .sb-section-label{color:var(--muted);font-weight:600;letter-spacing:.07em}
+html[data-tema="nuevo"] .sb-item,html[data-tema="nuevo"] .sb-logout{color:var(--ink-soft);border-left:none;border-radius:10px;margin:1px 10px;font-weight:500;transition:background .12s,color .12s}
+html[data-tema="nuevo"] .sb-item:hover,html[data-tema="nuevo"] .sb-logout:hover{background:#F0F3F2;color:var(--ink)}
+html[data-tema="nuevo"] .sb-item.active{background:var(--accent-soft);color:var(--accent-hover);font-weight:600;border-left:none}
+html[data-tema="nuevo"] .sb-channel-caret{color:var(--muted)}
+html[data-tema="nuevo"] .sb-apps-group{border-left:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-sesion-info{border-top:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-sesion-row:hover{background:#F0F3F2}
+html[data-tema="nuevo"] .sb-sesion-texto{color:var(--ink)}
+html[data-tema="nuevo"] .sb-badge{box-shadow:none}
+html[data-tema="nuevo"] #sidebar::-webkit-scrollbar-thumb{background:rgba(28,38,36,.18)}
+html[data-tema="nuevo"] #sidebar::-webkit-scrollbar-thumb:hover{background:rgba(28,38,36,.3)}
+html[data-tema="nuevo"] #sidebarBackdrop.show{background:rgba(16,40,36,.35)}
+
+/* barra superior del celular: blanca, con el título en tinta */
+@media (max-width:768px){
+  html[data-tema="nuevo"] #mobileTopBar{background:#fff;border-bottom:1px solid var(--line);box-shadow:none}
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span,
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span::before,
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span::after{background:var(--accent)}
+  /* 21/10/2026 ("todo ese espacio vacío arriba", iPhone): la barra baja de 52 a 44 px y muestra el título de la pantalla (con la unidad abajo, chico); el título y la «ceja» repetidos
+     dentro de la pantalla se sacan en celular, así el contenido arranca unos 70 px más arriba. */
+  html[data-tema="nuevo"] #mobileTopBar{height:calc(44px + env(safe-area-inset-top,0px));gap:10px}
+  html[data-tema="nuevo"] #appShell{padding-top:calc(44px + env(safe-area-inset-top,0px))}
+  html[data-tema="nuevo"] #sidebar{top:calc(44px + env(safe-area-inset-top,0px))}
+  html[data-tema="nuevo"] #mobileTopBarTitle{color:var(--ink);font-weight:600}
+  html[data-tema="nuevo"] #mobileTopBarTitle small{color:var(--accent)}
+  html[data-tema="nuevo"] .erp-header::before{display:none !important}
+  html[data-tema="nuevo"] .erp-header > div:first-child{display:none !important}
+  html[data-tema="nuevo"] .htitle[data-ceja]::before{display:none !important}
+  html[data-tema="nuevo"] #sidebar{box-shadow:6px 0 30px rgba(16,40,36,.18)}
+  html[data-tema="nuevo"] #sidebar:not(.mobile-open){box-shadow:none}   /* 21/10/2026: con el menú cerrado su sombra se filtraba como una franja gris en el borde izquierdo de todas las pantallas (iPhone) */
+}
+
+/* controles segmentados (Mensual/Quincenal/…, modos, atajos de período): el texto de cada botón queda centrado. Sólo ellos: los botones de listas y menús (Muro, Personas…) siguen alineados a la izquierda. */
+:where(html[data-tema="nuevo"]) :is(.periodo-tabs, .mode-toggle, .modo-group, .erp-seg) button{justify-content:center}

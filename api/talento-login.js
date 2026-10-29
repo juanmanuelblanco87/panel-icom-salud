@@ -143,12 +143,14 @@ module.exports = async function handler(req, res) {
       // "todas las unidades sí/no", el shell simplemente mira si cada
       // token de canal está en la lista. `rol==='admin'` (RR.HH.) nunca
       // pasa por acá -- el shell lo trata aparte como "todas las apps".
-      let appsPermitidas = ['gestion_talento']; // default seguro si no hay Persona vinculada (ej. cuentas admin sin ficha)
+      let appsPermitidas = ['gestion_talento', 'correo']; // default seguro si no hay Persona vinculada (ej. cuentas admin sin ficha)
       if (registro.personaId) {
         const persona = await leerPersona(registro.personaId);
         if (persona) {
           personaNombre = persona.nombre;
-          appsPermitidas = Array.isArray(persona.appsPermitidas) ? persona.appsPermitidas : ['gestion_talento'];
+          appsPermitidas = Array.isArray(persona.appsPermitidas) ? persona.appsPermitidas : ['gestion_talento', 'correo'];
+          // 15/10/2026: fichas anteriores a la app Correo y Calendario reciben el acceso solas; recién cuando RR.HH. guarda Apps a mano (appsV2) se respeta lo que tildó.
+          if (!persona.appsV2 && !appsPermitidas.includes('correo')) appsPermitidas = appsPermitidas.concat('correo');
         }
       }
       // 14/08/2026: se agrega `token` -- a partir de acá el cliente lo

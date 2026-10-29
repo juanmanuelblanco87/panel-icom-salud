@@ -167,6 +167,26 @@ async function aceptarRelampago(itemId, promotionId, dealPrice, stock) {
   return meliPost(`/seller-promotions/items/${itemId}`, { app_version: 'v2' }, body);
 }
 
+// 28/10/2026 ("tengo que tener la opción de aplicar a todas las promos"): aplica el ítem a una campaña a la que Mercado Libre lo invitó.
+// Doc oficial "Traditional campaigns" (DEAL) y "Seller campaigns" (SELLER_CAMPAIGN): POST /seller-promotions/items/{ITEM_ID}?app_version=v2 con promotion_id, promotion_type y deal_price (el precio debe
+// quedar dentro de lo que MeLi acepta -- se usa el sugerido; fuera de rango da 400 ERROR_CREDIBILITY_DISCOUNTED_PRICE). Para SMART se usa el flujo ya probado (offer_id).
+// Sólo se aplican tipos documentados; el resto (cupones, otros co-participados) se hace desde MeLi.
+async function aceptarPromocionCampana(itemId, promocion) {
+  const tipo = promocion.type;
+  if (tipo === 'SMART') {
+    if (!promocion.ref_id) throw new Error('La propuesta no trae el identificador de oferta (offer_id) -- aplicala desde Mercado Libre.');
+    return aceptarPropuestaSmart(itemId, promocion.id, promocion.ref_id);
+  }
+  if (tipo !== 'DEAL' && tipo !== 'SELLER_CAMPAIGN') throw new Error('Este tipo de promoción (' + tipo + ') todavía no se puede aplicar desde el panel -- hacelo desde Mercado Libre.');
+  const sugerido = Number(promocion.suggested_discounted_price) || 0;
+  const propio = Number(promocion.price) || 0;
+  const precio = sugerido > 0 ? sugerido : propio;
+  if (!(precio > 0)) throw new Error('Mercado Libre no informó un precio sugerido para esta promoción -- aplicala desde Mercado Libre.');
+  const min = Number(promocion.min_discounted_price) || 0, max = Number(promocion.max_discounted_price) || 0;
+  if ((min && precio < min) || (max && precio > max)) throw new Error('El precio sugerido (' + precio + ') quedó fuera del rango que acepta MeLi (' + min + ' a ' + max + ').');
+  return meliPost(`/seller-promotions/items/${itemId}`, { app_version: 'v2' }, { promotion_id: promocion.id, promotion_type: tipo, deal_price: precio });
+}
+
 async function crearDescuentoIndividual(itemId, dealPrice, startDate, finishDate) {
   return meliPost(`/seller-promotions/items/${itemId}`, { app_version: 'v2' }, {
     deal_price: dealPrice,
@@ -188,6 +208,15 @@ async function obtenerItem(itemId) {
 // /sites/MLA/search. MeLi limita a 50 por página.
 async function buscarIdsDeVendedor(sellerId, status, offset, limit) {
   return meliGet(`/users/${sellerId}/items/search`, { status, offset: offset || 0, limit: limit || 50 });
+}
+
+// 15/10/2026 ("algunas publicaciones cuando se pausan desaparecen del dashboard"): confirmado en vivo -- la búsqueda POR status NO devuelve las publicaciones en
+// under_review / inactive (sub_status waiting_for_patch / forbidden: las "Inactivas para revisar" de MeLi; la búsqueda por esos status da total 0 aunque existan,
+// 36 de 1552 el día del diagnóstico). Sólo aparecen en la búsqueda SIN filtro de status, que para volúmenes grandes es search_type=scan (paginada con scroll_id, hasta 100 por página).
+async function buscarIdsScan(sellerId, scrollId) {
+  const params = { search_type: 'scan', limit: 100 };
+  if (scrollId) params.scroll_id = scrollId;
+  return meliGet(`/users/${sellerId}/items/search`, params);
 }
 
 // Multiget de detalle -- hasta 20 ids por llamada (límite de MeLi para
@@ -231,6 +260,7 @@ function recortarItem(it) {
     availableQuantity: it.available_quantity,
     soldQuantity: it.sold_quantity,
     status: it.status,
+    subStatus: Array.isArray(it.sub_status) ? it.sub_status : [],
     permalink: it.permalink,
     thumbnail: it.thumbnail,
     listingTypeId: it.listing_type_id,
@@ -358,9 +388,23 @@ async function buscarOfertaDeItem(itemId) {
     ? candidatasRelampago.reduce((min, p) => (Number(p.price) < Number(min.price) ? p : min))
     : null;
 
-  if (!mejorActiva && !mejorPropuesta && !mejorRelampago) return null;
+  // 28/10/2026 ("siempre hay varias promos y el panel sólo muestra 1"): se informan TODAS las promociones vigentes o disponibles del ítem (MeLi llega a mostrar 4 a la vez), cada una con su nombre,
+  // tipo, estado, vigencia y precio -- el panel arma con eso las columnas por campaña.
+  const promociones = lista
+    .filter((p) => ['candidate', 'pending', 'started'].includes(p.status))
+    .map((p) => ({
+      id: p.id || null, offerId: p.ref_id || null, tipo: p.type || null, estado: p.status, nombre: p.name || null,
+      desde: p.start_date || null, hasta: p.finish_date || null,
+      precio: Number(p.price) || null, precioLista: Number(p.original_price) || null,
+      precioSugerido: Number(p.suggested_discounted_price) || null, precioMin: Number(p.min_discounted_price) || null, precioMax: Number(p.max_discounted_price) || null,
+      aporteMeliPct: Number(p.meli_percentage) || null, aporteSellerPct: Number(p.seller_percentage) || null,
+    }))
+    .slice(0, 12);
+
+  if (!mejorActiva && !mejorPropuesta && !mejorRelampago && !promociones.length) return null;
 
   return {
+    promociones,
     precioOferta: mejorActiva ? Number(mejorActiva.price) : null,
     precioLista: mejorActiva ? (Number(mejorActiva.original_price) || null) : null,
     nombrePromocion: mejorActiva ? (mejorActiva.name || null) : null,
@@ -395,6 +439,56 @@ async function buscarOfertaDeItem(itemId) {
       offerId: mejorRelampago.ref_id || null,
     } : null,
   };
+}
+
+// 28/10/2026: después de aceptar una propuesta / crear un descuento / reactivar / aceptar una Relámpago se vuelve a consultar a MeLi la situación REAL del ítem y se vuelcan al snapshot el precio vigente
+// (el MÁS BAJO de las promociones activas: ahora pueden convivir una propuesta de MeLi y una oferta propia), las propuestas que siguen pendientes y la lista de promociones. Si MeLi todavía no muestra como
+// vigente lo que se acaba de aplicar, se conserva lo recién aplicado (usarManual) para que el precio no "vuelva" al viejo.
+// 28/10/2026 ("el precio que figura en el panel no coincide con el de la publicación"): MeLi tiene un dato directo del precio REAL de hoy -- /items/{id}/sale_price (amount = lo que paga el comprador ahora,
+// regular_amount = precio de lista). Es la fuente de verdad: no depende de qué promoción figure como vigente (una aceptada para el futuro no cuenta, una oferta propia de hoy sí).
+async function obtenerPrecioVigente(itemId) {
+  try {
+    const j = await meliGet(`/items/${itemId}/sale_price`, { context: 'channel_marketplace' });
+    const amount = Number(j && j.amount) || 0;
+    return amount > 0 ? { amount, regular: Number(j.regular_amount) || null } : null;
+  } catch (e) { return null; }
+}
+function aplicarOfertaViva(item, vivo, manual, vigente) {
+  let precio = vivo ? vivo.precioOferta : null;
+  let lista = vivo ? vivo.precioLista : null;
+  let nombre = vivo ? vivo.nombrePromocion : null;
+  let aporteM = vivo ? vivo.aporteMeliPct : null;
+  let aporteS = vivo ? vivo.aporteSellerPct : null;
+  if (manual && Number(manual.precioOferta) > 0 && !(Number(precio) > 0 && Number(precio) <= Number(manual.precioOferta))) {
+    precio = manual.precioOferta; lista = manual.precioLista || lista; nombre = manual.nombre || nombre;
+    aporteM = manual.aporteMeliPct != null ? manual.aporteMeliPct : null; aporteS = manual.aporteSellerPct != null ? manual.aporteSellerPct : null;
+  }
+  if (vigente && vigente.amount > 0) {
+    if (vigente.regular && vigente.regular > vigente.amount) {
+      precio = vigente.amount; lista = vigente.regular;
+      const act = vivo && (vivo.promociones || []).find((p) => p.estado === 'started' && Math.abs(Number(p.precio) - vigente.amount) < 1);
+      nombre = act ? (act.nombre || 'Descuento propio') : 'Descuento propio';
+      aporteM = act && act.aporteMeliPct ? act.aporteMeliPct : null; aporteS = act && act.aporteSellerPct ? act.aporteSellerPct : null;
+    } else { precio = null; lista = null; nombre = null; aporteM = null; aporteS = null; }
+  }
+  item.precioOferta = precio || null;
+  item.precioListaOferta = lista || null;
+  item.nombrePromocion = nombre || null;
+  item.aporteMeliPct = aporteM;
+  item.aporteSellerPct = aporteS;
+  item.propuestaMeli = vivo ? vivo.propuestaMeli : null;
+  item.propuestaRelampago = vivo ? (vivo.propuestaRelampago || null) : null;
+  item.promociones = vivo ? (vivo.promociones || []) : [];
+  item.promocionesV = 3;   // 3 = lista completa con offerId + precio vigente real (sale_price), ver meli-promociones-refrescar.js
+}
+async function refrescarOfertaEnItem(item, itemId, usarManual) {
+  const manual = usarManual ? { precioOferta: item.precioOferta, precioLista: item.precioListaOferta, nombre: item.nombrePromocion, aporteMeliPct: item.aporteMeliPct, aporteSellerPct: item.aporteSellerPct } : null;
+  try {
+    const vigente = await obtenerPrecioVigente(itemId);
+    aplicarOfertaViva(item, await buscarOfertaDeItem(itemId), vigente ? null : manual, vigente);
+  } catch (e) {
+    console.error('refrescarOfertaEnItem: no se pudo consultar la promoción vigente de ' + itemId + ' (se conserva lo aplicado):', e && e.message ? e.message : e);
+  }
 }
 
 // 11/09/2026 ("podes traer... comisión asociada a la publicación...
@@ -500,7 +594,8 @@ function humanizarErrorMeli(mensajeCrudo) {
 }
 
 module.exports = {
-  obtenerTokenApp, meliGet, meliPost, obtenerItem, buscarIdsDeVendedor, obtenerItemsMultiget, buscarOrdenesDeVendedor, buscarVisitasDeItem, buscarOfertaDeItem,
+  obtenerPrecioVigente, aceptarPromocionCampana, aplicarOfertaViva, refrescarOfertaEnItem,
+  obtenerTokenApp, meliGet, meliPost, obtenerItem, buscarIdsDeVendedor, buscarIdsScan, obtenerItemsMultiget, buscarOrdenesDeVendedor, buscarVisitasDeItem, buscarOfertaDeItem,
   obtenerComisionListing, obtenerCostosEnvio, obtenerStockFulfillment, obtenerEnvioGratis, obtenerShipmentDetalle, aceptarPropuestaSmart, aceptarRelampago,
   crearDescuentoIndividual, humanizarErrorMeli,
 };

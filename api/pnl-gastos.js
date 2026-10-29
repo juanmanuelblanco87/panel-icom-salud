@@ -21,6 +21,7 @@
 // líneas de Ventas/CMV/Utilidad del mes en curso con ese dato; Gastos (la parte cara) sigue
 // viniendo del blob diario de siempre, sin cambios. El "acumulado a hoy" queda fresco a como
 // mucho 15 minutos, no 24hs.
+const { avisarSinSesion } = require('./_acceso-aviso');
 const { head } = require('@vercel/blob');
 
 function blobGastosPara(mesYYYYMM) {
@@ -75,6 +76,7 @@ function pisarVentaEnVivo(payload, ventaVivo) {
 }
 
 module.exports = async function handler(req, res) {
+  avisarSinSesion(req, 'pnl-gastos'); // 14/10/2026: modo aviso (sólo registra, ver _acceso-aviso.js)
   res.setHeader('Access-Control-Allow-Origin', '*');
   try {
     const url = new URL(req.url, 'https://' + req.headers.host);

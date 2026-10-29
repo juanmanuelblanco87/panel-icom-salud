@@ -10,6 +10,7 @@
 //        agregados del mes (no el crudo: ver api/_nubi-agg.js). `final` = mes cerrado (escaneado cuando ya estaba completo).
 //   nubi_progreso.json    -- estado del escaneo retomable en curso (plan, cursores, acumuladores parciales).
 const { put, head, del } = require('@vercel/blob');
+const { configuracion } = require('./_nubi-espejo');
 const zlib = require('zlib');
 
 const BLOB_PROGRESO = 'nubi_progreso.json';
@@ -32,6 +33,19 @@ async function leerBlobJson(pathname) {
     return null;
   }
 }
+// 22/10/2026 ("nuestra app consume de nuestro host para no perder la data"): si el archivo no está en Vercel Blob, se lee de la copia del hosting propio (Hostinger, nubi-archivo.php).
+async function leerRemotoJson(pathname) {
+  const cfg = configuracion();
+  if (!cfg) return null;
+  try {
+    const r = await fetch(`${cfg.url}?accion=leer&ruta=${encodeURIComponent(pathname)}`, { headers: { 'X-Proxy-Secret': cfg.secret }, cache: 'no-store' });
+    if (!r.ok) return null;
+    return JSON.parse(await r.text());
+  } catch (e) {
+    return null;
+  }
+}
+const leerBlobJsonConRespaldo = async (pathname) => (await leerBlobJson(pathname)) || (await leerRemotoJson(pathname));
 async function escribirBlobJson(pathname, data) {
   data.generatedAt = new Date().toISOString();
   await put(pathname, JSON.stringify(data), { access: 'public', addRandomSuffix: false, contentType: 'application/json', allowOverwrite: true });
@@ -66,18 +80,21 @@ const escribirProgreso = (d) => escribirBlobJson(BLOB_PROGRESO, d);
 const leerMes = (mes) => leerBlobJson(blobMes(mes));
 const escribirMes = (mes, d) => escribirBlobJson(blobMes(mes), d);
 const leerSub = (mes) => leerBlobJson(blobSub(mes));
+// versiones para la app (nubi-data.js): Vercel Blob primero, la copia de Hostinger si falta
+const leerMesRespaldo = (mes) => leerBlobJsonConRespaldo(blobMes(mes));
+const leerSubRespaldo = (mes) => leerBlobJsonConRespaldo(blobSub(mes));
 const escribirSub = (mes, d) => escribirBlobJson(blobSub(mes), d);
 const leerAcc = (clave) => leerBlobJson(blobAcc(clave));
 const escribirAcc = (clave, d) => escribirBlobJson(blobAcc(clave), d);
 async function borrarAcc(clave) { try { await del(blobAcc(clave)); } catch (e) { /* no había */ } }
 
 // Meses con datos guardados (para el selector de la app): se prueba hacia atrás desde el mes en curso.
-async function mesesDisponibles(hasta, cuantos = 24) {
+async function mesesDisponibles(hasta, cuantos = 24, { respaldo = false } = {}) {
   const out = [];
   let [y, m] = hasta.split('-').map(Number);
   for (let i = 0; i < cuantos; i++) {
     const clave = `${y}-${String(m).padStart(2, '0')}`;
-    const d = await leerMes(clave);
+    const d = respaldo ? await leerMesRespaldo(clave) : await leerMes(clave);
     if (d) out.push({ mes: clave, final: !!d.final, corteHasta: d.corteHasta || null, generatedAt: d.generatedAt || null });
     else if (i > 2) break; // sin datos hace 3 meses: no sigue buscando
     m--; if (m < 1) { m = 12; y--; }
@@ -85,4 +102,4 @@ async function mesesDisponibles(hasta, cuantos = 24) {
   return out;
 }
 
-module.exports = { escribirRawPagina, escribirRawManifest, leerRawManifest, respaldar, leerProgreso, escribirProgreso, leerMes, escribirMes, leerSub, escribirSub, leerAcc, escribirAcc, borrarAcc, mesesDisponibles };
+module.exports = { leerBlobJsonConRespaldo, leerMesRespaldo, leerSubRespaldo, escribirRawPagina, escribirRawManifest, leerRawManifest, respaldar, leerProgreso, escribirProgreso, leerMes, escribirMes, leerSub, escribirSub, leerAcc, escribirAcc, borrarAcc, mesesDisponibles };

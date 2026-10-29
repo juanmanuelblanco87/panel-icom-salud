@@ -18,7 +18,7 @@
 // 24/03/2025) -- se calculan acá, del lado del servidor, para no
 // depender de que el reloj del navegador de quien lo usa esté bien.
 const { requerirSesion, puedeAprobarMeli } = require('./_talento-auth');
-const { crearDescuentoIndividual, humanizarErrorMeli } = require('./_meli-api');
+const { crearDescuentoIndividual, humanizarErrorMeli, refrescarOfertaEnItem } = require('./_meli-api');
 const { leerSnapshot, escribirSnapshot } = require('./_meli-store');
 
 function fechaISO(d) {
@@ -73,6 +73,8 @@ module.exports = async function handler(req, res) {
       item.nombrePromocion = 'Descuento propio';
       item.aporteMeliPct = null;
       item.aporteSellerPct = null;
+      await refrescarOfertaEnItem(item, itemId, true);
+      item.cambioTs = Date.now();
       await escribirSnapshot(snapshot);
     }
 

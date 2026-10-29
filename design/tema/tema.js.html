@@ -1,0 +1,46 @@
+<script id="icomTemaJs">
+/* Tema "nuevo" (propuesta de diseño aprobada 20/10/2026: menú claro, Inter, tarjetas y chips al estilo Lightdash, mismos verdes). Es el diseño por defecto; ?tema=actual lo apaga en este navegador y ?tema=nuevo lo vuelve a prender.
+   Mientras no se apruebe para producción, quien no lo pide sigue viendo el diseño de siempre. Las sub-apps (iframes) heredan la elección del panel. Bloque generado desde design/tema.html con scripts/sync_tema.py. */
+(function(){
+  var t = 'nuevo'; // 20/10/2026: el tema nuevo pasó a ser el de todos (el usuario aprobó el diseño y pidió pasarlo a productivo). ?tema=actual lo apaga en ese navegador.
+  try{
+    var p = new URLSearchParams(location.search).get('tema');
+    if(p === 'nuevo' || p === 'actual'){ try{ localStorage.setItem('icom_tema', p); }catch(e){} t = p; }
+    else{
+      var g = null; try{ g = localStorage.getItem('icom_tema'); }catch(e){}
+      if(g === 'nuevo' || g === 'actual') t = g;
+      else if(window.parent && window.parent !== window){ var h = window.parent.document.documentElement.getAttribute('data-tema'); if(h) t = h; }
+    }
+    if(window.parent && window.parent !== window && !p){ var h2 = window.parent.document.documentElement.getAttribute('data-tema'); if(h2) t = h2; }
+  }catch(e){}
+  document.documentElement.setAttribute('data-tema', t);
+  if(t === 'nuevo'){
+    // la tipografía se pide SIN bloquear el dibujo de la página (media=print y se activa al terminar de bajar): si Google Fonts tarda o está filtrado en esa red, el panel carga igual con la letra del sistema
+    var l = document.createElement('link'); l.rel = 'stylesheet'; l.media = 'print'; l.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
+    l.onload = function(){ l.media = 'all'; };
+    document.head.appendChild(l);
+  }
+  // Red de seguridad (20/10/2026, "la página no responde" en un equipo): si el diseño nuevo se queda trabado al cargar -- y la persona cierra la pestaña o elige "Salir de la página" --
+  // la próxima vez que abra el panel se detecta que la carga anterior nunca llegó a "estar sana"; a la segunda vez seguida vuelve sola al diseño anterior y lo recuerda en ese navegador.
+  // Sólo corre en la ventana principal (no en las sub-apps) y sólo si hay localStorage.
+  try{
+    if(t === 'nuevo' && window.parent === window && !p){
+      // cuenta sólo si abandonó la carga anterior después de 5 s o más (recargas apuradas, F5, no cuentan)
+      var ahora = Date.now(), ult = Number(localStorage.getItem('icom_tema_inicio') || 0), fallos = Number(localStorage.getItem('icom_tema_fallos') || 0);
+      if(ult && ahora - ult > 5000 && ahora - ult < 10 * 60 * 1000){ fallos++; localStorage.setItem('icom_tema_fallos', String(fallos)); }
+      if(fallos >= 2){
+        localStorage.setItem('icom_tema', 'actual'); localStorage.removeItem('icom_tema_fallos'); localStorage.removeItem('icom_tema_inicio');
+        document.documentElement.setAttribute('data-tema', 'actual');
+      }else{
+        localStorage.setItem('icom_tema_inicio', String(ahora));
+        var ultimoLatido = Date.now(), peorHueco = 0;
+        var latido = setInterval(function(){ var n = Date.now(); if(n - ultimoLatido > peorHueco) peorHueco = n - ultimoLatido; ultimoLatido = n; }, 200);
+        setTimeout(function(){
+          clearInterval(latido);
+          if(peorHueco < 4000){ localStorage.removeItem('icom_tema_inicio'); localStorage.removeItem('icom_tema_fallos'); }   // cargó y respondió bien: todo en orden
+        }, 15000);
+      }
+    }
+  }catch(e){}
+})();
+</script>

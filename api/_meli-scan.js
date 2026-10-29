@@ -24,7 +24,7 @@
 // necesitar más de UNA invocación de 45s, por eso retomable desde el
 // arranque (a diferencia de meli-resolver.js, que es 1 sola llamada).
 const {
-  buscarIdsDeVendedor, obtenerItemsMultiget, buscarOrdenesDeVendedor, buscarVisitasDeItem, buscarOfertaDeItem,
+  buscarIdsDeVendedor, buscarIdsScan, obtenerItemsMultiget, buscarOrdenesDeVendedor, buscarVisitasDeItem, buscarOfertaDeItem,
   obtenerComisionListing, obtenerCostosEnvio, obtenerStockFulfillment, obtenerEnvioGratis, obtenerShipmentDetalle,
 } = require('./_meli-api');
 
@@ -32,7 +32,8 @@ const {
 // under_review/inactive/payment_required existen en la API pero MeLi los
 // devolvió vacíos (0) para este vendedor al confirmar esto en vivo; se
 // listan de todos modos por si algún día aparece algo ahí.
-const STATUSES = ['active', 'paused', 'closed', 'under_review', 'inactive', 'payment_required'];
+// 'todos' es un paso extra (ver buscarIdsScan en _meli-api.js): la búsqueda SIN filtro de status, la única que trae las publicaciones en under_review/inactive ("Inactivas para revisar").
+const STATUSES = ['active', 'paused', 'closed', 'under_review', 'inactive', 'payment_required', 'todos'];
 const PAGE_LIMIT = 50;
 const MULTIGET_BATCH = 20;
 
@@ -40,24 +41,31 @@ const MULTIGET_BATCH = 20;
 // statusIndex/offset. Devuelve { idsPorStatus, statusIndex, offset,
 // completo }.
 async function escanearIds({
-  sellerId, startTime, maxMs, statusIndex = 0, offset = 0, idsPorStatus = {},
+  sellerId, startTime, maxMs, statusIndex = 0, offset = 0, idsPorStatus = {}, scrollId = null,
 }) {
   let idx = statusIndex;
   let off = offset;
+  let scroll = scrollId;
   while (idx < STATUSES.length) {
     if (Date.now() - startTime > maxMs) {
-      return { idsPorStatus, statusIndex: idx, offset: off, completo: false };
+      return { idsPorStatus, statusIndex: idx, offset: off, scrollId: scroll, completo: false };
     }
     const status = STATUSES[idx];
     if (!idsPorStatus[status]) idsPorStatus[status] = [];
     let pagina;
     try {
-      pagina = await buscarIdsDeVendedor(sellerId, status, off, PAGE_LIMIT);
+      pagina = status === 'todos' ? await buscarIdsScan(sellerId, scroll) : await buscarIdsDeVendedor(sellerId, status, off, PAGE_LIMIT);
     } catch (e) {
       console.error(`_meli-scan: error buscando ids status=${status} offset=${off}, se corta acá (se reintenta desde el mismo punto en la próxima llamada):`, e);
-      return { idsPorStatus, statusIndex: idx, offset: off, completo: false };
+      return { idsPorStatus, statusIndex: idx, offset: off, scrollId: scroll, completo: false };
     }
     const results = (pagina && pagina.results) || [];
+    if (status === 'todos') {
+      // el scan no usa offset/total: se sigue con el scroll_id hasta que venga una página vacía
+      idsPorStatus[status].push(...results);
+      if (results.length === 0) { idx += 1; off = 0; scroll = null; } else if (pagina.scroll_id) scroll = pagina.scroll_id;
+      continue;
+    }
     idsPorStatus[status].push(...results);
     const total = (pagina && pagina.paging && pagina.paging.total) || 0;
     off += results.length;
@@ -69,7 +77,7 @@ async function escanearIds({
       off = 0;
     }
   }
-  return { idsPorStatus, statusIndex: idx, offset: off, completo: true };
+  return { idsPorStatus, statusIndex: idx, offset: off, scrollId: scroll, completo: true };
 }
 
 // Fase 2: multiget de a MULTIGET_BATCH sobre la lista PLANA de ids (ya

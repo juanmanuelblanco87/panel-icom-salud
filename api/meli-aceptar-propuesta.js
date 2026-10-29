@@ -29,7 +29,7 @@
 // hay ninguna propuesta candidata en vivo (se venció, la aceptó otra persona, o MeLi la
 // retiró), se corta ACÁ con un error explícito en vez de aceptar algo que ya no corresponde.
 const { requerirSesion, puedeAprobarMeli } = require('./_talento-auth');
-const { aceptarPropuestaSmart, buscarOfertaDeItem, humanizarErrorMeli } = require('./_meli-api');
+const { aceptarPropuestaSmart, buscarOfertaDeItem, humanizarErrorMeli, refrescarOfertaEnItem } = require('./_meli-api');
 const { leerSnapshot, escribirSnapshot } = require('./_meli-store');
 
 module.exports = async function handler(req, res) {
@@ -91,6 +91,7 @@ module.exports = async function handler(req, res) {
           const item = snapshot.items && (snapshot.items[claveSnapshot] || snapshot.items[itemId]);
           if (item && item.propuestaMeli) {
             item.propuestaMeli = null;
+            item.cambioTs = Date.now();
             await escribirSnapshot(snapshot);
           }
         } catch (e) {
@@ -129,19 +130,29 @@ module.exports = async function handler(req, res) {
     // propuesta (la campaña no cambia de % al aceptarla).
     const snapshot = await leerSnapshot();
     const item = snapshot.items && (snapshot.items[claveSnapshot] || snapshot.items[itemId]);
+    // 28/10/2026 ("el precio que decía la oferta no fue el que quedó finalmente"): una propuesta que EMPIEZA en el futuro (ej. campañas del 2/11) queda aceptada pero NO es el precio vigente hoy; antes se
+    // volcaba igual como precioOferta y el panel mostraba un precio que la publicación todavía no tiene (caso Elevador de Inodoro: panel $83.865, publicación $85.999).
+    const desdePropuesta = item && item.propuestaMeli && item.propuestaMeli.vigenciaDesde ? Date.parse(item.propuestaMeli.vigenciaDesde) : NaN;
+    const iniciaAhora = !(desdePropuesta > Date.now());
     if (item) {
-      if (precioOferta) item.precioOferta = precioOferta;
-      if (precioListaOferta) item.precioListaOferta = precioListaOferta;
+      if (iniciaAhora) {
+        if (precioOferta) item.precioOferta = precioOferta;
+        if (precioListaOferta) item.precioListaOferta = precioListaOferta;
+      }
       if (item.propuestaMeli) {
-        item.aporteMeliPct = item.propuestaMeli.aporteMeliPct;
-        item.aporteSellerPct = item.propuestaMeli.aporteSellerPct;
-        item.nombrePromocion = item.propuestaMeli.nombre;
+        if (iniciaAhora) {
+          item.aporteMeliPct = item.propuestaMeli.aporteMeliPct;
+          item.aporteSellerPct = item.propuestaMeli.aporteSellerPct;
+          item.nombrePromocion = item.propuestaMeli.nombre;
+        }
         item.propuestaMeli = null;
       }
-      await escribirSnapshot(snapshot);
+      await refrescarOfertaEnItem(item, itemId, iniciaAhora);
+      item.cambioTs = Date.now();
+            await escribirSnapshot(snapshot);
     }
 
-    res.status(200).json({ ok: true, precioOferta, precioListaOferta });
+    res.status(200).json({ ok: true, precioOferta, precioListaOferta, iniciaAhora });
   } catch (e) {
     // 29/09/2026: ver humanizarErrorMeli en _meli-api.js -- mismo criterio que
     // meli-crear-descuento.js, códigos de error conocidos se acortan a castellano.

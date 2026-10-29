@@ -21,11 +21,13 @@
 // se autentica solo vía OIDC (VERCEL_OIDC_TOKEN + BLOB_STORE_ID, variables
 // de sistema que Vercel inyecta automáticamente en cualquier función de
 // este proyecto). No hace falta ni existe un BLOB_READ_WRITE_TOKEN acá.
+const { avisarSinSesion } = require('./_acceso-aviso');
 const { head } = require('@vercel/blob');
 
 const BLOB_PATHNAME = 'ventas_12m_sku_unidad.json';
 
 module.exports = async function handler(req, res) {
+  avisarSinSesion(req, 'ventas-12m-sku-unidad'); // 14/10/2026: modo aviso (sólo registra, ver _acceso-aviso.js)
   res.setHeader('Access-Control-Allow-Origin', '*');
   try {
     let info;

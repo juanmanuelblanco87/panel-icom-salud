@@ -33,7 +33,7 @@
 //     por cada SKU de la lista, todas apuntando al mismo MLA/permalink/
 //     visitas, pero con ventas7d/stock TRAÍDOS DE OPPEN por SKU (el
 //     dato real por variante -- ver api/meli-variantes-manual.js).
-const { put, get, del } = require('@vercel/blob');
+const { put, get, del, head } = require('@vercel/blob');
 
 const BLOB_SNAPSHOT = 'meli_snapshot.json';
 const BLOB_PROGRESS = 'meli_scan_progress.json';
@@ -126,6 +126,16 @@ async function leerSnapshot() {
 async function escribirSnapshot(data) {
   await escribirBlobJson(BLOB_SNAPSHOT, data);
 }
+// 28/10/2026 ("cuando alguien cambia un precio o aplica una promo, el otro usuario ve el precio viejo"): identificador barato de la versión del snapshot (metadatos del blob, sin descargarlo).
+// El panel lo consulta cada pocos segundos; si cambió, pide sólo las publicaciones modificadas (cambioTs) -- ver meli-publicaciones.js.
+async function leerVersionSnapshot() {
+  try {
+    const h = await head(BLOB_SNAPSHOT);
+    return String(h.etag || '') + '|' + String(h.uploadedAt || '');
+  } catch (e) {
+    return null;
+  }
+}
 
 async function leerProgreso() {
   return leerBlobJson(BLOB_PROGRESS);
@@ -212,6 +222,7 @@ async function escribirOcultas(ocultas) {
 module.exports = {
   leerSnapshot,
   escribirSnapshot,
+  leerVersionSnapshot,
   leerProgreso,
   escribirProgreso,
   borrarProgreso,

@@ -1,0 +1,1808 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ICOM · Correo y Calendario</title>
+<style>
+/* ICOM_TOKENS:BEGIN -- generado desde design/tokens.css, no editar a mano, correr scripts/sync_design_tokens.py */
+/* ICOM Salud — tokens de diseño compartidos.
+   Fuente de verdad ÚNICA: este archivo. No se edita a mano en ningún
+   otro lugar -- se copia (verbatim, entre marcadores ICOM_TOKENS)
+   dentro del <style> del shell y de cada sub-app vía
+   scripts/sync_design_tokens.py. Correr ese script con --check antes
+   de cualquier commit que toque este archivo, para confirmar que los
+   9 archivos quedaron sincronizados.
+
+   Valores elegidos por uso real medido en el código existente (ver
+   auditoría de diseño, 26/08/2026), no inventados -- cada uno es el
+   valor que YA es mayoritario en la mayoría de las 9 pantallas. */
+:root{
+  /* Marca / acento */
+  --accent:#007067;
+  --accent-hover:#005a52;
+  --accent-soft:#E6F2F1;
+
+  /* Semánticos */
+  --ok:#0F7A5A;
+  --ok-bg:#E8F5E9;
+  --warn:#a35b00;
+  --warn-bg:#FFF3E0;
+  --danger:#c0422a;
+  --danger-bg:#FBEAE8;
+
+  /* Texto y bordes (grises) */
+  --ink:#222222;
+  --ink-soft:#555555;   /* 10/09/2026: gris medio de texto -- consolida #555/#666 usados a mano en varias pantallas (ver auditoría UX Talento). Entre --ink y --muted. */
+  --muted:#6b6b6b;      /* 08/10/2026: era #999 (2,85:1 sobre blanco, no pasa AA). #6b6b6b da 5,3:1. Todos los usos de --muted son texto sobre fondo claro (verificado en las 9 pantallas). */
+  --faint:#cccccc;      /* 08/10/2026: sólo para bordes/decoración (1,5:1). NO usar para texto: usar --muted. */
+  --line:#e0dfd8;
+  --line-input:#dddddd;
+
+  /* Superficies muy claras (fondos de tarjeta secundaria, hover, filas) */
+  --surface-2:#f6f6f4;  /* 10/09/2026: consolida los ~7 blancos-grisáceos casi iguales (#f5f5f5/#fafafa/#f2f2f2/...) que se venían escribiendo a mano. */
+
+  /* Radios */
+  --radius-sm:6px;
+  --radius-md:10px;
+  --radius-lg:16px;
+
+  /* Escala tipográfica */
+  --fs-xs:11px;
+  --fs-sm:12px;
+  --fs-base:13px;
+  --fs-md:14px;
+  --fs-lg:16px;
+  --fs-xl:20px;
+  --fs-2xl:28px;
+}
+
+/* ── Capa móvil compartida (auditoría mobile, 15/10/2026) ──
+   Se estampa en el shell y en todas las sub-apps junto con los tokens. Sólo actúa en pantallas angostas (celular / ventana chica); en escritorio no cambia nada.
+   - Botones, selects e inputs de al menos 40 px de alto (antes la mayoría medía 22-30 px: difícil acertar con el dedo). Dentro de tablas queda en 32 px para no inflar las filas.
+   - Inputs a 16 px: con menos, iPhone hace zoom solo al tocar el campo y la pantalla queda "pasada".
+   - Se oculta el "usuario · rol" de cada sub-app (ya está en "Mi Cuenta" del menú) para ganar alto útil. */
+@media (max-width:700px){
+  button,select,.btn,.pm-btn,.xl-btn,.modo-btn,.sel-atajo,[role="button"]{min-height:40px}
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),select,textarea{min-height:40px;font-size:16px !important}
+  td button,td select,td input:not([type="checkbox"]):not([type="radio"]),td .btn,td .pm-btn,td .xl-btn{min-height:32px} /* checkbox/radio quedan con su tamaño: con alto forzado se deformaban en óvalos */
+  th.ordenable{min-height:36px}
+  #sesionInfo{display:none !important}
+  .foot-note{display:none !important} /* notas al pie ("Actualizado: ... Columnas 7d ..."): en celular sólo ocupan lugar */
+  .filtros-row-especial > .muted{display:none} /* se saca el rótulo "Vista rápida:"; la fila deslizable deja asomar el próximo botón cortado a la mitad */
+  #icomChipBar{display:none !important} /* los indicadores de sincronización viven en la barra verde del shell */
+  .htitle span,.hsub-explica{display:none !important} /* sin subtítulos explicativos: queda sólo el título de cada pantalla */
+  header{padding-top:8px;padding-bottom:8px}
+  /* Filtros / vistas rápidas / pestañas: una sola fila deslizable en vez de 4-5 líneas de botones apilados (fade a la derecha = "hay más"). Clase .chip-slider para filas nuevas. */
+  .chip-slider,.filtros-row-especial,.suc-tabs,.tabs:not(#tabsScroll),.org-filtro-unidades{
+    display:flex;flex-wrap:nowrap !important;overflow-x:auto;overflow-y:hidden;gap:8px;padding-right:28px;padding-bottom:2px;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;scroll-snap-type:x proximity;
+    -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 14px),transparent)}
+  .chip-slider::-webkit-scrollbar,.filtros-row-especial::-webkit-scrollbar,.suc-tabs::-webkit-scrollbar,.tabs:not(#tabsScroll)::-webkit-scrollbar,.org-filtro-unidades::-webkit-scrollbar{display:none}
+  .chip-slider > *,.filtros-row-especial > *,.suc-tabs > *,.tabs:not(#tabsScroll) > *,.org-filtro-unidades > *{flex:0 0 auto;scroll-snap-align:start;white-space:nowrap}
+  .chip-slider .mode-toggle,.filtros-row-especial .mode-toggle{flex-wrap:nowrap}
+  .filtros-row > .chip-slider{flex:1 1 100%;min-width:0}
+  /* la barra de scroll horizontal flotante es para mouse: en celular se desliza con el dedo y la barra tapa/pisa los toques */
+  #scrollHFloat{display:none !important}
+  .table-wrap{overflow-y:hidden;-webkit-overflow-scrolling:touch}
+}
+
+/* ── Tarjetas de indicadores (KPI) -- TODAS las pantallas, escritorio y celular (criterio de alineación, 15/10/2026) ──
+   Los números principales quedan CENTRADOS y en la MISMA línea visual en cada fila de tarjetas; los textos que los acompañan (etiqueta arriba, detalle abajo) se acomodan en el resto de la caja.
+   Cada tarjeta es una grilla que comparte sus filas con las vecinas (subgrid): si una tarjeta tiene una línea de más (o aparece/desaparece un detalle, una variación, "Total · Pausadas"...),
+   todas las de esa fila se reacomodan juntas y los números siguen alineados. :not(#_k) sube la especificidad para ganarle al CSS propio de cada pantalla sin pisar el display:none en línea de las filas ocultas. */
+.kpi-row:not(#_k){display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:12px;align-items:stretch}
+.erp-kpis:not(#_k),.stk-kpis:not(#_k),.metrics:not(#_k),.metric-bar:not(#_k){display:grid;align-items:stretch}
+.kpi-row > .kpi-card,.erp-kpis > .erp-kpi,.stk-kpis > .stk-kpi,.metrics > .metric,.metric-bar > .metric{
+  display:grid;grid-template-rows:subgrid;grid-row:span 4;row-gap:2px;align-content:stretch;justify-items:center;text-align:center;min-width:0;margin:0}
+.kpi-row > .kpi-card{position:relative;grid-template-columns:minmax(0,1fr);padding:14px 16px 12px;flex:none}
+.kpi-row > .kpi-card > .kpi-text{display:contents}
+/* el ícono va chico en la esquina superior izquierda (nunca tapa el número, que va centrado más abajo): el contenido (etiqueta · número · detalle) queda centrado en TODA la tarjeta y no se angosta por el ícono */
+.kpi-row > .kpi-card > .kpi-icon{position:absolute;left:8px;top:8px;width:26px;height:26px;min-width:26px;font-size:13px;opacity:.9;pointer-events:none}
+.kpi-row > .kpi-card .kpi-label{overflow-wrap:normal !important;word-break:normal !important;hyphens:none} /* sin cortar palabras ("CANCELACIONE S") */
+.kpi-row > .kpi-card .kpi-label,.kpi-row > .kpi-card .kpi-value,.kpi-row > .kpi-card .kpi-sub{grid-column:1}
+.kpi-row > .kpi-card .kpi-value{white-space:nowrap}
+.kpi-row > .kpi-card .kpi-label,.erp-kpis > .erp-kpi > .lbl,.stk-kpis > .stk-kpi > .lbl,.metrics > .metric > .metric-label,.metric-bar > .metric > .metric-label{align-self:end;margin:0;text-align:center}
+.kpi-row > .kpi-card .kpi-value,.erp-kpis > .erp-kpi > .val,.stk-kpis > .stk-kpi > .val,.metrics > .metric > .metric-value,.metric-bar > .metric > .metric-value{align-self:center;margin:0;text-align:center}
+.kpi-row > .kpi-card .kpi-sub,.erp-kpis > .erp-kpi > .erp-kpi-sub,.stk-kpis > .stk-kpi > .sub,.metrics > .metric > .metric-sub,.metric-bar > .metric > .metric-sub,.erp-kpis > .erp-kpi > .erp-kpi-delta{align-self:start;margin:0;text-align:center;justify-content:center}
+.metrics > .metric > .metric-bar-wrap{width:100%;align-self:end}
+/* Fila fija para cada pieza (1 etiqueta · 2 número · 3 detalle · 4 variación/barra): si una tarjeta NO tiene detalle, su variación igual cae en la fila 4 y queda a la altura de la de la tarjeta vecina */
+.kpi-row > .kpi-card .kpi-label,.erp-kpis > .erp-kpi > .lbl,.stk-kpis > .stk-kpi > .lbl,.metrics > .metric > .metric-label,.metric-bar > .metric > .metric-label{grid-row:1}
+.kpi-row > .kpi-card .kpi-value,.erp-kpis > .erp-kpi > .val,.stk-kpis > .stk-kpi > .val,.metrics > .metric > .metric-value,.metric-bar > .metric > .metric-value{grid-row:2}
+.kpi-row > .kpi-card .kpi-sub,.erp-kpis > .erp-kpi > .erp-kpi-sub,.stk-kpis > .stk-kpi > .sub,.metrics > .metric > .metric-sub,.metric-bar > .metric > .metric-sub{grid-row:3}
+.erp-kpis > .erp-kpi > .erp-kpi-delta,.metrics > .metric > .metric-bar-wrap{grid-row:4}
+.erp-kpis > .erp-kpi{grid-row:span 5} /* Ventas en Vivo: etiqueta · número · unidades · variación del total · variación de unidades */
+.erp-kpis > .erp-kpi > .erp-kpi-delta-un{grid-row:5}
+.exh-kpi{text-align:center}
+.exh-kpi .val{justify-content:center}
+@media (max-width:700px){
+  .kpi-row:not(#_k),.erp-kpis:not(#_k),.stk-kpis:not(#_k),.metrics:not(#_k),.metric-bar:not(#_k){grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .kpi-row > .kpi-card,.erp-kpis > .erp-kpi,.stk-kpis > .stk-kpi,.metrics > .metric,.metric-bar > .metric{padding:10px 8px}
+  .kpi-row > .kpi-card > .kpi-icon{display:none}
+  .kpi-row > .kpi-card:last-child:nth-child(odd){grid-column:1 / -1}
+  .exh-kpi .lbl{min-height:2.5em;display:flex;align-items:flex-end;justify-content:center;margin-bottom:4px}
+}
+
+/* Botón "Excel" de cada tabla: un ícono chico en una franja finita propia, arriba y a la derecha de SU tabla. Va en el flujo normal (no flota), así que no tapa encabezados ni datos de nadie. */
+.xl-barra{position:static;display:flex;justify-content:flex-end;align-items:center;height:auto !important;padding:2px 6px 3px !important;margin:0 !important;overflow:visible}
+.xl-barra .xl-btn{border:1px solid var(--line,#e0dfd8);background:#fff;color:var(--accent,#007067);cursor:pointer;font:inherit;position:static;width:28px;height:24px;min-width:0;min-height:0 !important;padding:0 !important;font-size:0 !important;line-height:0;display:flex;align-items:center;justify-content:center;border-radius:7px;box-shadow:none;overflow:hidden}
+.xl-barra .xl-btn:hover{background:var(--accent-soft,#e6f2f1);border-color:var(--accent,#007067)}
+.xl-barra .xl-btn::before{content:"";width:14px;height:14px;background:var(--accent,#007067);-webkit-mask:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5'/%3E%3Cpath d='M4 17v3h16v-3'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5'/%3E%3Cpath d='M4 17v3h16v-3'/%3E%3C/svg%3E") center/contain no-repeat}
+/* ICOM_TOKENS:END */
+
+:root{
+  --accent:#007067;--accent-hover:#005a52;--accent-soft:#E6F2F1;
+  --ok:#0F7A5A;--warn:#a35b00;--danger:#c0422a;
+  --ink:#222;--ink-soft:#555;--muted:#6b6b6b;--line:#e0dfd8;--line-input:#ddd;--surface-2:#f6f6f4;
+  --radius-md:10px;--radius-lg:16px;
+  --fs-xs:11px;--fs-sm:12px;--fs-base:13px;--fs-md:14px;--fs-lg:16px;--fs-xl:20px;
+}
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+html,body{height:100%;background:#f7f6f2;color:var(--ink);font-size:var(--fs-base)}
+body{display:flex;flex-direction:column;overflow:hidden;max-width:100vw}
+button{font:inherit;cursor:pointer}
+.barra{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.barra h1{font-size:var(--fs-lg);color:var(--accent);font-weight:700;margin-right:auto}
+.chip-cuenta{font-size:var(--fs-sm);color:var(--ink-soft);display:flex;align-items:center;gap:8px}
+.chip-cuenta button{border:none;background:none;color:var(--muted);text-decoration:underline;font-size:var(--fs-sm)}
+.tabs{display:flex;gap:6px;padding:8px 16px;background:#fff;border-bottom:1px solid var(--line)}
+.tab{border:1px solid var(--line-input);background:#fff;border-radius:999px;padding:0 16px;min-height:36px;font-weight:700;color:var(--ink-soft);display:inline-flex;align-items:center;gap:6px}
+.tab.activa{background:var(--accent);border-color:var(--accent);color:#fff}
+.bdg{background:var(--danger);color:#fff;border-radius:10px;font-size:11px;min-width:18px;height:18px;padding:0 5px;display:inline-flex;align-items:center;justify-content:center}
+.btn{border:1px solid var(--line-input);background:#fff;color:var(--ink);border-radius:8px;padding:0 14px;min-height:36px;font-weight:600}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{background:var(--accent-hover)}
+.btn:disabled{opacity:.55;cursor:default}
+.cuerpo{flex:1;min-height:0;display:flex}
+.vacio,.estado{padding:36px 20px;text-align:center;color:var(--muted)}
+.tarjeta-conectar{margin:28px auto;max-width:520px;background:#fff;border-radius:var(--radius-lg);box-shadow:0 4px 24px rgba(0,0,0,.08);padding:28px 26px;text-align:center}
+.tarjeta-conectar h2{color:var(--accent);font-size:var(--fs-xl);margin-bottom:8px}
+.tarjeta-conectar p{color:var(--ink-soft);line-height:1.5;margin-bottom:16px}
+.tarjeta-conectar .pasos{text-align:left;font-size:var(--fs-sm);color:var(--ink-soft);background:var(--surface-2);border-radius:10px;padding:12px 14px 12px 28px;margin:12px 0 0;line-height:1.55}
+.err{color:var(--danger)}
+/* correo */
+.mail{flex:1;display:flex;min-height:0}
+.lista-col{width:380px;max-width:100%;border-right:1px solid var(--line);background:#fff;display:flex;flex-direction:column;min-height:0}
+.lista-tools{padding:10px 12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.lista-tools input{width:100%;min-height:38px;border:1px solid var(--line-input);border-radius:8px;padding:0 12px;font-size:var(--fs-md)}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{border:1px solid var(--line-input);background:#fff;border-radius:999px;padding:0 12px;min-height:32px;white-space:nowrap;font-weight:600;color:var(--ink-soft);flex:0 0 auto}
+.chip.activa{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.lista{flex:1;overflow-y:auto}
+.fila{padding:10px 14px;border-bottom:1px solid #f0efe9;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.fila:hover{background:var(--surface-2)}
+.fila.sel{background:var(--accent-soft)}
+.fila .l1{display:flex;gap:8px;align-items:baseline}
+.fila .de{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.fila .fh{font-size:var(--fs-xs);color:var(--muted);white-space:nowrap}
+.fila .as{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-soft)}
+.fila .rs{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-sm);color:var(--muted)}
+.fila.nol .de,.fila.nol .as{font-weight:700;color:var(--ink)}
+.fila.nol::before{content:"";position:absolute}
+.estrella{color:#e3a600}
+.cnt{color:var(--muted);font-size:var(--fs-xs);font-weight:400}
+.cita-btn{border:1px solid var(--line-input);background:#fff;border-radius:6px;padding:2px 10px;font-weight:700;color:var(--ink-soft);margin:8px 12px}
+.mas{padding:12px 12px 80px;text-align:center}
+.lector-col{flex:1;min-width:0;display:flex;flex-direction:column;background:#fafaf8}
+.lector-vacio{margin:auto;color:var(--muted);text-align:center;padding:20px}
+.lector{display:flex;flex-direction:column;min-height:0;flex:1}
+.lector-cab{padding:12px 16px;background:#fff;border-bottom:1px solid var(--line)}
+.lector-cab h2{font-size:var(--fs-lg);margin-bottom:6px;line-height:1.3;word-break:break-word}
+.lector-cab .meta{font-size:var(--fs-sm);color:var(--ink-soft);line-height:1.5;word-break:break-word}
+.lector-acc{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.lector-cuerpo{flex:1;min-height:200px;display:flex}
+.lector-cuerpo iframe{flex:1;border:none;background:#fff;width:100%}
+.lector-cuerpo pre{flex:1;overflow:auto;padding:14px 16px;white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:var(--fs-md);line-height:1.5;background:#fff}
+.adj{padding:8px 16px;background:#fff;border-top:1px solid var(--line);font-size:var(--fs-sm);color:var(--ink-soft)}
+.responder{padding:10px 84px 10px 12px;background:#fff;border-top:1px solid var(--line);display:flex;gap:8px;align-items:flex-end}
+.responder textarea{flex:1;min-height:40px;max-height:140px;resize:vertical;border:1px solid var(--line-input);border-radius:8px;padding:9px 10px;font-size:var(--fs-md)}
+.atras{display:none}
+.modal.grande{max-width:760px}
+.rd-fila{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:2px 0}
+.rd-fila label{width:52px;flex:0 0 52px;font-size:var(--fs-sm);color:var(--muted)}
+.rd-fila input{flex:1;min-width:0;border:none;outline:none;min-height:38px;font-size:var(--fs-md);padding:0 4px;background:transparent}
+.rd-mas{border:none;background:none;color:var(--accent);font-weight:700;font-size:var(--fs-sm);padding:6px}
+.rd-barra{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:6px 0;border-bottom:1px solid var(--line)}
+.rd-b{border:none;background:none;border-radius:6px;min-width:34px;min-height:34px;padding:0 8px;font-size:var(--fs-base);color:var(--ink-soft)}
+.rd-b:hover{background:var(--accent-soft);color:var(--accent)}
+.rd-sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.rd-emojis{position:absolute;top:100%;left:0;z-index:5;display:grid;grid-template-columns:repeat(10,1fr);gap:2px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;max-width:100%}
+.rd-emojis button{border:none;background:none;font-size:20px;min-width:32px;min-height:32px;border-radius:6px}
+.rd-emojis button:hover{background:var(--accent-soft)}
+.rd-editor{min-height:200px;max-height:42vh;overflow:auto;padding:12px 4px;outline:none;font-size:var(--fs-md);line-height:1.5;word-break:break-word}
+.rd-editor blockquote{margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex;color:var(--ink-soft)}
+.rd-editor a{color:var(--accent)}
+.rd-x{border:none;background:none;color:var(--muted);padding:0 2px;font-size:12px}
+.rd-nota{margin-right:auto;font-size:var(--fs-xs);color:var(--muted);align-self:center}
+@media (max-width:760px){.velo:has(.modal.grande){padding:0}.modal.grande{max-width:none;height:100%;border-radius:0;display:flex;flex-direction:column}.modal.grande .rd-editor{flex:1;max-height:none}.rd-emojis{grid-template-columns:repeat(8,1fr)}}
+.adj{display:flex;flex-wrap:wrap;gap:6px}
+.adj-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-input);background:#fff;border-radius:8px;padding:6px 10px;font-size:var(--fs-sm);font-weight:600;color:var(--ink);max-width:100%}
+.adj-btn:hover{border-color:var(--accent);background:var(--accent-soft)}
+.adj-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.adj-btn small{color:var(--muted);font-weight:400}
+/* agenda: día a la izquierda, semana a la derecha */
+.ag-wrap{flex:1;display:flex;flex-direction:column;min-height:0;min-width:0}
+.cal-lista{max-height:50vh;overflow:auto;display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
+.cal-fila{display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:8px;cursor:pointer;font-size:14px}
+.cal-fila:hover{background:var(--accent-soft)}
+.cal-fila input{width:18px;height:18px;accent-color:var(--accent);flex:none}
+.cal-punto{width:12px;height:12px;border-radius:50%;flex:none}
+.cal-nom{min-width:0;overflow:hidden;text-overflow:ellipsis}.cal-nom em{color:var(--muted);font-style:normal;font-size:12px}
+.ag-barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid var(--line)}
+.ag-nav{display:flex;gap:6px}
+.ag-barra .rango{font-weight:700;color:var(--accent);margin-right:auto;min-width:110px;white-space:nowrap}
+.ag-ir{display:flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--muted)}
+.ag-ir input,.ag-busca input{min-height:36px;border:1px solid var(--line-input);border-radius:8px;padding:0 10px;font-size:var(--fs-base);background:#fff}
+.ag-busca input{width:190px}
+.ag-sub{display:none;gap:6px;padding:8px 16px;background:#fff;border-bottom:1px solid var(--line)}
+.ag-cuerpo{flex:1;min-height:0;display:grid;grid-template-columns:minmax(300px,380px) 1fr}
+.ag-izq{background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;min-width:0}
+.ag-der{display:flex;flex-direction:column;min-height:0;min-width:0;background:#fafaf8}
+.ag-izq-cab{display:flex;justify-content:space-between;align-items:flex-end;padding:14px 16px 10px;gap:8px}
+.ag-izq-tit{font-size:var(--fs-xl);font-weight:700;color:var(--accent);line-height:1.1}
+.ag-izq-fecha{font-size:var(--fs-sm);color:var(--ink-soft)}
+.ag-izq-n{font-size:var(--fs-sm);color:var(--muted);white-space:nowrap}
+.ag-scroll{flex:1;overflow:auto;min-height:0;position:relative}
+.ag-grilla{display:flex;position:relative;min-width:0}
+.ag-horas{width:46px;flex:0 0 46px;position:relative;font-size:var(--fs-xs);color:var(--muted)}
+.ag-horas span{position:absolute;right:6px;transform:translateY(-50%);background:inherit}
+.ag-cols{flex:1;display:flex;min-width:0}
+.ag-cols7 .ag-col{border-left:1px solid var(--line)}
+.ag-col{position:relative;flex:1;min-width:0;cursor:cell}
+.ag-linea{position:absolute;left:0;right:0;border-top:1px solid #eeede7;pointer-events:none}
+.ag-ev{position:absolute;overflow:hidden;background:color-mix(in srgb,var(--c) 16%,#fff);border-left:4px solid var(--c);border-radius:6px;padding:3px 6px;font-size:var(--fs-sm);line-height:1.25;cursor:pointer;display:flex;flex-direction:column;gap:1px;box-sizing:border-box}
+.ag-ev > *{flex-shrink:0}
+#agIzq .ag-ev b{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ag-ev b{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-ev span{color:var(--ink-soft);font-size:var(--fs-xs)}
+.ag-meet{align-self:flex-start;margin-top:2px;font-size:var(--fs-xs);font-weight:700;color:var(--accent);text-decoration:none;border:1px solid var(--accent);border-radius:999px;padding:1px 8px;background:#fff}
+.ag-ahora{position:absolute;left:0;right:0;height:0;border-top:2px solid #d93025;pointer-events:none;z-index:2}
+.ag-ahora::before{content:"";position:absolute;left:-4px;top:-5px;width:8px;height:8px;border-radius:50%;background:#d93025}
+.ag-dia-completo{margin:0 16px 6px;padding:5px 10px;border-radius:6px;background:color-mix(in srgb,var(--c) 18%,#fff);border-left:4px solid var(--c);font-weight:600;font-size:var(--fs-sm);cursor:pointer}
+.ag-esq{width:46px;flex:0 0 46px}
+.ag-sem-grid{display:flex;background:#fff;border-bottom:1px solid var(--line)}
+.ag-sem-dia{flex:1;min-width:0;border:none;background:none;padding:8px 2px;text-align:center;color:var(--ink-soft);display:flex;flex-direction:column;align-items:center;gap:2px}
+.ag-sem-dia small{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.04em}
+.ag-sem-dia b{font-size:var(--fs-lg);width:34px;height:34px;line-height:34px;border-radius:50%;color:var(--ink)}
+.ag-sem-dia.hoy b{background:var(--accent);color:#fff}
+.ag-sem-dia.sel:not(.hoy) b{background:var(--accent-soft);color:var(--accent)}
+.ag-sem-dia:hover b{box-shadow:0 0 0 2px var(--accent-soft)}
+.ag-sem-td{display:flex;background:#fff;border-bottom:1px solid var(--line)}
+.ag-td{flex:1;min-width:0;padding:2px}
+.ag-td .ag-dia-completo{margin:0 0 3px;font-size:var(--fs-xs);padding:2px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-sem-td:not(:has(.ag-dia-completo)){display:none}
+.ag-sem-lista{display:none}
+.ag-libre{color:var(--muted);font-size:var(--fs-sm);padding:6px 2px}
+.dia{margin-bottom:14px}
+.dia h3{font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;display:flex;gap:8px;align-items:center}
+.dia.hoy h3{color:var(--accent)}
+.dia.hoy h3::after{content:"HOY";background:var(--accent);color:#fff;border-radius:6px;padding:1px 7px;font-size:10px}
+.ev{display:flex;gap:10px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:pointer}
+.ev:hover{box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.ev .franja{width:4px;border-radius:2px;flex-shrink:0}
+.ev .hora{min-width:78px;font-size:var(--fs-sm);color:var(--ink-soft);font-weight:600}
+.ev .tit{font-weight:700;color:var(--ink);word-break:break-word}
+.ev .sub{font-size:var(--fs-sm);color:var(--muted);margin-top:2px;word-break:break-word}
+.ev .meet{display:inline-block;margin-top:6px;font-size:var(--fs-sm);font-weight:700;color:var(--accent);text-decoration:none;border:1px solid var(--accent);border-radius:999px;padding:3px 10px}
+/* modal */
+.velo{position:fixed;inset:0;background:rgba(20,20,20,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.35);width:100%;max-width:560px;max-height:100%;overflow:auto;padding:18px}
+.modal h3{color:var(--accent);margin-bottom:12px}
+.campo{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.campo label{font-size:var(--fs-sm);color:var(--muted)}
+.campo input,.campo textarea{border:1px solid var(--line-input);border-radius:8px;padding:9px 10px;font-size:var(--fs-md);min-height:40px;width:100%}
+.campo textarea{min-height:140px;resize:vertical}
+.fila-campos{display:flex;gap:8px}
+.fila-campos .campo{flex:1;min-width:0}
+.modal .pie{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;flex-wrap:wrap}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#222;color:#fff;border-radius:10px;padding:10px 16px;z-index:100;font-size:var(--fs-md);max-width:90%}
+.toast.error{background:var(--danger)}
+@media (max-width:760px){
+  .barra{padding:8px 12px}
+  .tabs{padding:6px 12px;gap:6px}
+  .tab{padding:0 12px}
+  .tabs .btn{padding:0 12px}
+  .btn,.chip,.tab{min-height:40px}
+  input,textarea{font-size:16px !important}
+  .lista-col{width:100%;border-right:none}
+  .lector-col{position:fixed;inset:0;z-index:30;display:none}
+  .lector-col.abierto{display:flex}
+  .atras{display:inline-flex}
+  .ag-barra{padding:8px 12px;gap:8px}
+  .ag-barra .rango{order:-1;flex:1 0 100%;white-space:nowrap}
+  .ag-barra .btn.pri{flex:1 0 auto}
+  .ag-ir input{width:140px}
+  .ag-ir span{display:none}
+  .ag-busca{flex:1;min-width:120px}.ag-busca input{width:100%}
+  .ag-sub{display:flex}
+  .ag-cuerpo{display:block;overflow:hidden}
+  .ag-izq,.ag-der{height:100%;border-right:none}
+  .sub-dia .ag-der{display:none}.sub-semana .ag-izq{display:none}
+  .sub-semana .ag-sem-grid,.sub-semana .ag-sem-td,.sub-semana .ag-scroll{display:none}
+  .sub-semana .ag-sem-lista{display:block;overflow:auto;padding:12px 12px 90px}
+  .ev .hora{min-width:64px}
+}
+/* ── cuentas, avatares y vista de celular (estilo Gmail) ── */
+.av{width:40px;height:40px;border-radius:50%;color:#fff;font-weight:600;font-size:17px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;line-height:1}
+.av.chico{width:24px;height:24px;font-size:12px}
+.chip-cuenta{border:1px solid var(--line-input);background:#fff;border-radius:999px;padding:3px 12px 3px 4px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--ink-soft);font-size:var(--fs-sm)}
+.chip-cuenta:hover{border-color:var(--accent)}
+.chip-cuenta .caret{color:var(--muted);font-size:10px}
+.m-top,.m-nav,.m-fab,.m-cajon,.m-lector-bar,.m-rem,.m-resp,.m-est,.ag-movil,.ag-dia-lista,.fila-est,.fila .av{display:none}
+.fila{flex-direction:row;align-items:flex-start;gap:0}
+.fila-cuerpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cu-lista{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.cu-fila{display:flex;align-items:center;gap:12px;border:none;background:none;padding:8px;border-radius:10px;text-align:left;color:var(--ink);font-size:var(--fs-md)}
+.cu-fila:hover{background:var(--surface-2)}
+.cu-fila.act{background:var(--accent-soft)}
+.cu-mail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cu-ok{color:var(--accent);font-weight:700}
+.cu-agregar{width:100%}
+.cu-nota{font-size:var(--fs-xs);color:var(--muted);margin:10px 0 0;line-height:1.4}
+.hoja-menu{display:flex;flex-direction:column}
+.hoja-menu button,.hoja-menu a{border:none;background:none;text-align:left;padding:14px 8px;font-size:var(--fs-md);color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+@media (max-width:760px){
+  .barra,.tabs{display:none !important}
+  /* 21/10/2026 ("se ve explotado el email y deformado", iPhone): la lista se ensanchaba hasta el largo de los textos (los contenedores flex no se achicaban por debajo de su contenido) y quedaba más ancha que la pantalla, cortando asuntos, fechas y estrellas. Se limita todo al ancho real del celular. */
+  .cuerpo,.mail,.lista-col,.lista{min-width:0;width:100%;max-width:100%}
+
+  body.sin-cuenta .m-top,body.sin-cuenta .m-nav,body.sin-cuenta .m-fab{display:none !important}
+  .m-top{display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fff}
+  body.vista-agenda .m-top{display:none}
+  .m-ic{border:none;background:none;width:42px;height:42px;border-radius:50%;font-size:22px;color:var(--ink-soft);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .m-ic:active{background:var(--surface-2)}
+  .m-busca{flex:1;min-width:0}
+  .m-busca input{width:100%;height:44px;border:none;border-radius:24px;background:#eef3f2;padding:0 18px;color:var(--ink)}
+  .m-av{width:34px;height:34px;border-radius:50%;border:none;color:#fff;font-weight:600;font-size:15px;flex:0 0 auto}
+  .lista-tools{display:none}
+  .lista-col{border-right:none}
+  .fila{padding:12px 14px;gap:14px;border-bottom:none}
+  .fila .av{display:inline-flex}
+  .fila .l1 .de{font-size:15px}
+  .fila .l1 .de .estrella{display:none}
+  .fila .as{font-size:14px}
+  .fila.nol .fh{color:var(--ink);font-weight:700}
+  .fila-est{display:block;font-size:20px;color:#9aa0a6;align-self:center;padding-left:4px}
+  .fila-est.on{color:#e3a600}
+  .m-fab{display:inline-flex;align-items:center;gap:10px;position:fixed;right:16px;bottom:72px;z-index:20;height:56px;padding:0 20px;border:none;border-radius:18px;background:var(--accent);color:#fff;font-weight:700;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.28)}
+  .m-fab.redondo{width:56px;padding:0;justify-content:center;border-radius:50%;font-size:28px}
+  .m-fab.redondo #mFabTxt{display:none}
+  .m-nav{display:flex;background:#fff;border-top:1px solid var(--line);height:56px;padding-right:72px;flex:0 0 auto}
+  .m-nav button{flex:1;border:none;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;color:var(--muted);font-weight:600}
+  .m-nav button.activa{color:var(--accent)}
+  .m-nav-ico{position:relative;font-size:20px;line-height:1}
+  .m-nav-ico .bdg{position:absolute;top:-6px;right:-14px}
+  .m-cajon.abierto{display:block;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.4)}
+  #mCajonPanel{width:min(300px,84vw);height:100%;background:#fff;overflow:auto;padding:8px 0}
+  .cj-cab{padding:14px 20px 12px;border-bottom:1px solid var(--line);margin-bottom:6px}
+  .cj-cab b{display:block;font-size:20px;color:var(--accent)}
+  .cj-cab span{font-size:var(--fs-sm);color:var(--muted);word-break:break-all}
+  .cj-item{display:flex;align-items:center;gap:16px;width:calc(100% - 12px);margin:2px 0;padding:0 20px;min-height:48px;border:none;background:none;border-radius:0 24px 24px 0;text-align:left;font-size:15px;color:var(--ink)}
+  .cj-item.act{background:var(--accent-soft);color:var(--accent);font-weight:700}
+  .cj-item em{margin-left:auto;font-style:normal;font-size:12px}
+  #mCajonPanel hr{border:none;border-top:1px solid var(--line);margin:8px 0}
+  /* lector */
+  .lector-col{background:#fff}
+  .lector{display:block;overflow:auto;height:100%}
+  .m-lector-bar{display:flex;align-items:center;position:sticky;top:0;background:#fff;z-index:2;padding:4px 6px;border-bottom:1px solid var(--line)}
+  .lector-cab{border-bottom:none;padding:10px 16px 0}
+  .lector-cab .meta,.lector-acc{display:none}
+  .asunto-fila{display:flex;align-items:flex-start;gap:8px}
+  .asunto-fila h2{flex:1;font-size:21px;font-weight:500;line-height:1.3}
+  .m-est{display:inline-flex;border:none;background:none;font-size:24px;color:#9aa0a6;padding:0 4px}
+  .m-est.on{color:#e3a600}
+  .m-rem{display:flex;align-items:center;gap:12px;margin:12px 0 4px}
+  .m-rem-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+  .m-rem-txt b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .m-rem-txt small{color:var(--muted);font-size:var(--fs-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .m-rem-f{font-size:12px;color:var(--muted)}
+  .lector-cuerpo{display:block;min-height:0;flex:none}
+  .lector-cuerpo iframe{width:100%;min-height:160px;display:block}
+  .lector-cuerpo pre{overflow:visible;padding:8px 16px}
+  .adj{padding:8px 16px}
+  .m-resp{display:flex;gap:10px;padding:14px 16px 90px}
+  .m-resp button{flex:1;height:44px;border:1px solid var(--line-input);background:#fff;border-radius:22px;font-weight:600;color:var(--ink-soft);display:inline-flex;gap:8px;align-items:center;justify-content:center}
+  .responder{display:none}
+  .velo:has(.modal.hoja){align-items:flex-end;padding:0}
+  .modal.hoja{max-width:none;border-radius:18px 18px 0 0}
+  /* agenda */
+  .ag-barra,.ag-sub,.ag-der{display:none !important}
+  .ag-movil{display:block;background:#fff;border-bottom:1px solid var(--line);padding:6px 6px 4px}
+  .ag-mes-fila{display:flex;align-items:center;gap:2px}
+  .ag-mes{flex:1;border:none;background:none;font-size:18px;font-weight:600;color:var(--ink);text-align:left;padding:8px}
+  .m-hoy{border:1px solid var(--line-input);background:#fff;border-radius:16px;padding:0 12px;height:32px;font-weight:600;color:var(--accent);margin-left:4px}
+  .ag-tira{display:flex}
+  .ag-t-dia{flex:1;border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;color:var(--ink-soft)}
+  .ag-t-dia small{font-size:11px;font-weight:600}
+  .ag-t-dia b{width:36px;height:36px;line-height:36px;border-radius:50%;font-size:16px;font-weight:500;color:var(--ink)}
+  .ag-t-dia.hoy b{box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent)}
+  .ag-t-dia.sel b{background:var(--accent);color:#fff;box-shadow:none}
+  .ag-t-dia i{width:5px;height:5px;border-radius:50%;background:transparent}
+  .ag-t-dia i.hay{background:var(--accent)}
+  .ag-cuerpo{display:block;overflow:auto}
+  .ag-wrap .ag-izq,.sub-semana .ag-izq{display:block !important;height:auto;overflow:visible;border-right:none;background:#fafaf8}
+  .ag-izq .ag-scroll,.ag-izq .ag-dia-completo{display:none}
+  .ag-izq-cab{padding:12px 16px 2px}
+  .ag-izq-tit{font-size:15px}
+  .ag-dia-lista{display:block;padding:8px 12px 150px}
+  .ag-vacio-dia{text-align:center;padding:40px 10px}
+}
+
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+<!--icom-avisos:start-->
+<style id="icomAvisosCss">
+.icav-velo{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,40,36,.46);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);animation:icavIn .14s ease-out}
+.icav-card{--icav-tono:#007067;--icav-tono-suave:#E6F2F1;width:100%;max-width:420px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;background:#fff;color:#222;border-radius:12px;border-top:4px solid var(--icav-tono);box-shadow:0 18px 50px rgba(0,0,0,.28);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;overflow:hidden}
+.icav-card.error{--icav-tono:#B3261E;--icav-tono-suave:#FBE9E7}
+.icav-card.peligro{--icav-tono:#B3261E;--icav-tono-suave:#FBE9E7}
+.icav-card.atencion{--icav-tono:#A35B00;--icav-tono-suave:#FFF3E0}
+.icav-card.ok{--icav-tono:#0F7A5A;--icav-tono-suave:#E3F4EE}
+.icav-cab{display:flex;align-items:center;gap:12px;padding:16px 20px 4px}
+.icav-ico{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:var(--icav-tono-suave);color:var(--icav-tono);display:flex;align-items:center;justify-content:center}
+.icav-ico svg{width:18px;height:18px}
+.icav-tit{font-size:16px;font-weight:700;color:#1b1b1b;line-height:1.25}
+.icav-msg{padding:8px 20px 4px 66px;font-size:14px;line-height:1.5;color:#444;white-space:pre-wrap;word-break:break-word;overflow:auto}
+.icav-campo{margin:10px 20px 0 66px;width:calc(100% - 86px);border:1px solid #d6d5cf;border-radius:8px;padding:9px 11px;font:inherit;font-size:14px;color:#222;background:#fff;min-height:40px;resize:vertical;box-sizing:border-box}
+.icav-campo:focus{outline:2px solid var(--icav-tono);outline-offset:0;border-color:var(--icav-tono)}
+.icav-pie{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px 18px}
+.icav-btn{font:inherit;font-size:14px;font-weight:600;min-height:38px;padding:0 20px;border-radius:8px;cursor:pointer;border:1px solid #cfcdc6;background:#fff;color:#333}
+.icav-btn:hover{background:#f4f3ef}
+.icav-btn.pri{background:var(--icav-tono);border-color:var(--icav-tono);color:#fff}
+.icav-btn.pri:hover{filter:brightness(.92)}
+.icav-btn:focus-visible{outline:2px solid var(--icav-tono);outline-offset:2px}
+@keyframes icavIn{from{opacity:0}to{opacity:1}}
+@media (max-width:520px){.icav-msg{padding-left:20px}.icav-campo{margin-left:20px;width:calc(100% - 40px)}.icav-pie .icav-btn{flex:1}}
+@media (prefers-reduced-motion:reduce){.icav-velo{animation:none}}
+</style>
+<script id="icomAvisosJs">
+/* Avisos corporativos (15/10/2026): reemplazan alert()/confirm()/prompt() nativos ("xxx.vercel.app dice") por un diálogo con la identidad del panel. alert() se redefine (no bloquea); confirm/prompt se usan como `await icomConfirmar(...)` / `await icomPedir(...)`. Bloque generado desde design/avisos.html con scripts/sync_avisos.py. */
+(function(){
+  if(window.icomConfirmar) return;
+  var ICONOS = {
+    info:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".6" fill="currentColor"/></svg>',
+    error:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+    peligro:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>',
+    atencion:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>',
+    reunion:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
+    ok:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>'
+  };
+  var TITULOS = { info:'Aviso', error:'No se pudo completar la acción', atencion:'Confirmar acción', ok:'Listo' };
+  var cola = [], abierto = false;
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function limpiar(m){ return String(m == null ? '' : m).replace(/^\s*[✓✔✅⚠❌]\s*/, ''); }
+  function tonoDe(m){
+    if(/^\s*[✓✔✅]/.test(m) || /\b(copiad[oa]|guardad[oa]|importad[oa]s?|enviad[oa]|actualizad[oa])\b/i.test(m)) return 'ok';
+    if(/^\s*[⚠❌]/.test(m) || /no se pudo|no se encontr|error|fall[óo]|inv[aá]lid|no pudo|bloque[óo]/i.test(m)) return 'error';
+    return 'info';
+  }
+  function peligroDe(m){ return /eliminar|borrar|quitar|se va a perder|se pierde|no se puede deshacer|excluye/i.test(m); }
+  function abrir(cfg){
+    return new Promise(function(resolver){
+      cola.push({ cfg: cfg, resolver: resolver }); if(!abierto) siguiente();
+    });
+  }
+  function siguiente(){
+    var it = cola.shift(); if(!it){ abierto = false; return; }
+    abierto = true;
+    var c = it.cfg, previo = document.activeElement;
+    var velo = document.createElement('div'); velo.className = 'icav-velo';
+    var tono = c.tono || 'info';
+    velo.innerHTML = '<div class="icav-card ' + (tono === 'info' ? '' : tono) + '" role="' + (c.tipo === 'aviso' ? 'alertdialog' : 'dialog') + '" aria-modal="true" aria-labelledby="icavT" aria-describedby="icavM">'
+      + '<div class="icav-cab"><span class="icav-ico">' + (ICONOS[c.icono] || ICONOS[tono]) + '</span><div class="icav-tit" id="icavT">' + esc(c.titulo) + '</div></div>'
+      + '<div class="icav-msg" id="icavM">' + esc(c.mensaje) + '</div>'
+      + (c.tipo === 'pedir' ? (c.multilinea ? '<textarea class="icav-campo" rows="3"></textarea>' : '<input class="icav-campo" type="text">') : '')
+      + '<div class="icav-pie">' + (c.tipo === 'aviso' ? '' : '<button type="button" class="icav-btn" data-r="no">' + esc(c.cancelar) + '</button>') + '<button type="button" class="icav-btn pri" data-r="si">' + esc(c.aceptar) + '</button></div></div>';
+    var campo = velo.querySelector('.icav-campo');
+    if(campo){ campo.value = c.valor || ''; if(c.placeholder) campo.placeholder = c.placeholder; }
+    function cerrar(ok){
+      document.removeEventListener('keydown', tecla, true); velo.remove();
+      try{ if(previo && previo.focus) previo.focus(); }catch(e){}
+      var r = c.tipo === 'pedir' ? (ok ? (campo.value || '') : null) : (c.tipo === 'aviso' ? undefined : !!ok);
+      it.resolver(r); siguiente();
+    }
+    function tecla(e){
+      if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); cerrar(false); }
+      else if(e.key === 'Enter' && !(e.target && e.target.tagName === 'TEXTAREA') && !(e.target && e.target.dataset && e.target.dataset.r === 'no')){ e.preventDefault(); e.stopPropagation(); cerrar(true); }
+      else if(e.key === 'Tab'){
+        var f = velo.querySelectorAll('button,input,textarea'); if(!f.length) return;
+        var p = f[0], u = f[f.length - 1];
+        if(e.shiftKey && document.activeElement === p){ e.preventDefault(); u.focus(); }
+        else if(!e.shiftKey && document.activeElement === u){ e.preventDefault(); p.focus(); }
+      }
+    }
+    velo.addEventListener('mousedown', function(e){ if(e.target === velo && c.tipo !== 'aviso') cerrar(false); });
+    velo.addEventListener('click', function(e){ var b = e.target.closest && e.target.closest('[data-r]'); if(b) cerrar(b.dataset.r === 'si'); });
+    document.addEventListener('keydown', tecla, true);
+    (document.body || document.documentElement).appendChild(velo);
+    var foco = campo || (c.peligro && c.tipo === 'confirmar' ? velo.querySelector('[data-r="no"]') : velo.querySelector('[data-r="si"]'));
+    try{ foco.focus(); if(campo) campo.select(); }catch(e){}
+  }
+  window.icomAviso = function(mensaje, o){
+    o = o || {}; var m = String(mensaje == null ? '' : mensaje), tono = o.tono || tonoDe(m);
+    return abrir({ tipo:'aviso', mensaje: limpiar(m), tono: tono, titulo: o.titulo || TITULOS[tono], aceptar: o.aceptar || 'Entendido' });
+  };
+  window.icomConfirmar = function(mensaje, o){
+    o = o || {}; var m = String(mensaje == null ? '' : mensaje), peligro = o.peligro != null ? o.peligro : peligroDe(m);
+    return abrir({ tipo:'confirmar', mensaje: limpiar(m), tono: o.tono || (peligro ? 'peligro' : 'info'), icono: o.icono, peligro: peligro, titulo: o.titulo || 'Confirmar acción', aceptar: o.aceptar || (peligro ? (/borrar/i.test(m) ? 'Borrar' : /eliminar/i.test(m) ? 'Eliminar' : /quitar/i.test(m) ? 'Quitar' : 'Confirmar') : 'Confirmar'), cancelar: o.cancelar || 'Cancelar' });
+  };
+  window.icomPedir = function(mensaje, o){
+    o = o || {};
+    return abrir({ tipo:'pedir', mensaje: limpiar(mensaje), tono:'info', titulo: o.titulo || 'Ingresá el dato', aceptar: o.aceptar || 'Aceptar', cancelar: o.cancelar || 'Cancelar', valor: o.valor, placeholder: o.placeholder, multilinea: !!o.multilinea });
+  };
+  window.alert = function(m){ window.icomAviso(m); };
+})();
+</script>
+<script id="icomDescargaNativa">
+/* Descargas en la app de iPhone (17/10/2026): dentro del WebView de iOS las descargas por <a download> (Excel, etc.) no hacen nada. En la app nativa (Capacitor) el archivo se guarda en la caché y se abre la hoja de
+   compartir de iOS (Guardar en Archivos, AirDrop, Mail...). En el navegador común este bloque no hace nada. */
+(function(){
+  var Cap = null;
+  try{ Cap = window.Capacitor || (window.parent && window.parent.Capacitor) || (window.top && window.top.Capacitor); }catch(e){}
+  if(!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return;
+  var P = Cap.Plugins || {};
+  if(!P.Filesystem || !P.Share) return;
+  function guardarYCompartir(blob, nombre){
+    var r = new FileReader();
+    r.onload = function(){
+      var b64 = String(r.result).split(',')[1] || '';
+      P.Filesystem.writeFile({ path: nombre, data: b64, directory: 'CACHE' })
+        .then(function(res){ return P.Share.share({ title: nombre, url: res.uri }); })
+        .catch(function(e){ if(!/cancel/i.test(String(e && (e.message || e)))) alert('No se pudo guardar el archivo: ' + (e && e.message || e)); });
+    };
+    r.readAsDataURL(blob);
+  }
+  function interceptar(a){
+    if(!a || !a.download || !/^blob:/.test(a.href || '')) return false;
+    var nombre = String(a.download).replace(/[\/:*?"<>|]+/g, '_') || 'archivo';
+    fetch(a.href).then(function(r){ return r.blob(); }).then(function(b){ guardarYCompartir(b, nombre); });
+    return true;
+  }
+  var clickOrig = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function(){ if(interceptar(this)) return; return clickOrig.apply(this, arguments); };
+  var dispOrig = EventTarget.prototype.dispatchEvent;
+  EventTarget.prototype.dispatchEvent = function(ev){ if(this instanceof HTMLAnchorElement && ev && ev.type === 'click' && interceptar(this)) return true; return dispOrig.apply(this, arguments); };
+  document.addEventListener('click', function(e){ var a = e.target && e.target.closest && e.target.closest('a[download]'); if(a && interceptar(a)) e.preventDefault(); }, true);
+})();
+</script>
+<!--icom-avisos:end-->
+<!--icom-tema:start-->
+<script id="icomTemaJs">
+/* Tema "nuevo" (propuesta de diseño aprobada 20/10/2026: menú claro, Inter, tarjetas y chips al estilo Lightdash, mismos verdes). Es el diseño por defecto; ?tema=actual lo apaga en este navegador y ?tema=nuevo lo vuelve a prender.
+   Mientras no se apruebe para producción, quien no lo pide sigue viendo el diseño de siempre. Las sub-apps (iframes) heredan la elección del panel. Bloque generado desde design/tema.html con scripts/sync_tema.py. */
+(function(){
+  var t = 'nuevo'; // 20/10/2026: el tema nuevo pasó a ser el de todos (el usuario aprobó el diseño y pidió pasarlo a productivo). ?tema=actual lo apaga en ese navegador.
+  try{
+    var p = new URLSearchParams(location.search).get('tema');
+    if(p === 'nuevo' || p === 'actual'){ try{ localStorage.setItem('icom_tema', p); }catch(e){} t = p; }
+    else{
+      var g = null; try{ g = localStorage.getItem('icom_tema'); }catch(e){}
+      if(g === 'nuevo' || g === 'actual') t = g;
+      else if(window.parent && window.parent !== window){ var h = window.parent.document.documentElement.getAttribute('data-tema'); if(h) t = h; }
+    }
+    if(window.parent && window.parent !== window && !p){ var h2 = window.parent.document.documentElement.getAttribute('data-tema'); if(h2) t = h2; }
+  }catch(e){}
+  document.documentElement.setAttribute('data-tema', t);
+  if(t === 'nuevo'){
+    // la tipografía se pide SIN bloquear el dibujo de la página (media=print y se activa al terminar de bajar): si Google Fonts tarda o está filtrado en esa red, el panel carga igual con la letra del sistema
+    var l = document.createElement('link'); l.rel = 'stylesheet'; l.media = 'print'; l.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
+    l.onload = function(){ l.media = 'all'; };
+    document.head.appendChild(l);
+  }
+  // Red de seguridad (20/10/2026, "la página no responde" en un equipo): si el diseño nuevo se queda trabado al cargar -- y la persona cierra la pestaña o elige "Salir de la página" --
+  // la próxima vez que abra el panel se detecta que la carga anterior nunca llegó a "estar sana"; a la segunda vez seguida vuelve sola al diseño anterior y lo recuerda en ese navegador.
+  // Sólo corre en la ventana principal (no en las sub-apps) y sólo si hay localStorage.
+  try{
+    if(t === 'nuevo' && window.parent === window && !p){
+      // cuenta sólo si abandonó la carga anterior después de 5 s o más (recargas apuradas, F5, no cuentan)
+      var ahora = Date.now(), ult = Number(localStorage.getItem('icom_tema_inicio') || 0), fallos = Number(localStorage.getItem('icom_tema_fallos') || 0);
+      if(ult && ahora - ult > 5000 && ahora - ult < 10 * 60 * 1000){ fallos++; localStorage.setItem('icom_tema_fallos', String(fallos)); }
+      if(fallos >= 2){
+        localStorage.setItem('icom_tema', 'actual'); localStorage.removeItem('icom_tema_fallos'); localStorage.removeItem('icom_tema_inicio');
+        document.documentElement.setAttribute('data-tema', 'actual');
+      }else{
+        localStorage.setItem('icom_tema_inicio', String(ahora));
+        var ultimoLatido = Date.now(), peorHueco = 0;
+        var latido = setInterval(function(){ var n = Date.now(); if(n - ultimoLatido > peorHueco) peorHueco = n - ultimoLatido; ultimoLatido = n; }, 200);
+        setTimeout(function(){
+          clearInterval(latido);
+          if(peorHueco < 4000){ localStorage.removeItem('icom_tema_inicio'); localStorage.removeItem('icom_tema_fallos'); }   // cargó y respondió bien: todo en orden
+        }, 15000);
+      }
+    }
+  }catch(e){}
+})();
+/* ── Íconos de línea (tema nuevo): reemplazan los emojis de la interfaz por trazos sobrios del color del texto. ──
+   El emoji queda en el texto (se puede copiar y los textos no cambian para el resto del código): sólo se oculta y se dibuja encima un ícono con CSS mask.
+   Sólo se tocan los emojis "de interfaz" de la tabla; caritas, manos, corazones y demás (chat, mensajes, selector de emojis del correo) no se tocan. */
+(function(){
+  if(document.documentElement.getAttribute('data-tema') !== 'nuevo') return;
+  var P = {
+    'alert':'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+    'alert-circle':'<circle cx="12" cy="12" r="9"/><path d="M12 7.5V13M12 16.5h.01"/>',
+    'box':'<path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3.3 7.5 12 12l8.7-4.5M12 12v9"/>',
+    'check-circle':'<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
+    'check':'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    'x-circle':'<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
+    'radio':'<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
+    'pencil':'<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
+    'bolt':'<path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>',
+    'download':'<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+    'arrow-up':'<path d="M12 20V5M6 11l6-6 6 6"/>',
+    'trash':'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    'refresh':'<path d="M20 11a8 8 0 0 0-14.5-3.5L4 9M4 4v5h5M4 13a8 8 0 0 0 14.5 3.5L20 15M20 20v-5h-5"/>',
+    'dollar':'<path d="M12 3v18M16 7.5C15 6.5 13.7 6 12 6c-2.2 0-4 1-4 2.8 0 4 8 2 8 6.2 0 1.8-1.8 3-4 3-1.8 0-3.2-.6-4.2-1.7"/>',
+    'clipboard':'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>',
+    'calendar':'<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    'info':'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>',
+    'bag':'<path d="M5 8h14l-1 12H6L5 8z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
+    'cross':'<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M12 9v6M9 12h6"/>',
+    'user':'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
+    'users':'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-5.5 6.5-5.5s6.5 1.9 6.5 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c2.3.6 3.5 2.2 3.5 5.2"/>',
+    'hourglass':'<path d="M6 3h12M6 21h12M7 3c0 5 3 6 5 9-2 3-5 4-5 9M17 3c0 5-3 6-5 9 2 3 5 4 5 9"/>',
+    'tag':'<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1"/>',
+    'shuffle':'<path d="M3 7h4c4 0 6 10 10 10h4M3 17h4c1.5 0 2.7-1.2 3.7-2.7M14 8.5C15 7.5 16 7 17 7h4M18 4l3 3-3 3M18 14l3 3-3 3"/>',
+    'wheelchair':'<circle cx="12" cy="4.5" r="1.8"/><path d="M12 8v6h5l2 5M12 11h5M8.5 12a5 5 0 1 0 6 7.5"/>',
+    'search':'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+    'camera':'<path d="M4 8h3l1.5-2.5h7L17 8h3v11H4V8z"/><circle cx="12" cy="13" r="3.5"/>',
+    'star':'<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8-4.3-4.1 5.9-.9L12 3.5z"/>',
+    'folder':'<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12z"/>',
+    'store':'<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3"/><path d="M10 20v-5h4v5"/>',
+    'building':'<rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M9 7.5h2M13 7.5h2M9 11.5h2M13 11.5h2M10 21v-4h4v4"/>',
+    'syringe':'<path d="M18 3l3 3M15 6l3 3M14 7L5 16v3h3l9-9M9 12l3 3M3 21l3-3"/>',
+    'phone':'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A15 15 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+    'message':'<path d="M4 5h16v11H9l-5 4V5z"/>',
+    'pin':'<path d="M12 21s7-6 7-11.5a7 7 0 0 0-14 0C5 15 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+    'sliders':'<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+    'sun':'<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>',
+    'film':'<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M8 5v14M16 5v14M3.5 9.5H8M16 9.5h4.5M3.5 14.5H8M16 14.5h4.5"/>',
+    'bars':'<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
+    'trend':'<path d="M3 17l6-6 4 4 8-9M15 6h6v6"/>',
+    'globe':'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+    'activity':'<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+    'save':'<path d="M5 4h11l3 3v13H5V4z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
+    'mail':'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 6 8.5-6"/>',
+    'briefcase':'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2M3 13h18"/>',
+    'wallet':'<path d="M4 7a2 2 0 0 1 2-2h12v4M4 7v11a2 2 0 0 0 2 2h14V9H6a2 2 0 0 1-2-2z"/><circle cx="16.5" cy="14.5" r="1"/>',
+    'ship':'<path d="M3 17l2 3h14l2-3-9-3-9 3zM12 14V4M12 6l5 4h-5M12 8L8 11h4"/>',
+    'cart':'<path d="M3 4h2.5l2 11h10l2-8H7"/><circle cx="9" cy="19.5" r="1.3"/><circle cx="17" cy="19.5" r="1.3"/>',
+    'arrow-ur':'<path d="M7 17L17 7M8 7h9v9"/>',
+    'undo':'<path d="M9 7L4 12l5 5M4 12h10a6 6 0 0 1 6 6"/>',
+    'arrows-v':'<path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/>',
+    'printer':'<path d="M7 9V3.5h10V9M7 17H4.5V9h15v8H17M7 14h10v6.5H7V14z"/>',
+    'image':'<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 18l5-5 4 4 3-3 4 4"/>',
+    'target':'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    'trophy':'<path d="M8 4h8v6a4 4 0 0 1-8 0V4zM8 6H4v2a3 3 0 0 0 4 3M16 6h4v2a3 3 0 0 1-4 3M12 14v4M8.5 20h7"/>',
+    'ban':'<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+    'tri-down':'<path d="M5 8h14l-7 10z"/>',
+    'compass':'<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5 5-2z"/>',
+    'map':'<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6zM9 4v14M15 6v14"/>',
+    'bot':'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 8V4.5M9 13.5h.01M15 13.5h.01M9.5 16.5h5"/>',
+    'ruler':'<path d="M3 17L17 3l4 4L7 21l-4-4zM7 13l2 2M10 10l2 2M13 7l2 2"/>',
+    'palette':'<path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2-.6-1.2.2-2.5 1.6-2.5H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="8" cy="11" r="1"/><circle cx="12" cy="7.5" r="1"/><circle cx="16" cy="11" r="1"/>',
+    'megaphone':'<path d="M4 10v4h3l8 4V6L7 10H4zM18 9a4 4 0 0 1 0 6"/>',
+    'clock':'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M5 4L3 6M19 4l2 2"/>',
+    'coffee':'<path d="M5 9h11v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9zM16 10h2a2.5 2.5 0 0 1 0 5h-2M8 4v2M12 4v2"/>',
+    'gift':'<rect x="3.5" y="8" width="17" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12M12 8c-2 0-4-1-4-2.5S10 3 12 5c2-2 4-1 4 .5S14 8 12 8z"/>',
+    'sparkles':'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z"/>',
+    'bulb':'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+    'link':'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+    'file':'<path d="M6 3h8l5 5v13H6V3zM14 3v5h5M9 13h6M9 17h6"/>',
+    'pause':'<path d="M8 5v14M16 5v14"/>',
+    'truck':'<path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>',
+    'scale':'<path d="M12 4v16M6 20h12M5 7h14M5 7l-3 7a3.5 3.5 0 0 0 6 0L5 7zM19 7l-3 7a3.5 3.5 0 0 0 6 0l-3-7z"/>',
+    'power':'<path d="M12 3v9M6.4 6.8a8 8 0 1 0 11.2 0"/>',
+    'help':'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7M12 17h.01"/>'
+  };
+  // emoji -> ícono (sin el selector de variación U+FE0F, que se acepta de forma opcional)
+  var M = {
+    '⚠':'alert','🚨':'alert-circle','📦':'box','🧊':'box','✅':'check-circle','✔':'check','☑':'check','❌':'x-circle',
+    '📡':'radio','✏':'pencil','📝':'pencil','⚡':'bolt','⬇':'download','⬆':'arrow-up','🗑':'trash','🔄':'refresh',
+    '💲':'dollar','📋':'clipboard','📅':'calendar','🗓':'calendar','ℹ':'info','🤝':'bag','🏥':'cross',
+    '🧑‍💼':'user','👥':'users','⏳':'hourglass','🏷':'tag','🔀':'shuffle','♿':'wheelchair',
+    '🔍':'search','🔎':'search','🔭':'search','📷':'camera','🎂':'gift','🎁':'gift','⭐':'star',
+    '🗂':'folder','📂':'folder','🏪':'store','🏬':'building','🏢':'building','🏭':'building',
+    '💉':'syringe','📞':'phone','💬':'message','📍':'pin','📌':'pin','⚙':'sliders','🏖':'sun','☀':'sun',
+    '🎬':'film','📊':'bars','📈':'trend','🌐':'globe','🩺':'activity','💾':'save','✉':'mail',
+    '💼':'briefcase','💰':'wallet','🚢':'ship','🛒':'cart','↗':'arrow-ur','↩':'undo','↕':'arrows-v',
+    '🖨':'printer','🖼':'image','🎯':'target','🏆':'trophy','🚫':'ban','⛔':'ban','🔻':'tri-down',
+    '🧭':'compass','🗺':'map','🤖':'bot','📐':'ruler','🎨':'palette','📢':'megaphone','📣':'megaphone',
+    '⏰':'clock','☕':'coffee','🎉':'sparkles','✨':'sparkles','🌟':'sparkles','💡':'bulb','🔗':'link',
+    '📄':'file','⏸':'pause','🚚':'truck','🛵':'truck','❔':'help','⚖':'scale','⏻':'power',
+    // semáforo: puntos de color en vez de círculos de emoji
+    '🟢':'dot-ok','🟡':'dot-warn','🔴':'dot-err'
+  };
+  var claves = Object.keys(M).sort(function(a, b){ return b.length - a.length; });
+  var RE = new RegExp('(' + claves.join('|') + ')\\uFE0F?', 'g');
+  var TEST = new RegExp(claves.join('|'));
+
+  // una regla de CSS por ícono (máscara con el dibujo; el color lo pone el texto que lo rodea)
+  var css = '';
+  Object.keys(P).forEach(function(k){
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + P[k] + '</svg>';
+    var u = 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
+    css += 'html[data-tema="nuevo"] .eic[data-i="' + k + '"]{-webkit-mask-image:' + u + ';mask-image:' + u + '}\n';
+  });
+  var st = document.createElement('style'); st.id = 'icomIconosCss'; st.textContent = css; document.head.appendChild(st);
+
+  // contenido escrito por personas (mensajes, muro, cuerpo de correos) y selectores de emojis: se muestran tal cual
+  var CONTENIDO = '.eic,.emoji-panel,.rd-emojis,.post-item-texto,.chat-burbuja,.lector-cuerpo,.fila-cuerpo,.cuerpo,.ag-cuerpo,[data-emojis-reales]';
+  var SALTAR = 'SCRIPT,STYLE,TEXTAREA,OPTION,INPUT,TITLE,NOSCRIPT';
+  function saltar(n){
+    for(var p = n.parentNode; p && p.nodeType === 1; p = p.parentNode){
+      if(SALTAR.indexOf(p.tagName) > -1 || p.isContentEditable || (p.matches && p.matches(CONTENIDO))) return true;
+    }
+    return false;
+  }
+  function procesarTexto(n){
+    var t = n.nodeValue;
+    if(!t || !n.parentNode || !TEST.test(t) || saltar(n)) return;
+    var frag = document.createDocumentFragment(), ult = 0, m;
+    RE.lastIndex = 0;
+    while((m = RE.exec(t))){
+      if(m.index > ult) frag.appendChild(document.createTextNode(t.slice(ult, m.index)));
+      var s = document.createElement('span');
+      s.className = 'eic'; s.setAttribute('data-i', M[m[1]]); s.setAttribute('aria-hidden', 'true'); s.textContent = m[0];
+      frag.appendChild(s);
+      ult = m.index + m[0].length;
+    }
+    if(ult < t.length) frag.appendChild(document.createTextNode(t.slice(ult)));
+    n.parentNode.replaceChild(frag, n);
+  }
+  function recorrer(raiz){
+    if(!raiz) return;
+    if(raiz.nodeType === 3){ procesarTexto(raiz); return; }
+    if(raiz.nodeType !== 1 || SALTAR.indexOf(raiz.tagName) > -1) return;
+    var w = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, null), lista = [], n;
+    while((n = w.nextNode())) if(TEST.test(n.nodeValue)) lista.push(n);
+    lista.forEach(function(x){ try{ procesarTexto(x); }catch(e){ window.__icError = String(e); } });
+  }
+  // setTimeout y no rAF: en pestañas en segundo plano rAF no corre
+  var cola = [], prog = false;
+  // La cola se procesa en tandas de ~10 ms (si hay mucho para convertir, sigue en la próxima pasada en vez de trabar la página) y, si por algún motivo gasta más de 2,5 s en total, el motor se apaga solo
+  // (los emojis quedan como están: nada se rompe).
+  var gastado = 0, apagado = false, obs = null;
+  function procesarCola(){
+    if(apagado){ cola = []; prog = false; return; }
+    var t0 = performance.now(), hechos = 0;
+    while(hechos < cola.length){
+      var x = cola[hechos++];
+      try{ if(x.isConnected) recorrer(x); }catch(e){ window.__icError = String(e); }
+      if(performance.now() - t0 > 10) break;
+    }
+    cola = cola.slice(hechos);
+    gastado += performance.now() - t0;
+    if(gastado > 2500){ apagado = true; if(obs) obs.disconnect(); cola = []; prog = false; return; }
+    if(cola.length){ setTimeout(procesarCola, 30); } else { prog = false; }
+  }
+  function programar(){ if(prog) return; prog = true; setTimeout(procesarCola, 40); }
+  function iniciar(){
+    recorrer(document.body);
+    obs = new MutationObserver(function(muts){
+      muts.forEach(function(m){
+        if(m.type === 'characterData') cola.push(m.target);
+        else m.addedNodes.forEach(function(x){ if(!(x.nodeType === 1 && x.classList.contains('eic'))) cola.push(x); });
+      });
+      if(cola.length) programar();
+    });
+    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+  window.icomIconos = { recorrer: recorrer };
+  if(document.body) iniciar(); else document.addEventListener('DOMContentLoaded', iniciar);
+})();
+</script>
+<style id="icomTemaCss">
+/* ═══ TEMA NUEVO ═══ (todo cuelga de html[data-tema="nuevo"]; sin ese atributo no cambia nada) */
+html[data-tema="nuevo"]{
+  --fondo:#F4F6F5; --superficie:#fff;
+  --accent-soft:#E6F2F1; --accent-soft-2:#CDE5E2;
+  --ink:#1C2624; --ink-soft:#56615E; --muted:#66716D; --faint:#C9D0CD;
+  --line:#E4E8E7; --line-input:#D3D9D7; --surface-2:#F7F9F8;
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px;
+  --ok:#1E8E5A; --ok-bg:#E4F4EB; --warn:#B26A00; --warn-bg:#FFF1D6; --danger:#C5392A; --danger-bg:#FCE8E5;
+  --sombra:0 1px 2px rgba(16,40,36,.04),0 4px 14px rgba(16,40,36,.05);
+  --sombra-hover:0 2px 4px rgba(16,40,36,.06),0 10px 26px rgba(16,40,36,.08);
+}
+html[data-tema="nuevo"] *{font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html[data-tema="nuevo"],html[data-tema="nuevo"] body{background:var(--fondo);color:var(--ink);-webkit-font-smoothing:antialiased}
+
+/* ── tarjetas: un solo estilo (borde fino, esquina 16, sombra suave); los fondos de tono de los indicadores se conservan ── */
+html[data-tema="nuevo"] .card,
+html[data-tema="nuevo"] .stk-kpi,
+html[data-tema="nuevo"] .metric,
+html[data-tema="nuevo"] .kpi-card,
+html[data-tema="nuevo"] .erp-kpi,
+html[data-tema="nuevo"] .modal,
+html[data-tema="nuevo"] .modal-box{border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .card{background:#fff}
+html[data-tema="nuevo"] .kpi-card,html[data-tema="nuevo"] .erp-kpi,html[data-tema="nuevo"] .stk-kpi,html[data-tema="nuevo"] .metric{transition:box-shadow .15s}
+html[data-tema="nuevo"] .kpi-card:hover,html[data-tema="nuevo"] .erp-kpi:hover,html[data-tema="nuevo"] .stk-kpi:hover,html[data-tema="nuevo"] .metric:hover{box-shadow:var(--sombra-hover)}
+
+/* ── botones ── */
+html[data-tema="nuevo"] .btn,html[data-tema="nuevo"] .btn-secondary,html[data-tema="nuevo"] .modo-btn,html[data-tema="nuevo"] .pm-btn{border-radius:10px;border-color:var(--line-input);font-weight:600;transition:border-color .12s,color .12s,background .12s}
+html[data-tema="nuevo"] .btn:hover,html[data-tema="nuevo"] .btn-secondary:hover,html[data-tema="nuevo"] .modo-btn:hover{border-color:var(--accent);color:var(--accent)}
+html[data-tema="nuevo"] .btn-primary,html[data-tema="nuevo"] .btn.primary,html[data-tema="nuevo"] .btn.pri{border-radius:10px;font-weight:600}
+
+/* ── periodos / vistas: control segmentado (en vez de botones sueltos) ── */
+html[data-tema="nuevo"] .mode-toggle{display:inline-flex;gap:2px;padding:3px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sombra);max-width:100%}
+html[data-tema="nuevo"] .mode-toggle button,html[data-tema="nuevo"] .mode-toggle .modo-btn{border:none;background:transparent;border-radius:9px;color:var(--ink-soft);font-weight:600;box-shadow:none}
+html[data-tema="nuevo"] .mode-toggle button:hover{background:#F0F3F2;color:var(--ink);border:none}
+html[data-tema="nuevo"] .mode-toggle button.active,html[data-tema="nuevo"] .mode-toggle .modo-btn.active{background:var(--accent);color:#fff}
+
+/* ── tablas: encabezado discreto y filas con aire (las clases propias de cada app, como .col7d, conservan su tinte) ── */
+:where(html[data-tema="nuevo"]) thead th{background:#FAFBFB;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+:where(html[data-tema="nuevo"]) tbody td{border-bottom-color:#EEF1F0}
+:where(html[data-tema="nuevo"]) tbody tr:hover td{background:#FAFCFB}
+html[data-tema="nuevo"] td.num,html[data-tema="nuevo"] th.num{font-variant-numeric:tabular-nums}
+html[data-tema="nuevo"] .pill{font-weight:600}
+
+/* ── encabezado de cada app: blanco con línea fina ── */
+html[data-tema="nuevo"] header{background:#fff;border-bottom:1px solid var(--line);box-shadow:none}
+
+/* ═══ SHELL: menú claro ═══ */
+html[data-tema="nuevo"] #sidebar{background:#fff;color:var(--ink-soft);border-right:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-top{background:#fff;box-shadow:none;border-bottom:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-logo-text{color:var(--muted)}
+html[data-tema="nuevo"] .sb-section-label{color:var(--muted);font-weight:600;letter-spacing:.07em}
+html[data-tema="nuevo"] .sb-item,html[data-tema="nuevo"] .sb-logout{color:var(--ink-soft);border-left:none;border-radius:10px;margin:1px 10px;font-weight:500;transition:background .12s,color .12s}
+html[data-tema="nuevo"] .sb-item:hover,html[data-tema="nuevo"] .sb-logout:hover{background:#F0F3F2;color:var(--ink)}
+html[data-tema="nuevo"] .sb-item.active{background:var(--accent-soft);color:var(--accent-hover);font-weight:600;border-left:none}
+html[data-tema="nuevo"] .sb-channel-caret{color:var(--muted)}
+html[data-tema="nuevo"] .sb-apps-group{border-left:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-sesion-info{border-top:1px solid var(--line)}
+html[data-tema="nuevo"] .sb-sesion-row:hover{background:#F0F3F2}
+html[data-tema="nuevo"] .sb-sesion-texto{color:var(--ink)}
+html[data-tema="nuevo"] .sb-badge{box-shadow:none}
+html[data-tema="nuevo"] #sidebar::-webkit-scrollbar-thumb{background:rgba(28,38,36,.18)}
+html[data-tema="nuevo"] #sidebar::-webkit-scrollbar-thumb:hover{background:rgba(28,38,36,.3)}
+html[data-tema="nuevo"] #sidebarBackdrop.show{background:rgba(16,40,36,.35)}
+
+/* barra superior del celular: blanca, con el título en tinta */
+@media (max-width:768px){
+  html[data-tema="nuevo"] #mobileTopBar{background:#fff;border-bottom:1px solid var(--line);box-shadow:none}
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span,
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span::before,
+  html[data-tema="nuevo"] #mobileTopBar .sb-burger span::after{background:var(--accent)}
+  /* 21/10/2026 ("todo ese espacio vacío arriba", iPhone): la barra baja de 52 a 44 px y muestra el título de la pantalla (con la unidad abajo, chico); el título y la «ceja» repetidos
+     dentro de la pantalla se sacan en celular, así el contenido arranca unos 70 px más arriba. */
+  html[data-tema="nuevo"] #mobileTopBar{height:calc(44px + env(safe-area-inset-top,0px));gap:10px}
+  html[data-tema="nuevo"] #appShell{padding-top:calc(44px + env(safe-area-inset-top,0px))}
+  html[data-tema="nuevo"] #sidebar{top:calc(44px + env(safe-area-inset-top,0px))}
+  html[data-tema="nuevo"] #mobileTopBarTitle{color:var(--ink);font-weight:600}
+  html[data-tema="nuevo"] #mobileTopBarTitle small{color:var(--accent)}
+  html[data-tema="nuevo"] .erp-header::before{display:none !important}
+  html[data-tema="nuevo"] .erp-header > div:first-child{display:none !important}
+  html[data-tema="nuevo"] .htitle[data-ceja]::before{display:none !important}
+  html[data-tema="nuevo"] #sidebar{box-shadow:6px 0 30px rgba(16,40,36,.18)}
+  html[data-tema="nuevo"] #sidebar:not(.mobile-open){box-shadow:none}   /* 21/10/2026: con el menú cerrado su sombra se filtraba como una franja gris en el borde izquierdo de todas las pantallas (iPhone) */
+}
+
+/* controles segmentados (Mensual/Quincenal/…, modos, atajos de período): el texto de cada botón queda centrado. Sólo ellos: los botones de listas y menús (Muro, Personas…) siguen alineados a la izquierda. */
+:where(html[data-tema="nuevo"]) :is(.periodo-tabs, .mode-toggle, .modo-group, .erp-seg) button{justify-content:center}
+
+
+/* ═══ SHELL: Ventas en Vivo (ERP) y Monitor OV ═══ */
+html[data-tema="nuevo"] .sb-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (min-width:769px){ html[data-tema="nuevo"] #sidebar:not(.collapsed){width:248px} }
+html[data-tema="nuevo"] .erp-header::before{content:attr(data-ceja);flex:0 0 100%;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:-4px}
+html[data-tema="nuevo"] .erp-header h1{font-size:24px;font-weight:700;letter-spacing:-.02em;color:var(--ink);line-height:1.15}
+html[data-tema="nuevo"] .erp-header p{font-size:13.5px;color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-status,html[data-tema="nuevo"] .erp-status.ok,html[data-tema="nuevo"] .erp-status.loading{background:#fff;border:1px solid var(--line);color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-status.ok{color:var(--ok)}
+html[data-tema="nuevo"] .erp-status.err{background:var(--danger-bg);border-color:#F0C4BC;color:var(--danger)}
+html[data-tema="nuevo"] .erp-status-updated{color:var(--muted)}
+/* periodos: control segmentado + chip de fecha + interruptor de comparar */
+html[data-tema="nuevo"] .erp-toolbar .pm-btn{border:1px solid var(--line-input);border-radius:10px;background:#fff;color:var(--ink);font-weight:600}
+html[data-tema="nuevo"] .erp-seg{display:inline-flex;gap:2px;padding:3px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sombra);max-width:100%;overflow-x:auto;scrollbar-width:none}
+html[data-tema="nuevo"] .erp-seg::-webkit-scrollbar{display:none}
+html[data-tema="nuevo"] .erp-seg .pm-btn{border:none;background:transparent;border-radius:9px;color:var(--ink-soft);box-shadow:none;white-space:nowrap;flex:0 0 auto}
+html[data-tema="nuevo"] .erp-seg .pm-btn:hover{background:#F0F3F2;color:var(--ink)}
+html[data-tema="nuevo"] .erp-seg .pm-btn.erp-quickbtn-active{background:var(--accent) !important;color:#fff !important;border:none !important}
+html[data-tema="nuevo"] .erp-btn-compare{border:1px solid var(--line);background:#fff;color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-cmp-sw{background:var(--line-input)}
+html[data-tema="nuevo"] .erp-daterange-popup{border:1px solid var(--line);border-radius:14px;box-shadow:var(--sombra-hover)}
+/* indicadores y tarjetas */
+html[data-tema="nuevo"] .erp-kpis{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+html[data-tema="nuevo"] .erp-kpi,html[data-tema="nuevo"] .erp-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .erp-kpi .lbl{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted)}
+html[data-tema="nuevo"] .erp-kpi .val{font-size:28px;font-weight:700;letter-spacing:-.02em;color:var(--ink)}
+html[data-tema="nuevo"] .erp-kpi-sub,html[data-tema="nuevo"] .erp-kpi-sub span{color:var(--muted)}
+html[data-tema="nuevo"] .erp-card h2{font-size:14px;font-weight:600;color:var(--ink)}
+html[data-tema="nuevo"] .erp-table-wrap,html[data-tema="nuevo"] .pm-table-wrap{border:1px solid var(--line);border-radius:var(--radius-md)}
+html[data-tema="nuevo"] .erp-count{background:var(--accent-soft);color:var(--accent-hover)}
+/* celular (primero): el control segmentado ocupa su propia fila con 5 partes iguales (palabra grande arriba, abreviatura abajo, como antes) */
+@media (max-width:700px){
+  html[data-tema="nuevo"] .erp-seg{order:5;flex:1 1 100%;display:flex;overflow:visible}
+  html[data-tema="nuevo"] .erp-seg .pm-btn{flex:1 1 0;min-width:0;padding:2px;font-size:clamp(11px,3.3vw,13px);line-height:1.15;white-space:normal;word-spacing:100vw;text-align:center;display:flex;align-items:center;justify-content:center}
+  html[data-tema="nuevo"] .erp-kpis{grid-template-columns:1fr 1fr;gap:10px}
+  html[data-tema="nuevo"] .erp-kpi{padding:14px 10px}
+  html[data-tema="nuevo"] .erp-kpi .val{font-size:22px;white-space:nowrap}
+}
+
+/* ═══ DASHBOARD / VENTAS EN VIVO: bloques de cifras, notas y P&L ═══
+   El JS de estas tarjetas arma el HTML con estilos en línea (11px en mayúsculas, 24px, #888, filas verdes de #eaf6ee…), así que se reescriben por atributo para que sigan
+   la misma estética que los indicadores de arriba: rótulo en 12px sin mayúsculas, cifra grande en 28px, notas en gris suave, tablas con filas aireadas. */
+html[data-tema="nuevo"] .dash-bloques{gap:22px 32px}
+html[data-tema="nuevo"] .dash-bloques [style*="text-transform:uppercase"]{font-size:12px !important;font-weight:500 !important;letter-spacing:0 !important;text-transform:none !important;color:var(--muted) !important;margin-bottom:6px !important}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:24px"]{font-size:28px !important;font-weight:700 !important;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:11px"]{font-size:12px !important;color:var(--muted) !important}
+html[data-tema="nuevo"] .dash-bloques [style*="font-size:14px;color:#888"]{font-size:13px !important}
+html[data-tema="nuevo"] .acc-solo-desktop{font-size:12px !important;color:var(--muted) !important;line-height:1.55;border-top:1px solid var(--line);padding-top:12px;margin-top:18px !important}
+/* notas "Cómo está calculado el P&L" y "ver más" */
+html[data-tema="nuevo"] .pnl-vermas-btn{font-size:12px;color:var(--muted)}
+html[data-tema="nuevo"] .pnl-vermas-btn:hover{color:var(--accent)}
+html[data-tema="nuevo"] .pnl-vermas-flecha{color:var(--muted)}
+/* tabla del P&L */
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) table{font-variant-numeric:tabular-nums;font-size:13px;border-collapse:collapse}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td{border-bottom:1px solid #EEF1F0;padding-top:7px !important;padding-bottom:7px !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr:first-child td{font-size:11px !important;font-weight:600 !important;letter-spacing:.05em;border-bottom:1px solid var(--line);padding-bottom:9px !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td:first-child[style*="color:#666"]{color:var(--ink-soft) !important;font-weight:500 !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) [style*="font-size:9px"]{font-size:10.5px !important;color:var(--muted) !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr[style*="eaf6ee"],html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) tr[style*="eaf6ee"] td{background:var(--accent-soft) !important}
+html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td[style*="color:#007067;white-space:nowrap"][style*="font-size:12px"]{font-size:12px !important;letter-spacing:.02em}
+/* fichas seleccionables (Facturación por Unidad de Negocio, Vendedor, Cliente…): blancas, rótulo en minúscula, seleccionada = borde y fondo verde suave */
+html[data-tema="nuevo"] .sel-tile{border:1px solid var(--line);border-radius:14px;box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .sel-tile:hover{border-color:#B9D4D1;box-shadow:var(--sombra-hover)}
+html[data-tema="nuevo"] .sel-tile.on{background:#F4FAF9;border-color:var(--accent)}
+html[data-tema="nuevo"] .sel-tile.off{background:#fff;border-color:var(--line)}
+html[data-tema="nuevo"] .sel-tile .ic{background:var(--accent-soft);border:none;color:var(--accent)}
+html[data-tema="nuevo"] .sel-tile .lbl{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted)}
+html[data-tema="nuevo"] .sel-tile .val{font-size:18px;letter-spacing:-.01em}
+html[data-tema="nuevo"] .sel-tile .sub{font-size:12px;color:var(--muted)}
+html[data-tema="nuevo"] .sel-tile .chk{width:18px;height:18px;border:1.5px solid var(--line-input);font-size:11px}
+html[data-tema="nuevo"] .sel-tile.sm .val{font-size:15px}
+html[data-tema="nuevo"] .sel-tile.sm .lbl{font-size:11.5px}
+
+/* ═══ CELULAR (22/10/2026: «no se ve igual que el resto de los bloques, parece un Excel y los números con tantos dígitos me marean») ═══
+   - bloques de cifras: de una columna con cifras gigantes a fichas de 2 por fila (como los indicadores de arriba), con la cifra más chica y en formato corto ($ 14.610 M)
+   - P&L: un mes por vez (fichas ENE, FEB… arriba) como lista de conceptos; el encabezado de meses y las columnas de los demás meses se ocultan */
+.pnl-chips{display:none}
+/* columna T.<año> (acumulado de los meses cerrados): fondo suave y una línea que la separa de los meses */
+.pnl-tabla td[data-ym="T"]{background:rgba(0,112,103,.06);border-left:1px solid #cfe5e1}
+@media (max-width:640px){
+  html[data-tema="nuevo"] .dash-bloques{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch}
+  html[data-tema="nuevo"] .dash-bloques > div{background:var(--accent-soft);border-radius:12px;padding:12px 12px 10px}
+  /* 22/10/2026 («los cuadros están desalineados»): las 4 fichas son hijas directas salvo las 2 de abajo de «Acumulado del Año», que viven dentro de un contenedor display:contents y quedaban SIN fondo ni relleno (su texto arrancaba más a la izquierda que el de las de arriba).
+     Además una etiqueta de 2 líneas empujaba la cifra más abajo que la de la ficha vecina de 1 línea: toda etiqueta reserva 2 líneas, así las cifras quedan a la misma altura. */
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div{background:var(--accent-soft);border-radius:12px;padding:12px 12px 10px}
+  html[data-tema="nuevo"] .dash-bloques > div:not([style*="display:contents"]),
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div{display:flex;flex-direction:column}
+  html[data-tema="nuevo"] .dash-bloques > div:not([style*="display:contents"]) > div:first-child,
+  html[data-tema="nuevo"] .dash-bloques > div[style*="display:contents"] > div > div:first-child{min-height:2.6em;line-height:1.3}
+  html[data-tema="nuevo"] .dash-bloques [style*="font-size:24px"]{font-size:21px !important}
+  html[data-tema="nuevo"] .dash-bloques [style*="font-size:12px"]{line-height:1.3}
+  .pnl-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .pnl-chips::-webkit-scrollbar{display:none}
+  .pnl-chip{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink-soft);border-radius:999px;padding:7px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .pnl-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  html[data-tema="nuevo"] .pnl-tabla{font-size:14px !important}
+  .pnl-tabla col{min-width:0 !important}
+  .pnl-tabla tr:first-child{display:none}
+  .pnl-tabla td:first-child{white-space:normal !important;position:static !important;min-width:0 !important;line-height:1.3}
+  html[data-tema="nuevo"] :is(#dashGastos,#erpIcomGastos) td{padding-top:10px !important;padding-bottom:10px !important}
+  .pnl-tabla-wrap{max-height:none !important}
+}
+
+/* ═══ SUB-APPS (Stocks, Sucursales, Forecast, Ortopedias, Mercado Libre, Nubimetrics, Quiebres, Alquileres, Talento) ═══
+   Primero el celular (se achica nada de lo que ya estaba pensado para el dedo); en escritorio se suma el rótulo sobre el título y más aire. */
+html[data-tema="nuevo"] header{padding:12px 16px}
+html[data-tema="nuevo"] .htitle{font-size:17px;font-weight:700;letter-spacing:-.01em;color:var(--ink);line-height:1.2}
+html[data-tema="nuevo"] .htitle span{font-size:13px;font-weight:400;color:var(--ink-soft)}
+html[data-tema="nuevo"] .hsesion,html[data-tema="nuevo"] .hsesion b{color:var(--ink-soft)}
+html[data-tema="nuevo"] .hsesion b{font-weight:600}
+
+/* campos de formulario: blancos, esquina 10, foco con halo verde */
+html[data-tema="nuevo"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="color"]),
+html[data-tema="nuevo"] select,
+html[data-tema="nuevo"] textarea{border:1px solid var(--line-input);border-radius:10px;background:#fff;color:var(--ink);transition:border-color .12s,box-shadow .12s}
+html[data-tema="nuevo"] input:focus,html[data-tema="nuevo"] select:focus,html[data-tema="nuevo"] textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+html[data-tema="nuevo"] ::placeholder{color:var(--muted);opacity:.85}
+
+/* pestañas y filtros de vista rápida: pastillas claras (la fila deslizable del celular no cambia) */
+html[data-tema="nuevo"] .tabs button,html[data-tema="nuevo"] .tab,html[data-tema="nuevo"] .suc-tab,html[data-tema="nuevo"] .org-filtro-btn{border-radius:999px;font-weight:600}
+
+/* modales y desplegables */
+html[data-tema="nuevo"] .modal,html[data-tema="nuevo"] .modal-box{box-shadow:0 18px 50px rgba(16,40,36,.22)}
+html[data-tema="nuevo"] .modal-overlay,html[data-tema="nuevo"] .overlay{background:rgba(16,40,36,.45)}
+
+/* etiquetas de estado */
+html[data-tema="nuevo"] .pill,html[data-tema="nuevo"] .badge{font-weight:600}
+
+/* escritorio: rótulo (unidad · app) sobre el título, título más grande y más aire */
+@media (min-width:769px){
+  html[data-tema="nuevo"] header{padding:16px 28px}
+  html[data-tema="nuevo"] .htitle{font-size:24px;letter-spacing:-.02em;line-height:1.15}
+  html[data-tema="nuevo"] .htitle[data-ceja]::before{content:attr(data-ceja);display:block;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+  html[data-tema="nuevo"] main{padding:20px 28px 48px}
+  html[data-tema="nuevo"] .wrap{padding:20px 28px 48px}
+}
+/* celular: el control segmentado nunca se parte en dos filas; se desliza de costado */
+@media (max-width:768px){
+  html[data-tema="nuevo"] .mode-toggle{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  html[data-tema="nuevo"] .mode-toggle::-webkit-scrollbar{display:none}
+  html[data-tema="nuevo"] .mode-toggle button,html[data-tema="nuevo"] .mode-toggle .modo-btn{flex:0 0 auto;white-space:nowrap}
+}
+
+/* campos en fila: si un rótulo ocupa 2 renglones, los controles de la fila igual quedan a la misma altura (alineados por abajo) */
+html[data-tema="nuevo"] .form-row,html[data-tema="nuevo"] .form-grid{align-items:flex-end}
+html[data-tema="nuevo"] .form-field{display:flex;flex-direction:column;justify-content:flex-end}
+html[data-tema="nuevo"] .form-field > label{line-height:1.25}
+
+/* celular: si la grilla de indicadores es de 2 columnas y queda uno suelto, ocupa todo el ancho (no queda a medias con un hueco al lado) */
+@media (max-width:640px){
+  html[data-tema="nuevo"] .stk-kpis > .stk-kpi:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .metrics > .metric:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .metric-bar > .metric:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .erp-kpis > .erp-kpi:last-child:nth-child(odd),
+  html[data-tema="nuevo"] .kpi-row > .kpi-card:last-child:nth-child(odd){grid-column:1 / -1}
+}
+
+/* indicadores de las apps: sin el círculo con ícono arriba a la izquierda (se pisaba con rótulos largos en tarjetas angostas y recarga la vista); el dato ya se explica con su rótulo */
+html[data-tema="nuevo"] .kpi-row > .kpi-card > .kpi-icon{display:none}
+
+/* ═══ ÍCONOS DE LÍNEA (reemplazan los emojis; ver iconos_motor.js) ═══ */
+html[data-tema="nuevo"] .eic{display:inline-block;width:1.08em;height:1.08em;overflow:hidden;white-space:nowrap;text-indent:-100em;font-size:inherit;line-height:1;vertical-align:-.17em;background-color:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;flex-shrink:0;user-select:text}
+/* semáforo: puntos llenos en vez de círculos de emoji */
+html[data-tema="nuevo"] .eic[data-i^="dot-"]{width:.62em;height:.62em;border-radius:50%;vertical-align:.02em;margin:0 .12em;-webkit-mask:none;mask:none}
+html[data-tema="nuevo"] .eic[data-i="dot-ok"]{background-color:var(--ok,#1E8E5A)}
+html[data-tema="nuevo"] .eic[data-i="dot-warn"]{background-color:#E0A21A}
+html[data-tema="nuevo"] .eic[data-i="dot-err"]{background-color:var(--danger,#C8402F)}
+/* menú lateral: íconos de 17px alineados con la etiqueta; heredan el color del ítem (gris, verde si está activo) */
+html[data-tema="nuevo"] .sb-icon{width:18px;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+html[data-tema="nuevo"] .sb-icon .eic{width:17px;height:17px;vertical-align:0}
+
+</style>
+<!--icom-tema:end-->
+</head>
+<body>
+
+<div class="barra">
+  <h1>Correo y Calendario</h1>
+  <button type="button" class="chip-cuenta" id="chipCuenta" style="display:none" onclick="menuCuentas()" title="Cambiar de cuenta o agregar otra"><span class="av chico" id="avDesk"></span><span id="emailCuenta"></span><span class="caret">▾</span></button>
+</div>
+<header class="m-top" id="mTop">
+  <button type="button" class="m-ic" onclick="abrirCajon()" aria-label="Menú">&#9776;</button>
+  <div class="m-busca"><input id="mBuscar" type="search" placeholder="Buscar en el correo" enterkeyhint="search" onkeydown="if(event.key==='Enter'){buscarMovil()}"></div>
+  <button type="button" class="m-av" id="mAvatar" onclick="menuCuentas()" aria-label="Cuentas"></button>
+</header>
+<div class="tabs" id="tabs" style="display:none">
+  <button class="tab activa" id="tabCorreo" onclick="mostrar('correo')">✉ Correo <span class="bdg" id="bdgNoLeidos" style="display:none"></span></button>
+  <button class="tab" id="tabAgenda" onclick="mostrar('agenda')">📅 Agenda</button>
+  <span style="flex:1"></span>
+  <button class="btn pri" id="btnNuevo" onclick="abrirRedactar()">Redactar</button>
+</div>
+
+<div class="cuerpo" id="cuerpo"><div class="estado" id="estado">Cargando…</div></div>
+<button type="button" class="m-fab" id="mFab" onclick="fabAccion()"><span id="mFabIco">✎</span><span id="mFabTxt">Redactar</span></button>
+<nav class="m-nav" id="mNav">
+  <button type="button" id="mNavCorreo" class="activa" onclick="mostrar('correo')"><span class="m-nav-ico">✉<i class="bdg" id="mBdg" style="display:none"></i></span>Correo</button>
+  <button type="button" id="mNavAgenda" onclick="mostrar('agenda')"><span class="m-nav-ico">&#128197;</span>Agenda</button>
+</nav>
+<div class="m-cajon" id="mCajon" onclick="if(event.target===this)cerrarCajon()"><aside id="mCajonPanel"></aside></div>
+
+<script>
+// Correo y Calendario (15/10/2026): Gmail y Google Calendar no se pueden embeber en un iframe, así que esta pantalla usa sus APIs oficiales (api/google-*.js). La sesión es la del panel (sessionStorage).
+const SESION_KEY = 'icom_sesion_2026';
+function token(){ try{ return (JSON.parse(sessionStorage.getItem(SESION_KEY) || '{}')).token || ''; }catch(e){ return ''; } }
+// Meet/Calendar/Gmail no se pueden incrustar en la página (Google lo bloquea): se abren en una ventana emergente centrada, no en una pestaña del navegador.
+function abrirVentana(url, ancho, alto){
+  const w = Math.min(ancho || 1100, screen.availWidth - 20), h = Math.min(alto || 740, screen.availHeight - 40);
+  const l = Math.max(0, Math.round((screen.availWidth - w) / 2)), t = Math.max(0, Math.round((screen.availHeight - h) / 2));
+  const v = window.open(url, 'icom_ventana_' + (url.length % 997), 'popup=yes,width=' + w + ',height=' + h + ',left=' + l + ',top=' + t);
+  if(v){ try{ v.focus(); }catch(e){} return false; }
+  return true;   // si el navegador la bloquea, deja actuar al enlace normal
+}
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg, tipo){ const t = document.createElement('div'); t.className = 'toast' + (tipo === 'error' ? ' error' : ''); t.textContent = msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 4200); }
+async function api(ruta, cuerpo){
+  cuerpo = cuerpo || {};
+  if((ruta === 'google-correo' || ruta === 'google-agenda') && cuentaActual && cuerpo.cuenta === undefined) cuerpo = Object.assign({ cuenta: cuentaActual }, cuerpo);
+  const r = await fetch('/api/' + ruta, { method:'POST', headers:{'Content-Type':'application/json', Authorization:'Bearer ' + token()}, body: JSON.stringify(cuerpo || {}), cache:'no-store' });
+  let j = {}; try{ j = await r.json(); }catch(e){}
+  if(!r.ok && !j.error) j.error = 'El servidor no respondió como se esperaba (código ' + r.status + ').';
+  if(j.noConectado){ conectado = false; pintarInicio(); const e = new Error(j.error || 'Conectá tu cuenta de Google.'); e.noConectado = true; throw e; }
+  if(!j.ok) throw new Error(j.error || 'No se pudo completar la acción.');
+  return j;
+}
+
+let cuentas = [], cuentaActual = '', noLeidosCuenta = 0, conectado = false, configurado = true, vista = 'correo', carpeta = 'INBOX', consulta = '', siguiente = null, mensajes = [], selId = null, msgActual = null;
+const cont = () => document.getElementById('cuerpo');
+
+// Colores e iniciales para las "fotos" de remitentes y cuentas (como el avatar de Gmail).
+const PALETA = ['#1a73e8', '#d93025', '#188038', '#e37400', '#9334e6', '#007b83', '#c5221f', '#5f6368', '#b06000', '#0b8043'];
+function colorDe(t){ let h = 0; String(t || '?').toLowerCase().split('').forEach(c=>{ h = (h * 31 + c.charCodeAt(0)) >>> 0; }); return PALETA[h % PALETA.length]; }
+function inicial(t){ const x = String(t || '?').replace(/[^\p{L}\p{N}]/gu, ''); return (x[0] || '?').toUpperCase(); }
+function avatarHtml(t, extra){ return '<span class="av' + (extra ? ' ' + extra : '') + '" style="background:' + colorDe(t) + '">' + esc(inicial(t)) + '</span>'; }
+function renderCuenta(){
+  const e = document.getElementById('emailCuenta'); if(e) e.textContent = cuentaActual;
+  const d = document.getElementById('avDesk'); if(d){ d.textContent = inicial(cuentaActual); d.style.background = colorDe(cuentaActual); }
+  const a = document.getElementById('mAvatar'); if(a){ a.textContent = inicial(cuentaActual); a.style.background = colorDe(cuentaActual); }
+}
+async function iniciar(){
+  if(!token()){ cont().innerHTML = '<div class="estado err">Ingresá al panel para ver tu correo.</div>'; return; }
+  try{
+    const e = await api('google-conectar', { accion:'estado' });
+    configurado = e.configurado; conectado = e.conectado; cuentas = e.cuentas || [];
+    let guardada = ''; try{ guardada = localStorage.getItem('icom_correo_cuenta') || ''; }catch(x){}
+    if(!cuentas.some(c=>c.email === cuentaActual)) cuentaActual = cuentas.some(c=>c.email === guardada) ? guardada : (e.email || '');
+    if(!conectado){ try{ parent.postMessage({ type:'icom_correo_estado', noLeidos: 0 }, location.origin); }catch(x){} }
+    renderCuenta();
+  }catch(err){
+    cont().innerHTML = '<div class="estado err">' + esc(err.message) + '</div>'; return;
+  }
+  pintarInicio();
+}
+function cambiarCuenta(i){
+  const c = cuentas[i]; if(!c) return;
+  cerrarModal();
+  if(c.email === cuentaActual) return;
+  cuentaActual = c.email; try{ localStorage.setItem('icom_correo_cuenta', cuentaActual); }catch(e){}
+  mensajes = []; selId = null; msgActual = null; consulta = ''; carpeta = 'INBOX'; rangoDesde = null;
+  renderCuenta(); mostrar(vista); refrescarNoLeidos();
+}
+function menuCuentas(){
+  modal('<h3>Cuentas de Google</h3><div class="cu-lista">' + cuentas.map((c, i)=>'<button type="button" class="cu-fila' + (c.email === cuentaActual ? ' act' : '') + '" onclick="cambiarCuenta(' + i + ')">' + avatarHtml(c.email) + '<span class="cu-mail">' + esc(c.email) + '</span>' + (c.email === cuentaActual ? '<span class="cu-ok">✓</span>' : '') + '</button>').join('') + '</div>'
+    + '<button type="button" class="btn cu-agregar" onclick="cerrarModal();conectar()">＋ Agregar otra cuenta</button>'
+    + '<p class="cu-nota">Podés sumar otras cuentas de Gmail o de Google Workspace. Se ven de a una; el globito del menú suma los correos sin leer de todas.</p>'
+    + '<div class="pie"><button class="btn" onclick="desconectar()">Desconectar esta cuenta</button><button class="btn" onclick="cerrarModal()">Cerrar</button></div>', 'hoja');
+}
+function pintarInicio(){
+  const tabs = document.getElementById('tabs'), chip = document.getElementById('chipCuenta');
+  document.body.classList.toggle('sin-cuenta', !conectado);
+  if(!conectado){
+    tabs.style.display = 'none'; chip.style.display = 'none';
+    cont().innerHTML = '<div style="flex:1;overflow:auto;padding:0 14px"><div class="tarjeta-conectar"><h2>Conectá tu cuenta de Google</h2>'
+      + '<p>Vas a ver tu <b>bandeja de entrada</b> y tu <b>agenda</b> acá adentro, con el diseño del panel. Se autoriza una sola vez; podés desconectarla cuando quieras.</p>'
+      + (configurado ? '<button class="btn pri" id="btnConectar" onclick="conectar()" style="min-height:44px;padding:0 22px">Conectar con Google</button>'
+        : '<p class="err"><b>Falta un paso de configuración.</b></p><ol class="pasos"><li>En Google Cloud, crear una credencial OAuth de tipo “Aplicación web” con la URL de redirección <code>https://panel.icomsalud.com.ar/api/google-conectar</code>.</li><li>Habilitar las APIs de Gmail y de Google Calendar.</li><li>Cargar <code>GOOGLE_OAUTH_CLIENT_ID</code> y <code>GOOGLE_OAUTH_CLIENT_SECRET</code> en las variables de Vercel.</li></ol>')
+      + '</div></div>';
+    return;
+  }
+  tabs.style.display = 'flex'; chip.style.display = 'flex';
+  mostrar(vista);
+  refrescarNoLeidos();
+}
+let sondeoConexion = null, ventanaGoogle = null;
+function terminarEspera(){ clearInterval(sondeoConexion); sondeoConexion = null; const v = document.getElementById('esperaGoogle'); if(v) v.remove(); }
+async function conectar(){
+  const b = document.getElementById('btnConectar'); if(b) b.disabled = true;
+  try{
+    const j = await api('google-conectar', { accion:'iniciar' });
+    const ancho = Math.min(520, screen.availWidth - 20), alto = Math.min(700, screen.availHeight - 40);
+    const izq = Math.max(0, Math.round((screen.availWidth - ancho) / 2)), arr = Math.max(0, Math.round((screen.availHeight - alto) / 2));
+    ventanaGoogle = window.open(j.url, 'icom_google', 'popup=yes,width=' + ancho + ',height=' + alto + ',left=' + izq + ',top=' + arr);
+    if(!ventanaGoogle){ toast('El navegador bloqueó la ventana: permitila y volvé a intentar.', 'error'); }
+    else{
+      terminarEspera();
+      const v = document.createElement('div'); v.className = 'velo'; v.id = 'esperaGoogle';
+      v.innerHTML = '<div class="modal" style="max-width:380px;text-align:center"><h3>Autorizá el acceso en Google</h3><p style="color:var(--ink-soft);line-height:1.5;margin-bottom:14px">Elegí tu cuenta y tocá <b>Continuar</b> en la ventana de Google. Esta pantalla se actualiza sola cuando termines.</p><div class="pie" style="justify-content:center"><button class="btn" onclick="if(ventanaGoogle&amp;&amp;!ventanaGoogle.closed)ventanaGoogle.focus()">Volver a la ventana</button><button class="btn" onclick="terminarEspera()">Cancelar</button></div></div>';
+      document.body.appendChild(v);
+      // Respaldo del aviso de la ventana: consulta el estado cada 2 s por si el navegador no entrega el mensaje (app instalada, bloqueadores).
+      let vueltas = 0;
+      sondeoConexion = setInterval(async ()=>{
+        vueltas++;
+        if(vueltas > 150){ terminarEspera(); return; }
+        try{ const e = await api('google-conectar', { accion:'estado' }); if(e.conectado){ terminarEspera(); toast('Cuenta conectada.'); try{ parent.postMessage({ type:'icom_correo_conectado' }, location.origin); }catch(x){} iniciar(); } }catch(err){}
+      }, 2000);
+    }
+  }catch(e){ toast(e.message, 'error'); }
+  if(b) b.disabled = false;
+}
+window.addEventListener('message', ev=>{
+  if(ev.data && ev.data.type === 'icom_google_conectado'){ terminarEspera(); toast('Cuenta conectada.'); try{ parent.postMessage({ type:'icom_correo_conectado' }, location.origin); }catch(e){} iniciar(); }
+  if(ev.data && ev.data.type === 'icom_google_error'){ terminarEspera(); toast('No se pudo conectar la cuenta.', 'error'); }
+});
+async function desconectar(email){
+  email = email || cuentaActual;
+  if(!(await icomConfirmar('¿Desconectar ' + email + ' del panel? Después podés volver a conectarla.', { aceptar:'Desconectar', peligro:true }))) return;
+  try{
+    await api('google-conectar', { accion:'desconectar', cuenta: email });
+    cerrarModal(); mensajes = []; selId = null; msgActual = null; cuentaActual = '';
+    await iniciar(); refrescarNoLeidos();
+  }catch(e){ toast(e.message, 'error'); }
+}
+async function refrescarNoLeidos(){
+  try{
+    const r = await api('google-correo', { accion:'resumen', todas:true });
+    try{ parent.postMessage({ type:'icom_correo_estado', noLeidos: r.noLeidos }, location.origin); }catch(e){}
+    const propia = (r.cuentas || []).find(c=>c.email === cuentaActual);
+    noLeidosCuenta = propia ? propia.noLeidos : 0; pintarBadges();
+  }catch(e){}
+}
+function pintarBadges(){
+  ['bdgNoLeidos', 'mBdg'].forEach(id=>{ const b = document.getElementById(id); if(!b) return; b.textContent = noLeidosCuenta > 99 ? '99+' : noLeidosCuenta; b.style.display = noLeidosCuenta ? 'inline-flex' : 'none'; });
+}
+function mostrar(v){
+  vista = v;
+  document.body.classList.toggle('vista-agenda', v === 'agenda');
+  document.getElementById('tabCorreo').classList.toggle('activa', v === 'correo');
+  document.getElementById('tabAgenda').classList.toggle('activa', v === 'agenda');
+  document.getElementById('mNavCorreo').classList.toggle('activa', v === 'correo');
+  document.getElementById('mNavAgenda').classList.toggle('activa', v === 'agenda');
+  document.getElementById('btnNuevo').style.display = v === 'correo' ? '' : 'none';
+  document.getElementById('mFabIco').textContent = v === 'correo' ? '✎' : '+';
+  document.getElementById('mFabTxt').textContent = v === 'correo' ? 'Redactar' : 'Evento';
+  document.getElementById('mFab').classList.toggle('redondo', v !== 'correo');
+  if(v === 'correo') pintarCorreo(); else pintarAgenda();
+}
+function fabAccion(){ if(vista === 'correo') abrirRedactar(); else abrirNuevoEvento({ meet:true }); }
+function abrirCajon(){
+  const ico = { INBOX:'&#128229;', UNREAD:'&#9993;', STARRED:'&#9734;', SENT:'&#10148;', ALL:'&#128193;' };
+  document.getElementById('mCajonPanel').innerHTML = '<div class="cj-cab"><b>Correo</b><span>' + esc(cuentaActual) + '</span></div>'
+    + CARPETAS.map(c=>'<button type="button" class="cj-item' + (carpeta === c[0] ? ' act' : '') + '" onclick="cerrarCajon();elegirCarpeta(\'' + c[0] + '\')"><span>' + ico[c[0]] + '</span>' + c[1] + (c[0] === 'INBOX' && noLeidosCuenta ? '<em>' + noLeidosCuenta + '</em>' : '') + '</button>').join('')
+    + '<hr><button type="button" class="cj-item" onclick="cerrarCajon();menuCuentas()"><span>&#128100;</span>Cuentas</button>';
+  document.getElementById('mCajon').classList.add('abierto');
+}
+function cerrarCajon(){ document.getElementById('mCajon').classList.remove('abierto'); }
+function buscarMovil(){ consulta = document.getElementById('mBuscar').value.trim(); selId = null; if(vista === 'correo') cargarLista(true); }
+
+/* ───────── CORREO ───────── */
+const CARPETAS = [['INBOX','Recibidos'],['UNREAD','No leídos'],['STARRED','Destacados'],['SENT','Enviados'],['ALL','Todo']];
+function pintarCorreo(){
+  cont().innerHTML = '<div class="mail"><div class="lista-col"><div class="lista-tools">'
+    + '<input type="search" id="buscar" placeholder="Buscar en el correo…" value="' + esc(consulta) + '" onkeydown="if(event.key===\'Enter\'){buscarCorreo()}">'
+    + '<div class="chips">' + CARPETAS.map(c=>'<button class="chip' + (carpeta === c[0] ? ' activa' : '') + '" onclick="elegirCarpeta(\'' + c[0] + '\')">' + c[1] + '</button>').join('') + '</div></div>'
+    + '<div class="lista" id="lista"></div></div>'
+    + '<div class="lector-col" id="lectorCol"><div class="lector-vacio" id="lectorVacio">Elegí un mensaje para leerlo.</div></div></div>';
+  const mb = document.getElementById('mBuscar'); if(mb) mb.value = consulta;
+  cargarLista(true);
+}
+function elegirCarpeta(c){ carpeta = c; consulta = ''; selId = null; msgActual = null; pintarCorreo(); }
+function buscarCorreo(){ consulta = document.getElementById('buscar').value.trim(); selId = null; cargarLista(true); }
+function nombreDe(de){ const m = String(de || '').match(/^\s*"?([^"<]*?)"?\s*<(.+)>\s*$/); return (m && m[1].trim()) || (m && m[2]) || String(de || '').trim(); }
+function fechaCorta(ms){
+  if(!ms) return ''; const d = new Date(ms), h = new Date();
+  if(d.toDateString() === h.toDateString()) return d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', hour12:false });
+  if(d.getFullYear() === h.getFullYear()) return d.toLocaleDateString('es-AR', { day:'numeric', month:'short' });
+  return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+}
+async function cargarLista(reiniciar){
+  const l = document.getElementById('lista'); if(!l) return;
+  if(reiniciar){ mensajes = []; siguiente = null; l.innerHTML = '<div class="estado">Cargando…</div>'; }
+  try{
+    const r = await api('google-correo', { accion:'lista', carpeta, q: consulta, pageToken: reiniciar ? undefined : siguiente });
+    mensajes = mensajes.concat(r.mensajes); siguiente = r.siguiente;
+    pintarFilas();
+  }catch(e){ if(!e.noConectado) l.innerHTML = '<div class="estado err">' + esc(e.message) + '</div>'; }
+}
+function pintarFilas(){
+  const l = document.getElementById('lista'); if(!l) return;
+  l.innerHTML = (mensajes.length ? mensajes.map(m=>{
+    const quien = nombreDe(m.de);
+    return '<div class="fila' + (m.noLeido ? ' nol' : '') + (m.id === selId ? ' sel' : '') + '" onclick="abrirMensaje(\'' + m.id + '\')">'
+      + avatarHtml(quien)
+      + '<div class="fila-cuerpo"><div class="l1"><span class="de">' + (m.destacado ? '<span class="estrella">★</span> ' : '') + esc(quien) + (m.n > 1 ? ' <span class="cnt">' + m.n + '</span>' : '') + '</span><span class="fh">' + fechaCorta(m.fecha) + '</span></div>'
+      + '<div class="as">' + esc(m.asunto || '(sin asunto)') + '</div><div class="rs">' + esc(m.resumen) + '</div></div>'
+      + '<span class="fila-est' + (m.destacado ? ' on' : '') + '">' + (m.destacado ? '★' : '☆') + '</span></div>';
+  }).join('') : '<div class="vacio">No hay mensajes.</div>')
+    + (siguiente ? '<div class="mas"><button class="btn" onclick="cargarLista(false)">Cargar más</button></div>' : '');
+}
+async function abrirMensaje(id){
+  selId = id;
+  const fila = mensajes.find(m=>m.id === id); if(fila && fila.noLeido){ fila.noLeido = false; noLeidosCuenta = Math.max(0, noLeidosCuenta - 1); pintarBadges(); }
+  pintarFilas();
+  const col = document.getElementById('lectorCol'); col.classList.add('abierto');
+  col.innerHTML = '<div class="lector-vacio">Cargando mensaje…</div>';
+  try{
+    const r = await api('google-correo', { accion:'mensaje', id, hilo:true });
+    msgActual = r.mensaje; verCita = false; pintarLector(); refrescarNoLeidos();   // ya vuelve con el mensaje marcado como leído
+  }catch(e){ col.innerHTML = '<div class="lector-vacio err">' + esc(e.message) + '</div>'; }
+}
+// Muestra sólo el mensaje nuevo (como Gmail/Outlook); la conversación citada abajo queda oculta tras "Ver mensajes anteriores".
+const MARCAS_CITA = '.gmail_quote, blockquote[type="cite"], .gmail_extra, #divRplyFwdMsg, #appendonsend, .moz-cite-prefix, .yahoo_quoted, .protonmail_quote, blockquote';
+function sinCita(html){
+  try{
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const primera = doc.body.querySelector(MARCAS_CITA);
+    if(!primera) return { html, cita:false };
+    // Quita la cita y todo lo que viene después en el documento.
+    let nodo = primera;
+    while(nodo && nodo !== doc.body){
+      while(nodo.nextSibling) nodo.parentNode.removeChild(nodo.nextSibling);
+      const padre = nodo.parentNode; padre.removeChild(nodo); nodo = padre;
+    }
+    // Línea de atribución suelta ("El jue... escribió:") que quedó al final.
+    const txt = doc.body.textContent.replace(/\s+$/, '');
+    const lineas = [...doc.body.querySelectorAll('div,p,span')].reverse();
+    for(const el of lineas){ if(/(escribi[óo]:?|wrote:?)\s*$/i.test(el.textContent.trim()) && el.textContent.length < 300){ el.remove(); break; } }
+    if(!doc.body.textContent.trim() && !doc.body.querySelector('img')) return { html, cita:false };
+    return { html: doc.body.innerHTML, cita:true };
+  }catch(e){ return { html, cita:false }; }
+}
+function sinCitaTexto(txt){
+  const lineas = String(txt || '').split('\n'), out = [];
+  for(let i = 0; i < lineas.length; i++){
+    const l = lineas[i];
+    if(/^\s*>/.test(l) || /^\s*(El .{5,200}escribi[óo]:?|On .{5,200}wrote:?|-{2,}\s*(Original Message|Mensaje original|Forwarded)|De:\s.+|From:\s.+)\s*$/i.test(l)){ if(out.join('').trim()) return { texto: out.join('\n').replace(/\s+$/, ''), cita:true }; }
+    out.push(l);
+  }
+  return { texto: txt, cita:false };
+}
+let verCita = false;
+function cuerpoHtmlSeguro(m){
+  if(m.html){
+    const r = verCita ? { html: m.html, cita:false } : sinCita(m.html);
+    m._hayCita = !verCita && r.cita;
+    const doc = '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src https: data:; style-src \'unsafe-inline\'"><base target="_blank">'
+      + '<style>body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:14px;line-height:1.5;color:#222;margin:12px;word-break:break-word}img{max-width:100%;height:auto}table{max-width:100%}</style></head><body>' + r.html + '</body></html>';
+    return '<iframe sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin" referrerpolicy="no-referrer" onload="ajustarAltoIframe(this)" srcdoc="' + doc.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '" title="Cuerpo del mensaje"></iframe>';
+  }
+  const r = verCita ? { texto: m.texto, cita:false } : sinCitaTexto(m.texto);
+  m._hayCita = !verCita && r.cita;
+  const t = esc(r.texto).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, u=>'<a href="' + u + '" target="_blank" rel="noopener noreferrer">' + u + '</a>');
+  return '<pre>' + t + '</pre>';
+}
+// Íconos simples (trazo) para la barra del lector en el celular.
+const ICO = {
+  archivo: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M12 12v5M9.5 14.5L12 17l2.5-2.5"/></svg>',
+  papelera: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>',
+  sobre: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+  resp: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 016 6v3"/></svg>',
+  reenv: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 00-6 6v3"/></svg>'
+};
+function ajustarAltoIframe(f){
+  if(!matchMedia('(max-width:760px)').matches) return;
+  const medir = ()=>{ try{ f.style.height = (f.contentDocument.documentElement.scrollHeight + 6) + 'px'; }catch(e){} };
+  medir(); setTimeout(medir, 400); setTimeout(medir, 1500);
+}
+function masAcciones(){
+  const m = msgActual; if(!m) return;
+  const gmail = 'https://mail.google.com/mail/u/0/#all/' + encodeURIComponent(m.threadId || m.id);
+  modal('<div class="hoja-menu"><button type="button" onclick="cerrarModal();alternarEstrella()">' + (m.destacado ? '★ Quitar de destacados' : '☆ Destacar') + '</button>'
+    + '<button type="button" onclick="cerrarModal();responderCompleto(\'todos\')">Responder a todos</button>'
+    + '<a href="' + gmail + '" target="_blank" rel="noopener noreferrer" onclick="cerrarModal();return abrirVentana(this.href,1100,760)">Abrir en Gmail</a></div>', 'hoja');
+}
+function pintarLector(){
+  const m = msgActual, col = document.getElementById('lectorCol'); if(!m || !col) return;
+  const cuerpo = cuerpoHtmlSeguro(m);
+  const gmail = 'https://mail.google.com/mail/u/0/#all/' + encodeURIComponent(m.threadId || m.id);
+  const dir = (String(m.de).match(/<(.+)>/) || [, m.de])[1];
+  col.innerHTML = '<div class="lector"><div class="m-lector-bar"><button type="button" class="m-ic" onclick="cerrarLector()" aria-label="Volver">←</button><span style="flex:1"></span>'
+    + (m.enBandeja ? '<button type="button" class="m-ic" onclick="archivarActual()" aria-label="Archivar">' + ICO.archivo + '</button>' : '')
+    + '<button type="button" class="m-ic" onclick="papeleraActual()" aria-label="Eliminar">' + ICO.papelera + '</button>'
+    + '<button type="button" class="m-ic" onclick="marcarNoLeidoActual()" aria-label="Marcar como no leído">' + ICO.sobre + '</button>'
+    + '<button type="button" class="m-ic" onclick="masAcciones()" aria-label="Más opciones">⋮</button></div>'
+    + '<div class="lector-cab"><div class="asunto-fila"><h2>' + esc(m.asunto || '(sin asunto)') + '</h2><button type="button" class="m-est' + (m.destacado ? ' on' : '') + '" onclick="alternarEstrella()" aria-label="Destacar">' + (m.destacado ? '★' : '☆') + '</button></div>'
+    + '<div class="m-rem">' + avatarHtml(nombreDe(m.de)) + '<div class="m-rem-txt"><b>' + esc(nombreDe(m.de)) + '</b><small>para ' + esc(nombreDe((m.para || '—').split(',')[0])) + (m.para && m.para.split(',').length > 1 ? ' y otros' : '') + '</small></div><span class="m-rem-f">' + esc(fechaCorta(m.fecha)) + '</span></div>'
+    + '<div class="meta"><b>' + esc(nombreDe(m.de)) + '</b> &lt;' + esc((String(m.de).match(/<(.+)>/) || [,m.de])[1]) + '&gt;<br>Para: ' + esc(m.para || '—') + (m.cc ? '<br>Cc: ' + esc(m.cc) : '') + '<br>' + new Date(m.fecha).toLocaleString('es-AR', { dateStyle:'medium', timeStyle:'short' }) + '</div>'
+    + '<div class="lector-acc"><button class="btn atras" onclick="cerrarLector()">← Volver</button>'
+    + '<button class="btn pri" onclick="responderCompleto(\'resp\')">Responder</button><button class="btn" onclick="responderCompleto(\'todos\')">Responder a todos</button><button class="btn" onclick="responderCompleto(\'reenviar\')">Reenviar</button>'
+    + '<button class="btn" onclick="alternarEstrella()">' + (m.destacado ? '★ Destacado' : '☆ Destacar') + '</button>'
+    + (m.enBandeja ? '<button class="btn" onclick="archivarActual()">Archivar</button>' : '') + '<button class="btn" onclick="papeleraActual()">Eliminar</button>'
+    + '<button class="btn" onclick="marcarNoLeidoActual()">No leído</button><a class="btn" style="display:inline-flex;align-items:center;text-decoration:none" href="' + gmail + '" target="_blank" rel="noopener noreferrer" onclick="return abrirVentana(this.href,1100,760)">Abrir en Gmail</a></div></div>'
+    + '<div class="lector-cuerpo">' + cuerpo + '</div>' + (m._hayCita || verCita ? '<div><button class="cita-btn" onclick="verCita = !verCita; pintarLector()" title="Mostrar u ocultar la conversación anterior">' + (verCita ? 'Ocultar mensajes anteriores' : '··· Ver mensajes anteriores') + '</button></div>' : '')
+    + (m.adjuntos && m.adjuntos.length ? '<div class="adj">' + m.adjuntos.map((a, i)=>'<button type="button" class="adj-btn" onclick="bajarAdjunto(' + i + ', this)" title="Descargar ' + esc(a.nombre) + '">⬇ <span>' + esc(a.nombre) + '</span> <small>' + tamanoLegible(a.bytes) + '</small></button>').join('') + '</div>' : '')
+    + '<div class="m-resp"><button type="button" onclick="responderCompleto(\'resp\')">' + ICO.resp + ' Responder</button><button type="button" onclick="responderCompleto(\'reenviar\')">' + ICO.reenv + ' Reenviar</button></div>'
+    + '<div class="responder"><textarea id="respTexto" rows="1" placeholder="Responder a ' + esc(nombreDe(m.responderA || m.de)) + '…"></textarea><button class="btn" onclick="responderCompleto(\'resp\', document.getElementById(\'respTexto\').value)" title="Abrir el editor completo (formato, adjuntos, emojis)">⤢</button><button class="btn pri" id="btnResp" onclick="responder()">Enviar</button></div></div>';
+}
+function tamanoLegible(b){ b = Number(b) || 0; return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB'; }
+async function bajarAdjunto(i, btn){
+  const m = msgActual, a = m && m.adjuntos[i]; if(!a) return;
+  const txt = btn.innerHTML; btn.disabled = true; btn.innerHTML = 'Descargando…';
+  try{
+    const r = await fetch('/api/google-correo', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + token() }, body: JSON.stringify({ accion:'adjunto', id: m.id, adjuntoId: a.adjuntoId, bytes: a.bytes, cuenta: cuentaActual }), cache:'no-store' });
+    if(!r.ok){ let j = {}; try{ j = await r.json(); }catch(e){} throw new Error(j.error || 'No se pudo descargar el archivo.'); }
+    const blob = new Blob([await r.arrayBuffer()], { type: a.tipo || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob), l = document.createElement('a');
+    l.href = url; l.download = a.nombre || 'adjunto'; document.body.appendChild(l); l.click(); l.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 30000);
+  }catch(e){ toast(e.message, 'error'); }
+  btn.disabled = false; btn.innerHTML = txt;
+}
+function cerrarLector(){ const c = document.getElementById('lectorCol'); if(c) c.classList.remove('abierto'); }
+async function etiquetar(agregar, quitar){ await api('google-correo', { accion:'etiquetar', id: msgActual.id, threadId: msgActual.threadId, agregar, quitar }); }
+async function alternarEstrella(){
+  try{ const on = !msgActual.destacado; await etiquetar(on ? ['STARRED'] : [], on ? [] : ['STARRED']); msgActual.destacado = on; const f = mensajes.find(x=>x.id === msgActual.id); if(f) f.destacado = on; pintarLector(); pintarFilas(); }catch(e){ toast(e.message, 'error'); }
+}
+async function archivarActual(){
+  try{ await etiquetar([], ['INBOX']); quitarDeLista(msgActual.id); toast('Archivado.'); }catch(e){ toast(e.message, 'error'); }
+}
+async function papeleraActual(){
+  if(!(await icomConfirmar('¿Mandar este mensaje a la papelera?', { aceptar:'Eliminar', peligro:true }))) return;
+  try{ await api('google-correo', { accion:'papelera', id: msgActual.id, threadId: msgActual.threadId }); quitarDeLista(msgActual.id); toast('Enviado a la papelera.'); }catch(e){ toast(e.message, 'error'); }
+}
+async function marcarNoLeidoActual(){
+  try{ await etiquetar(['UNREAD'], []); const f = mensajes.find(x=>x.id === msgActual.id); if(f) f.noLeido = true; pintarFilas(); refrescarNoLeidos(); toast('Marcado como no leído.'); }catch(e){ toast(e.message, 'error'); }
+}
+function quitarDeLista(id){
+  mensajes = mensajes.filter(m=>m.id !== id); selId = null; msgActual = null; pintarFilas();
+  const col = document.getElementById('lectorCol'); if(col){ col.classList.remove('abierto'); col.innerHTML = '<div class="lector-vacio">Elegí un mensaje para leerlo.</div>'; }
+  refrescarNoLeidos();
+}
+async function responder(){
+  const ta = document.getElementById('respTexto'), btn = document.getElementById('btnResp'), m = msgActual;
+  const texto = ta.value.trim(); if(!texto) return;
+  const direccion = (String(m.responderA || m.de).match(/<(.+)>/) || [, m.responderA || m.de])[1];
+  const asunto = /^re:/i.test(m.asunto || '') ? m.asunto : 'Re: ' + (m.asunto || '');
+  btn.disabled = true;
+  try{
+    await api('google-correo', { accion:'enviar', para: direccion, asunto, texto, threadId: m.threadId, enRespuestaA: m.messageId, referencias: ((m.referencias || '') + ' ' + (m.messageId || '')).trim() });
+    ta.value = ''; toast('Respuesta enviada.');
+  }catch(e){ toast(e.message, 'error'); }
+  btn.disabled = false;
+}
+
+/* ───────── REDACTAR ─────────
+   Editor con formato (negrita, cursiva, subrayado, listas, enlaces), emojis, adjuntos (botón, arrastrar o pegar), Cc/Cco, responder, responder a todos y reenviar.
+   Se envía como texto + HTML con los adjuntos incluidos (hasta 3 MB en total: es el tope de cada pedido al servidor). */
+const EMOJIS = '😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 😉 😍 🥰 😘 😎 🤩 🤔 🙄 😬 😢 😭 😡 👍 👎 👏 🙌 🙏 💪 👌 🤝 👋 ❤️ 💚 🔥 ⭐ ✅ ❌ ⚠️ 📎 📅 📞 📧 💡 🎉 🎂 🚀 ☕ 🌟'.split(' ');
+const MAX_ADJ_BYTES = 3000000;
+let redac = null, redacAbierta = false, redacRango = null;
+
+// Deja sólo etiquetas y atributos inofensivos (lo que se envía y lo que se cita de otro mensaje).
+const TAGS_OK = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'BR', 'P', 'DIV', 'SPAN', 'UL', 'OL', 'LI', 'A', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'PRE', 'CODE', 'TABLE', 'TBODY', 'THEAD', 'TR', 'TD', 'TH', 'HR']);
+const TAGS_FUERA = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'FORM', 'INPUT', 'BUTTON', 'IMG', 'VIDEO', 'AUDIO', 'SVG', 'TEXTAREA', 'SELECT', 'HEAD', 'TITLE']);
+function limpiarHtmlSalida(html){
+  const doc = new DOMParser().parseFromString('<body>' + String(html || '') + '</body>', 'text/html');
+  (function recorrer(nodo){
+    [...nodo.childNodes].forEach(h=>{
+      if(h.nodeType === 3) return;
+      if(h.nodeType !== 1){ h.remove(); return; }
+      if(TAGS_FUERA.has(h.tagName)){ h.remove(); return; }
+      recorrer(h);
+      if(!TAGS_OK.has(h.tagName)){ h.replaceWith(...h.childNodes); return; }
+      const href = h.tagName === 'A' ? h.getAttribute('href') : null;
+      [...h.attributes].forEach(a=>h.removeAttribute(a.name));
+      if(h.tagName === 'A'){ if(href && /^(https?:|mailto:)/i.test(href.trim())) h.setAttribute('href', href.trim()); else h.replaceWith(...h.childNodes); }
+      if(h.tagName === 'BLOCKQUOTE') h.setAttribute('style', 'margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex');
+    });
+  })(doc.body);
+  return doc.body.innerHTML;
+}
+const correosDe = txt => (String(txt || '').match(/[^\s<>,;"']+@[^\s<>,;"']+\.[^\s<>,;"']+/g) || []);
+const propio = () => (document.getElementById('emailCuenta') || {}).textContent || '';
+
+function abrirRedactar(pref){
+  if(vista === 'agenda'){ abrirNuevoEvento({ meet:true }); return; }
+  pref = pref || {};
+  redac = { adjuntos: [], threadId: pref.threadId || '', enRespuestaA: pref.enRespuestaA || '', referencias: pref.referencias || '' };
+  redacAbierta = true;
+  const btn = (cmd, rotulo, titulo)=>'<button type="button" class="rd-b" title="' + titulo + '" onmousedown="event.preventDefault()" onclick="formatoRedaccion(\'' + cmd + '\')">' + rotulo + '</button>';
+  modal('<h3>' + esc(pref.titulo || 'Mensaje nuevo') + '</h3>'
+    + '<div class="rd-fila"><label for="rPara">Para</label><input id="rPara" autocomplete="off" value="' + esc(pref.para || '') + '"><button type="button" class="rd-mas" id="rdMas" onclick="mostrarCcCco()">Cc Cco</button></div>'
+    + '<div class="rd-fila" id="rdCcFila" style="display:' + (pref.cc ? 'flex' : 'none') + '"><label for="rCc">Cc</label><input id="rCc" autocomplete="off" value="' + esc(pref.cc || '') + '"></div>'
+    + '<div class="rd-fila" id="rdCcoFila" style="display:none"><label for="rCco">Cco</label><input id="rCco" autocomplete="off"></div>'
+    + '<div class="rd-fila"><label for="rAsunto">Asunto</label><input id="rAsunto" value="' + esc(pref.asunto || '') + '"></div>'
+    + '<div class="rd-barra">' + btn('bold', '<b>B</b>', 'Negrita') + btn('italic', '<i>I</i>', 'Cursiva') + btn('underline', '<u>U</u>', 'Subrayado') + btn('strikeThrough', '<s>S</s>', 'Tachado')
+    + '<span class="rd-sep"></span>' + btn('insertUnorderedList', '• Lista', 'Lista con viñetas') + btn('insertOrderedList', '1. Lista', 'Lista numerada') + btn('link', '🔗', 'Insertar enlace') + btn('removeFormat', 'Tx', 'Quitar formato')
+    + '<span class="rd-sep"></span><button type="button" class="rd-b" title="Insertar emoji" onmousedown="event.preventDefault()" onclick="alternarEmojis()">😊</button>'
+    + '<button type="button" class="rd-b" title="Adjuntar archivos" onclick="document.getElementById(\'rArchivo\').click()">📎 Adjuntar</button>'
+    + '<div class="rd-emojis" id="rdEmojis" style="display:none">' + EMOJIS.map(e=>'<button type="button" onmousedown="event.preventDefault()" onclick="insertarEmoji(\'' + e + '\')">' + e + '</button>').join('') + '</div></div>'
+    + '<div id="rEditor" class="rd-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Mensaje">' + (pref.html || '<div><br></div>') + '</div>'
+    + '<div id="rAdjuntos" class="adj"></div><input type="file" id="rArchivo" multiple hidden>'
+    + '<div class="pie"><span class="rd-nota">Adjuntos: hasta 3 MB en total</span><button class="btn" onclick="descartarRedaccion()">Descartar</button><button class="btn pri" id="btnEnviarNuevo" onclick="enviarRedaccion()">Enviar</button></div>', 'grande');
+  const ed = document.getElementById('rEditor');
+  ed.addEventListener('keyup', guardarSeleccion); ed.addEventListener('mouseup', guardarSeleccion); ed.addEventListener('blur', guardarSeleccion);
+  ed.addEventListener('paste', e=>{
+    const cb = e.clipboardData; if(!cb) return;
+    const archivos = [...(cb.files || [])];
+    if(archivos.length){ e.preventDefault(); agregarArchivos(archivos); return; }
+    const h = cb.getData('text/html');
+    if(h){ e.preventDefault(); document.execCommand('insertHTML', false, limpiarHtmlSalida(h)); }
+  });
+  ed.addEventListener('dragover', e=>e.preventDefault());
+  ed.addEventListener('drop', e=>{ if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){ e.preventDefault(); agregarArchivos([...e.dataTransfer.files]); } });
+  document.getElementById('rArchivo').addEventListener('change', e=>{ agregarArchivos([...e.target.files]); e.target.value = ''; });
+  setTimeout(()=>{
+    const foco = pref.para ? ed : document.getElementById('rPara'); if(foco) foco.focus();
+    if(pref.para){ const r = document.createRange(); r.setStart(ed, 0); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+  }, 60);
+}
+function mostrarCcCco(){ document.getElementById('rdCcFila').style.display = 'flex'; document.getElementById('rdCcoFila').style.display = 'flex'; document.getElementById('rdMas').style.display = 'none'; }
+function guardarSeleccion(){ const s = getSelection(); const ed = document.getElementById('rEditor'); if(s.rangeCount && ed && ed.contains(s.anchorNode)) redacRango = s.getRangeAt(0).cloneRange(); }
+function restaurarSeleccion(){ const ed = document.getElementById('rEditor'); if(!ed) return; ed.focus(); if(redacRango){ const s = getSelection(); s.removeAllRanges(); s.addRange(redacRango); } }
+async function formatoRedaccion(cmd){
+  restaurarSeleccion();
+  if(cmd === 'link'){
+    guardarSeleccion();
+    const url = await icomPedir('Dirección del enlace (por ejemplo https://www.icomsalud.com.ar)', { titulo:'Insertar enlace', valor:'https://', aceptar:'Insertar' });
+    if(!url || !/^(https?:\/\/|mailto:)/i.test(url.trim())){ if(url) toast('El enlace debe empezar con https:// o mailto:', 'error'); restaurarSeleccion(); return; }
+    restaurarSeleccion(); document.execCommand('createLink', false, url.trim()); return;
+  }
+  document.execCommand(cmd, false, null); guardarSeleccion();
+}
+function alternarEmojis(){ guardarSeleccion(); const p = document.getElementById('rdEmojis'); p.style.display = p.style.display === 'none' ? 'grid' : 'none'; }
+function insertarEmoji(e){ restaurarSeleccion(); document.execCommand('insertText', false, e); guardarSeleccion(); }
+
+function agregarArchivos(archivos){
+  archivos.forEach(f=>{
+    if(redac.adjuntos.length >= 10){ toast('Máximo 10 archivos por mensaje.', 'error'); return; }
+    const total = redac.adjuntos.reduce((t, a)=>t + a.bytes, 0);
+    if(total + f.size > MAX_ADJ_BYTES){ toast('“' + f.name + '” (' + tamanoLegible(f.size) + ') supera el límite de 3 MB en total. Enviá los archivos grandes desde Gmail.', 'error'); return; }
+    const lector = new FileReader();
+    lector.onload = ()=>{
+      if(!redac) return;
+      redac.adjuntos.push({ nombre: f.name || 'imagen.png', tipo: f.type || 'application/octet-stream', bytes: f.size, datos: String(lector.result).split(',')[1] || '' });
+      pintarAdjuntosRedaccion();
+    };
+    lector.readAsDataURL(f);
+  });
+}
+function pintarAdjuntosRedaccion(){
+  const c = document.getElementById('rAdjuntos'); if(!c || !redac) return;
+  c.innerHTML = redac.adjuntos.map((a, i)=>'<span class="adj-btn">📎 <span>' + esc(a.nombre) + '</span> <small>' + tamanoLegible(a.bytes) + '</small><button type="button" class="rd-x" onclick="quitarAdjuntoRedaccion(' + i + ')" title="Quitar" aria-label="Quitar ' + esc(a.nombre) + '">✕</button></span>').join('');
+}
+function quitarAdjuntoRedaccion(i){ redac.adjuntos.splice(i, 1); pintarAdjuntosRedaccion(); }
+
+function redaccionConContenido(){
+  const ed = document.getElementById('rEditor');
+  return !!(ed && ed.innerText.trim()) || (redac && redac.adjuntos.length) || !!(document.getElementById('rAsunto') || {}).value;
+}
+async function descartarRedaccion(){
+  if(redaccionConContenido() && !(await icomConfirmar('¿Descartar este mensaje? Se pierde lo que escribiste.', { aceptar:'Descartar', peligro:true }))) return;
+  redacAbierta = false; redac = null; cerrarModal();
+}
+async function enviarRedaccion(){
+  const ed = document.getElementById('rEditor'), btn = document.getElementById('btnEnviarNuevo');
+  const para = document.getElementById('rPara').value.trim();
+  if(!para){ toast('Indicá al menos un destinatario.', 'error'); document.getElementById('rPara').focus(); return; }
+  const asunto = document.getElementById('rAsunto').value.trim();
+  if(!asunto && !(await icomConfirmar('Este mensaje no tiene asunto. ¿Querés enviarlo igual?', { aceptar:'Enviar', titulo:'Enviar sin asunto', peligro:false }))) return;
+  const html = limpiarHtmlSalida(ed.innerHTML), texto = ed.innerText.trim();
+  if(!texto && !redac.adjuntos.length){ toast('El mensaje está vacío.', 'error'); return; }
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  try{
+    await api('google-correo', { accion:'enviar', para, cc: document.getElementById('rCc').value, cco: document.getElementById('rCco').value, asunto, texto,
+      html: '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222">' + html + '</div>', adjuntos: redac.adjuntos, threadId: redac.threadId, enRespuestaA: redac.enRespuestaA, referencias: redac.referencias });
+    redacAbierta = false; redac = null; cerrarModal(); toast('Mensaje enviado.');
+    if(carpeta === 'SENT') cargarLista(true);
+  }catch(e){ toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'Enviar'; }
+}
+
+// Responder / Responder a todos / Reenviar con el editor completo.
+function citaDe(m, completo){
+  const cuerpo = m.html ? limpiarHtmlSalida(completo ? m.html : sinCita(m.html).html) : esc(m.texto || '').replace(/\n/g, '<br>');
+  return { cuerpo, fecha: new Date(m.fecha).toLocaleString('es-AR', { dateStyle:'full', timeStyle:'short' }) };
+}
+async function responderCompleto(modo, textoInicial){
+  const m = msgActual; if(!m) return;
+  const yo = propio().toLowerCase(), c = citaDe(m, modo === 'reenviar');
+  const refs = ((m.referencias || '') + ' ' + (m.messageId || '')).trim();
+  if(modo === 'reenviar'){
+    abrirRedactar({ titulo:'Reenviar mensaje', asunto: /^(fwd?|rv):/i.test(m.asunto || '') ? m.asunto : 'Fwd: ' + (m.asunto || ''), threadId:'',
+      html: '<div><br></div><div>---------- Mensaje reenviado ----------<br>De: ' + esc(m.de) + '<br>Fecha: ' + esc(c.fecha) + '<br>Asunto: ' + esc(m.asunto || '') + '<br>Para: ' + esc(m.para || '') + '</div><br><div>' + c.cuerpo + '</div>' });
+    // Los adjuntos del original viajan con el reenvío (los que entren en el límite).
+    for(const a of (m.adjuntos || [])){
+      if(!redac) break;
+      const usado = redac.adjuntos.reduce((t, x)=>t + x.bytes, 0);
+      if(a.bytes > MAX_ADJ_BYTES || usado + a.bytes > MAX_ADJ_BYTES){ toast('“' + a.nombre + '” no se pudo incluir (supera los 3 MB). Reenvialo desde Gmail.', 'error'); continue; }
+      try{
+        const r = await fetch('/api/google-correo', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:'Bearer ' + token() }, body: JSON.stringify({ accion:'adjunto', id: m.id, adjuntoId: a.adjuntoId, bytes: a.bytes, cuenta: cuentaActual }), cache:'no-store' });
+        if(!r.ok) throw new Error('descarga');
+        const blob = await r.blob();
+        const datos = await new Promise(ok=>{ const l = new FileReader(); l.onload = ()=>ok(String(l.result).split(',')[1] || ''); l.readAsDataURL(blob); });
+        if(redac) { redac.adjuntos.push({ nombre: a.nombre, tipo: a.tipo, bytes: a.bytes, datos }); pintarAdjuntosRedaccion(); }
+      }catch(e){ toast('No se pudo incluir “' + a.nombre + '”.', 'error'); }
+    }
+    return;
+  }
+  const respuestaA = correosDe(m.responderA || m.de)[0] || '';
+  let cc = '';
+  if(modo === 'todos'){
+    const otros = [...correosDe(m.para), ...correosDe(m.cc)].filter(x=>x.toLowerCase() !== yo && x.toLowerCase() !== respuestaA.toLowerCase());
+    cc = [...new Set(otros)].join(', ');
+  }
+  const inicial = textoInicial ? '<div>' + esc(textoInicial).replace(/\n/g, '<br>') + '</div>' : '<div><br></div>';
+  abrirRedactar({ titulo: modo === 'todos' ? 'Responder a todos' : 'Responder', para: respuestaA, cc, asunto: /^re:/i.test(m.asunto || '') ? m.asunto : 'Re: ' + (m.asunto || ''), threadId: m.threadId, enRespuestaA: m.messageId, referencias: refs,
+    html: inicial + '<div><br></div><div>El ' + esc(c.fecha) + ', ' + esc(m.de) + ' escribió:</div><blockquote>' + c.cuerpo + '</blockquote>' });
+}
+function modal(html, clase){ cerrarModal(); const v = document.createElement('div'); v.className = 'velo'; v.id = 'modalVelo'; v.innerHTML = '<div class="modal ' + (clase || '') + '" role="dialog" aria-modal="true">' + html + '</div>'; v.addEventListener('mousedown', e=>{ if(e.target === v && !redacAbierta) cerrarModal(); }); document.body.appendChild(v); }
+function cerrarModal(){ const v = document.getElementById('modalVelo'); if(v) v.remove(); redacAbierta = false; }
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && !redacAbierta && !document.querySelector('.icav-velo')) cerrarModal(); });
+
+/* ───────── AGENDA ─────────
+   Modelo tradicional: a la izquierda el detalle del día elegido (por defecto hoy), a la derecha la semana. Un clic en un horario libre abre "Nueva reunión" con ese día y hora y Google Meet tildado. */
+const PX_HORA = 52, PX_HORA_DIA = 84, DIAS_CORTOS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+let rangoDesde = null, diaSel = null, agSub = 'dia', eventosActuales = [], agCargando = 0;
+// Calendarios que la persona sumó al propio (ids), guardados por cuenta en este navegador. Vacío = sólo su calendario principal.
+function claveCals(){ return 'icom_agenda_cals_' + (cuentaActual || ''); }
+function calsElegidos(){ try{ const v = JSON.parse(localStorage.getItem(claveCals()) || '[]'); return Array.isArray(v) ? v : []; }catch(e){ return []; } }
+function guardarCals(ids){ try{ localStorage.setItem(claveCals(), JSON.stringify(ids)); }catch(e){} }
+async function elegirCalendarios(){
+  modal('<h3>Calendarios</h3><div class="estado">Cargando calendarios…</div>');
+  try{
+    const r = await api('google-agenda', { accion:'calendarios' });
+    const sel = new Set(calsElegidos());
+    const filas = r.calendarios.map(c=>'<label class="cal-fila"><input type="checkbox" value="' + esc(c.id) + '"' + (c.principal ? ' checked disabled' : (sel.has(c.id) ? ' checked' : '')) + '><span class="cal-punto" style="background:' + esc(c.color) + '"></span><span class="cal-nom">' + esc(c.nombre) + (c.principal ? ' <em>(el tuyo)</em>' : '') + '</span></label>').join('');
+    modal('<h3>Calendarios</h3><p class="muted" style="margin:0 0 10px;font-size:13px">Se muestra siempre tu calendario. Podés sumar otros vinculados a tu cuenta (se recuerda en este navegador).</p><div class="cal-lista">' + filas + '</div><div class="pie"><button class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn pri" onclick="guardarCalendarios()">Guardar</button></div>');
+  }catch(e){ cerrarModal(); toast(e.message, 'error'); }
+}
+function guardarCalendarios(){
+  const ids = [...document.querySelectorAll('.cal-lista input:checked:not(:disabled)')].map(i=>i.value);
+  guardarCals(ids); cerrarModal(); cargarAgenda();
+}
+function inicioDia(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
+function lunesDe(d){ const x = inicioDia(d); const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); return x; }
+function sumarDias(d, n){ const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function claveDia(d){ return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function horaCorta(d){ return d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', hour12:false }); }
+function mayus(t){ return t.charAt(0).toUpperCase() + t.slice(1); }
+function fechaLarga(d){ return mayus(d.toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' })); }
+
+function pintarAgenda(){
+  if(!rangoDesde){ rangoDesde = lunesDe(new Date()); diaSel = inicioDia(new Date()); }
+  const fin = sumarDias(rangoDesde, 6), f = d => d.toLocaleDateString('es-AR', { day:'numeric', month:'short' });
+  cont().innerHTML = '<div class="ag-wrap sub-' + agSub + '">'
+    + '<div class="ag-barra"><div class="ag-nav"><button class="btn" onclick="moverAgenda(-7)" aria-label="Semana anterior">‹</button><button class="btn" onclick="moverAgenda(0)">Hoy</button><button class="btn" onclick="moverAgenda(7)" aria-label="Semana siguiente">›</button></div>'
+    + '<span class="rango">' + f(rangoDesde) + ' – ' + f(fin) + '</span>'
+    + '<label class="ag-ir" title="Ir a una fecha"><span>Ir a</span><input type="date" id="agIr" value="' + claveDia(diaSel) + '" onchange="irAFecha(this.value)"></label>'
+    + '<div class="ag-busca"><input type="search" id="agBuscar" placeholder="Buscar reunión…" onkeydown="if(event.key===\'Enter\')buscarEventos()"></div>'
+    + '<button class="btn" onclick="elegirCalendarios()" title="Elegir qué calendarios ver">Calendarios</button>'
+    + '<button class="btn pri" onclick="abrirNuevoEvento({ meet:true })">+ Nueva reunión</button></div>'
+    + '<div class="ag-movil"><div class="ag-mes-fila"><button type="button" class="m-ic" onclick="moverAgenda(-7)" aria-label="Semana anterior">‹</button><button type="button" class="ag-mes" id="agMes" onclick="elegirFechaMovil()"></button><button type="button" class="m-ic" onclick="moverAgenda(7)" aria-label="Semana siguiente">›</button><button type="button" class="m-hoy" onclick="moverAgenda(0)">Hoy</button></div><div class="ag-tira" id="agTira"></div></div>'
+    + '<div class="ag-sub"><button class="chip' + (agSub === 'dia' ? ' activa' : '') + '" onclick="agSub=\'dia\';pintarAgenda()">Día</button><button class="chip' + (agSub === 'semana' ? ' activa' : '') + '" onclick="agSub=\'semana\';pintarAgenda()">Semana</button></div>'
+    + '<div class="ag-cuerpo"><section class="ag-izq" id="agIzq"></section><section class="ag-der" id="agDer"><div class="estado">Cargando agenda…</div></section></div></div>';
+  cargarAgenda();
+}
+function moverAgenda(dias){
+  if(dias === 0){ rangoDesde = lunesDe(new Date()); diaSel = inicioDia(new Date()); }
+  else{ rangoDesde = sumarDias(rangoDesde, dias); diaSel = new Date(rangoDesde); }
+  pintarAgenda();
+}
+function irAFecha(v){
+  if(!v) return; const d = new Date(v + 'T00:00:00'); if(isNaN(d)) return;
+  diaSel = inicioDia(d); rangoDesde = lunesDe(d); agSub = 'dia'; pintarAgenda();
+}
+function elegirFechaMovil(){
+  const i = document.createElement('input'); i.type = 'date'; i.value = claveDia(diaSel); i.style.cssText = 'position:fixed;opacity:0;pointer-events:none;top:60px;left:20px';
+  document.body.appendChild(i); i.addEventListener('change', ()=>{ irAFecha(i.value); i.remove(); }); i.addEventListener('blur', ()=>setTimeout(()=>i.remove(), 300));
+  try{ i.showPicker(); }catch(e){ i.style.pointerEvents = 'auto'; i.style.opacity = '1'; i.focus(); }
+}
+function elegirDia(clave){ diaSel = new Date(clave + 'T00:00:00'); pintarAgendaContenido(); const i = document.getElementById('agIr'); if(i) i.value = clave; }
+
+async function cargarAgenda(){
+  const turno = ++agCargando, hasta = sumarDias(rangoDesde, 7);
+  try{
+    const r = await api('google-agenda', { accion:'eventos', desde: rangoDesde.toISOString(), hasta: hasta.toISOString(), calendarios: calsElegidos() });
+    if(turno !== agCargando) return;
+    eventosActuales = r.eventos; pintarAgendaContenido();
+  }catch(e){ if(!e.noConectado){ const d = document.getElementById('agDer'); if(d) d.innerHTML = '<div class="estado err">' + esc(e.message) + '</div>'; } }
+}
+// Eventos (con su índice global) que caen en el día d; los de varios días aparecen en cada uno.
+function eventosDelDia(d){
+  const ini = inicioDia(d), fin = sumarDias(ini, 1), res = [];
+  eventosActuales.forEach((ev, idx)=>{
+    const a = new Date(ev.todoElDia ? ev.inicio + 'T00:00:00' : ev.inicio), b = new Date(ev.todoElDia ? ev.fin + 'T00:00:00' : ev.fin);
+    if(a < fin && (b > ini || (+a === +b && a >= ini))) res.push({ ev, idx, a, b });
+  });
+  return res;
+}
+// Reparte los eventos que se pisan en columnas lado a lado.
+function acomodar(items){
+  items.sort((x, y)=>x.a - y.a || y.b - x.b);
+  const grupos = []; let actual = null, finActual = 0;
+  items.forEach(it=>{
+    if(!actual || +it.a >= finActual){ actual = []; grupos.push(actual); finActual = 0; }
+    actual.push(it); finActual = Math.max(finActual, +it.b);
+  });
+  grupos.forEach(g=>{
+    const cols = [];
+    g.forEach(it=>{ let c = cols.findIndex(f=>f <= +it.a); if(c < 0){ c = cols.length; cols.push(0); } cols[c] = +it.b; it.col = c; });
+    g.forEach(it=>{ it.cols = cols.length; });
+  });
+  return items;
+}
+function limitesHoras(){
+  let h0 = 8, h1 = 19;
+  eventosActuales.forEach(ev=>{
+    if(ev.todoElDia) return; const a = new Date(ev.inicio), b = new Date(ev.fin);
+    h0 = Math.min(h0, a.getHours()); h1 = Math.max(h1, b.getMinutes() ? b.getHours() + 1 : b.getHours());
+  });
+  return [Math.max(0, Math.min(h0, 7)), Math.min(24, Math.max(h1, 19))];
+}
+function columnaDia(d, h0, h1, soloTitulo){
+  const px = soloTitulo ? PX_HORA : PX_HORA_DIA, items = acomodar(eventosDelDia(d).filter(x=>!x.ev.todoElDia)), alto = (h1 - h0) * px, clave = claveDia(d);
+  let html = '<div class="ag-col" style="height:' + alto + 'px" data-dia="' + clave + '" data-px="' + px + '" onclick="clicHorario(event,this,' + h0 + ')">';
+  for(let h = 0; h < h1 - h0; h++) html += '<div class="ag-linea" style="top:' + (h * px) + 'px"></div>';
+  items.forEach(it=>{
+    const ini = Math.max(+it.a, +inicioDia(d)), fin = Math.min(+it.b, +sumarDias(inicioDia(d), 1));
+    const top = ((new Date(ini).getHours() * 60 + new Date(ini).getMinutes()) / 60 - h0) * px, h = Math.max(24, (fin - ini) / 3600000 * px - 2);
+    const ancho = 100 / it.cols, ev = it.ev;
+    html += '<div class="ag-ev" style="top:' + top + 'px;height:' + h + 'px;left:calc(' + (it.col * ancho) + '% + 1px);width:calc(' + ancho + '% - 3px);--c:' + esc(ev.color) + '" onclick="event.stopPropagation();verEvento(' + it.idx + ')" title="' + esc(ev.titulo) + '">'
+      + '<b>' + esc(ev.titulo) + '</b>' + (soloTitulo ? '' : '<span>' + horaCorta(new Date(it.a)) + ' – ' + horaCorta(new Date(it.b)) + '</span>') + (ev.meet && !soloTitulo ? '<a class="ag-meet" href="' + esc(ev.meet) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();return abrirVentana(this.href,1100,740)">Unirse</a>' : '') + '</div>';
+  });
+  if(clave === claveDia(new Date())){
+    const ahora = new Date(), y = (ahora.getHours() * 60 + ahora.getMinutes()) / 60 - h0;
+    if(y >= 0 && y <= h1 - h0) html += '<div class="ag-ahora" style="top:' + (y * px) + 'px"></div>';
+  }
+  return html + '</div>';
+}
+function horasEtiquetas(h0, h1, px){
+  let html = '<div class="ag-horas" style="height:' + ((h1 - h0) * px) + 'px">';
+  for(let h = h0; h < h1; h++) html += '<span style="top:' + ((h - h0) * px) + 'px">' + String(h).padStart(2, '0') + ':00</span>';
+  return html + '</div>';
+}
+function todoElDiaHtml(d){
+  return eventosDelDia(d).filter(x=>x.ev.todoElDia).map(x=>'<div class="ag-dia-completo" style="--c:' + esc(x.ev.color) + '" onclick="verEvento(' + x.idx + ')">' + esc(x.ev.titulo) + '</div>').join('');
+}
+function pintarAgendaContenido(){
+  const izq = document.getElementById('agIzq'), der = document.getElementById('agDer'); if(!izq || !der) return;
+  const [h0, h1] = limitesHoras(), hoy = claveDia(new Date()), esHoy = claveDia(diaSel) === hoy;
+  // Izquierda: detalle del día elegido
+  const delDia = eventosDelDia(diaSel).filter(x=>!x.ev.todoElDia);
+  izq.innerHTML = '<div class="ag-izq-cab"><div><div class="ag-izq-tit">' + (esHoy ? 'Hoy' : DIAS_CORTOS[(diaSel.getDay() + 6) % 7]) + '</div><div class="ag-izq-fecha">' + fechaLarga(diaSel) + '</div></div>'
+    + '<div class="ag-izq-n">' + delDia.length + (delDia.length === 1 ? ' reunión' : ' reuniones') + '</div></div>'
+    + todoElDiaHtml(diaSel) + '<div class="ag-scroll" id="agScrollDia"><div class="ag-grilla">' + horasEtiquetas(h0, h1, PX_HORA_DIA) + '<div class="ag-cols">' + columnaDia(diaSel, h0, h1, false) + '</div></div></div>';
+  // Celular: tira de la semana + lista del día elegido (como Google Calendar)
+  const mes = document.getElementById('agMes'); if(mes) mes.textContent = mayus(diaSel.toLocaleDateString('es-AR', { month:'long', year:'numeric' }).replace(' de ', ' ')) + ' ▾';
+  const tira = document.getElementById('agTira');
+  if(tira) tira.innerHTML = [...Array(7)].map((_, i)=>{ const d = sumarDias(rangoDesde, i), c = claveDia(d), hay = eventosDelDia(d).length;
+    return '<button type="button" class="ag-t-dia' + (c === claveDia(diaSel) ? ' sel' : '') + (c === hoy ? ' hoy' : '') + '" onclick="elegirDia(\'' + c + '\')"><small>' + DIAS_CORTOS[i].charAt(0) + '</small><b>' + d.getDate() + '</b><i class="' + (hay ? 'hay' : '') + '"></i></button>'; }).join('');
+  const itemsDia = eventosDelDia(diaSel).sort((x, y)=>(x.ev.todoElDia ? 0 : 1) - (y.ev.todoElDia ? 0 : 1) || x.a - y.a);
+  izq.innerHTML += '<div class="ag-dia-lista">' + (itemsDia.length ? itemsDia.map(x=>{ const ev = x.ev, hora = ev.todoElDia ? 'Todo el día' : horaCorta(x.a) + ' – ' + horaCorta(x.b);
+    return '<div class="ev" onclick="verEvento(' + x.idx + ')"><span class="franja" style="background:' + esc(ev.color) + '"></span><div style="min-width:0;flex:1"><div class="tit">' + esc(ev.titulo) + '</div><div class="sub">' + hora + (ev.lugar ? ' · 📍 ' + esc(ev.lugar) : '') + '</div>'
+      + (ev.meet ? '<a class="meet" href="' + esc(ev.meet) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();return abrirVentana(this.href,1100,740)">Unirse a la reunión</a>' : '') + '</div></div>'; }).join('') : '<div class="ag-libre ag-vacio-dia">Sin reuniones este día</div>') + '</div>';
+  // Derecha: semana (grilla en escritorio, lista en celular)
+  let cab = '<span class="ag-esq"></span>', cols = '', lista = '';
+  for(let i = 0; i < 7; i++){
+    const d = sumarDias(rangoDesde, i), c = claveDia(d), evs = eventosDelDia(d);
+    cab += '<button class="ag-sem-dia' + (c === hoy ? ' hoy' : '') + (c === claveDia(diaSel) ? ' sel' : '') + '" onclick="elegirDia(\'' + c + '\')"><small>' + DIAS_CORTOS[i] + '</small><b>' + d.getDate() + '</b></button>';
+    cols += columnaDia(d, h0, h1, true);
+    lista += '<div class="dia' + (c === hoy ? ' hoy' : '') + '"><h3>' + fechaLarga(d) + '</h3>' + (evs.length ? evs.map(x=>{
+      const ev = x.ev, hora = ev.todoElDia ? 'Todo el día' : horaCorta(x.a) + ' – ' + horaCorta(x.b);
+      return '<div class="ev" onclick="verEvento(' + x.idx + ')"><span class="franja" style="background:' + esc(ev.color) + '"></span><span class="hora">' + hora + '</span><div style="min-width:0"><div class="tit">' + esc(ev.titulo) + '</div>'
+        + (ev.lugar ? '<div class="sub">📍 ' + esc(ev.lugar) + '</div>' : '') + (ev.meet ? '<a class="meet" href="' + esc(ev.meet) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();return abrirVentana(this.href,1100,740)">Unirse a la reunión</a>' : '') + '</div></div>';
+    }).join('') : '<div class="ag-libre">Sin reuniones</div>') + '</div>';
+  }
+  const todoSem = [...Array(7)].map((_, i)=>'<div class="ag-td">' + todoElDiaHtml(sumarDias(rangoDesde, i)) + '</div>').join('');
+  der.innerHTML = '<div class="ag-sem-grid">' + cab + '</div><div class="ag-sem-td"><span class="ag-esq"></span>' + todoSem + '</div>'
+    + '<div class="ag-scroll" id="agScrollSem"><div class="ag-grilla">' + horasEtiquetas(h0, h1, PX_HORA) + '<div class="ag-cols ag-cols7">' + cols + '</div></div></div><div class="ag-sem-lista">' + lista + '</div>';
+  ['agScrollDia', 'agScrollSem'].forEach(id=>{ const s = document.getElementById(id); if(s && s.clientHeight) s.scrollTop = Math.max(0, ((esHoy || id === 'agScrollSem' ? new Date().getHours() : 8) - h0 - 1) * (id === 'agScrollDia' ? PX_HORA_DIA : PX_HORA)); });
+}
+// Clic en un horario libre: nueva reunión con ese día y hora (redondeada a 30 min).
+function clicHorario(e, col, h0){
+  const y = e.clientY - col.getBoundingClientRect().top, min = Math.floor((y / (Number(col.dataset.px) || PX_HORA) * 60) / 30) * 30, h = h0 + Math.floor(min / 60), m = min % 60;
+  abrirNuevoEvento({ dia: col.dataset.dia, hora: String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'), meet:true });
+}
+async function buscarEventos(){
+  const q = (document.getElementById('agBuscar').value || '').trim(); if(q.length < 2) return;
+  try{
+    const r = await api('google-agenda', { accion:'buscar', q, calendarios: calsElegidos() });
+    const filas = r.eventos.length ? r.eventos.map(ev=>{
+      const a = new Date(ev.todoElDia ? ev.inicio + 'T00:00:00' : ev.inicio);
+      return '<div class="ev" onclick="cerrarModal();irAFecha(\'' + claveDia(a) + '\')"><span class="franja" style="background:' + esc(ev.color) + '"></span><span class="hora">' + a.toLocaleDateString('es-AR', { day:'numeric', month:'short' }) + (ev.todoElDia ? '' : '<br>' + horaCorta(a)) + '</span><div style="min-width:0"><div class="tit">' + esc(ev.titulo) + '</div>' + (ev.calendario ? '<div class="sub">' + esc(ev.calendario) + '</div>' : '') + '</div></div>';
+    }).join('') : '<div class="vacio">No se encontraron reuniones con “' + esc(q) + '”.</div>';
+    modal('<h3>Resultados para “' + esc(q) + '”</h3><div style="max-height:60vh;overflow:auto">' + filas + '</div><div class="pie"><button class="btn" onclick="cerrarModal()">Cerrar</button></div>');
+  }catch(e){ toast(e.message, 'error'); }
+}
+function verEvento(i){
+  const ev = eventosActuales[i]; if(!ev) return;
+  modal('<h3>' + esc(ev.titulo) + '</h3><p style="color:var(--ink-soft);margin-bottom:8px">' + (ev.todoElDia ? 'Todo el día' : new Date(ev.inicio).toLocaleString('es-AR', { dateStyle:'full', timeStyle:'short' }) + ' – ' + horaCorta(new Date(ev.fin))) + '</p>'
+    + (ev.lugar ? '<p style="margin-bottom:6px">📍 ' + esc(ev.lugar) + '</p>' : '') + (ev.calendario ? '<p style="margin-bottom:6px;color:var(--muted)">Calendario: ' + esc(ev.calendario) + '</p>' : '')
+    + (ev.descripcion ? '<p style="white-space:pre-wrap;margin:8px 0;word-break:break-word">' + esc(ev.descripcion.replace(/<[^>]+>/g, ' ')) + '</p>' : '')
+    + '<div class="pie">' + (ev.meet ? '<a class="btn pri" style="display:inline-flex;align-items:center;text-decoration:none" href="' + esc(ev.meet) + '" target="_blank" rel="noopener noreferrer" onclick="return abrirVentana(this.href,1100,740)">Unirse a la reunión</a>' : '')
+    + (ev.link ? '<a class="btn" style="display:inline-flex;align-items:center;text-decoration:none" href="' + esc(ev.link) + '" target="_blank" rel="noopener noreferrer" onclick="return abrirVentana(this.href,1100,760)">Abrir en Google Calendar</a>' : '') + '<button class="btn" onclick="cerrarModal()">Cerrar</button></div>');
+}
+function abrirNuevoEvento(pref){
+  pref = pref || {};
+  const hoy = new Date(), p = n => String(n).padStart(2, '0');
+  const d = pref.dia || (diaSel ? claveDia(diaSel) : claveDia(hoy));
+  const h1 = pref.hora || (p(Math.min(hoy.getHours() + 1, 22)) + ':00');
+  const [hh, mm] = h1.split(':').map(Number), fin = new Date(2000, 0, 1, hh, mm + 60), h2 = p(fin.getHours()) + ':' + p(fin.getMinutes());
+  modal('<h3>Nueva reunión</h3><div class="campo"><label>Título</label><input id="eTit" placeholder="Ej.: Reunión de seguimiento"></div><div class="fila-campos"><div class="campo"><label>Fecha</label><input id="eDia" type="date" value="' + d + '"></div>'
+    + '<div class="campo"><label>Desde</label><input id="eIni" type="time" value="' + h1 + '" step="900" onchange="ajustarFinEvento()"></div><div class="campo"><label>Hasta</label><input id="eFin" type="time" value="' + (fin.getDate() === 1 ? h2 : '23:59') + '" step="900"></div></div>'
+    + '<div class="campo"><label>Invitados (emails separados por coma, opcional)</label><input id="eInv"></div><div class="campo"><label>Lugar (opcional)</label><input id="eLug"></div>'
+    + '<label style="display:flex;gap:8px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="eMeet" style="min-height:0;width:18px;height:18px"' + (pref.meet ? ' checked' : '') + '> Agregar videollamada de Google Meet</label>'
+    + '<div class="pie"><button class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn pri" id="btnCrearEv" onclick="crearEvento()">Crear</button></div>');
+  setTimeout(()=>{ const e = document.getElementById('eTit'); if(e) e.focus(); }, 50);
+}
+function ajustarFinEvento(){
+  const i = document.getElementById('eIni').value; if(!i) return;
+  const [h, m] = i.split(':').map(Number), f = new Date(2000, 0, 1, h, m + 60), p = n => String(n).padStart(2, '0');
+  if(f.getDate() === 1) document.getElementById('eFin').value = p(f.getHours()) + ':' + p(f.getMinutes());
+}
+async function crearEvento(){
+  const dia = document.getElementById('eDia').value, ini = document.getElementById('eIni').value, fin = document.getElementById('eFin').value;
+  const b = document.getElementById('btnCrearEv'); b.disabled = true;
+  try{
+    await api('google-agenda', { accion:'crear', titulo: document.getElementById('eTit').value, inicio: new Date(dia + 'T' + ini).toISOString(), fin: new Date(dia + 'T' + fin).toISOString(),
+      invitados: document.getElementById('eInv').value.split(/[,;\s]+/).filter(Boolean), lugar: document.getElementById('eLug').value, meet: document.getElementById('eMeet').checked });
+    cerrarModal(); toast('Reunión creada.'); if(dia){ const x = new Date(dia + 'T00:00:00'); diaSel = inicioDia(x); rangoDesde = lunesDe(x); } pintarAgenda();
+  }catch(e){ toast(e.message, 'error'); b.disabled = false; }
+}
+
+iniciar();
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+
+/* ═══ SHELL: Ventas en Vivo (ERP) y Monitor OV ═══ */
+html[data-tema="nuevo"] .sb-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (min-width:769px){ html[data-tema="nuevo"] #sidebar:not(.collapsed){width:248px} }
+html[data-tema="nuevo"] .erp-header::before{content:attr(data-ceja);flex:0 0 100%;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:-4px}
+html[data-tema="nuevo"] .erp-header h1{font-size:24px;font-weight:700;letter-spacing:-.02em;color:var(--ink);line-height:1.15}
+html[data-tema="nuevo"] .erp-header p{font-size:13.5px;color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-status,html[data-tema="nuevo"] .erp-status.ok,html[data-tema="nuevo"] .erp-status.loading{background:#fff;border:1px solid var(--line);color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-status.ok{color:var(--ok)}
+html[data-tema="nuevo"] .erp-status.err{background:var(--danger-bg);border-color:#F0C4BC;color:var(--danger)}
+html[data-tema="nuevo"] .erp-status-updated{color:var(--muted)}
+/* periodos: control segmentado + chip de fecha + interruptor de comparar */
+html[data-tema="nuevo"] .erp-toolbar .pm-btn{border:1px solid var(--line-input);border-radius:10px;background:#fff;color:var(--ink);font-weight:600}
+html[data-tema="nuevo"] .erp-seg{display:inline-flex;gap:2px;padding:3px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sombra);max-width:100%;overflow-x:auto;scrollbar-width:none}
+html[data-tema="nuevo"] .erp-seg::-webkit-scrollbar{display:none}
+html[data-tema="nuevo"] .erp-seg .pm-btn{border:none;background:transparent;border-radius:9px;color:var(--ink-soft);box-shadow:none;white-space:nowrap;flex:0 0 auto}
+html[data-tema="nuevo"] .erp-seg .pm-btn:hover{background:#F0F3F2;color:var(--ink)}
+html[data-tema="nuevo"] .erp-seg .pm-btn.erp-quickbtn-active{background:var(--accent) !important;color:#fff !important;border:none !important}
+html[data-tema="nuevo"] .erp-btn-compare{border:1px solid var(--line);background:#fff;color:var(--ink-soft)}
+html[data-tema="nuevo"] .erp-cmp-sw{background:var(--line-input)}
+html[data-tema="nuevo"] .erp-daterange-popup{border:1px solid var(--line);border-radius:14px;box-shadow:var(--sombra-hover)}
+/* indicadores y tarjetas */
+html[data-tema="nuevo"] .erp-kpis{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+html[data-tema="nuevo"] .erp-kpi,html[data-tema="nuevo"] .erp-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--sombra)}
+html[data-tema="nuevo"] .erp-kpi .lbl{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted)}
+html[data-tema="nuevo"] .erp-kpi .val{font-size:28px;font-weight:700;letter-spacing:-.02em;color:var(--ink)}
+html[data-tema="nuevo"] .erp-kpi-sub,html[data-tema="nuevo"] .erp-kpi-sub span{color:var(--muted)}
+html[data-tema="nuevo"] .erp-card h2{font-size:14px;font-weight:600;color:var(--ink)}
+html[data-tema="nuevo"] .erp-table-wrap,html[data-tema="nuevo"] .pm-table-wrap{border:1px solid var(--line);border-radius:var(--radius-md)}
+html[data-tema="nuevo"] .erp-count{background:var(--accent-soft);color:var(--accent-hover)}
+/* celular (primero): el control segmentado ocupa su propia fila con 5 partes iguales (palabra grande arriba, abreviatura abajo, como antes) */
+@media (max-width:700px){
+  html[data-tema="nuevo"] .erp-seg{order:5;flex:1 1 100%;display:flex;overflow:visible}
+  html[data-tema="nuevo"] .erp-seg .pm-btn{flex:1 1 0;min-width:0;padding:2px;font-size:clamp(11px,3.3vw,13px);line-height:1.15;white-space:normal;word-spacing:100vw;text-align:center;display:flex;align-items:center;justify-content:center}
+  html[data-tema="nuevo"] .erp-kpis{grid-template-columns:1fr 1fr;gap:10px}
+  html[data-tema="nuevo"] .erp-kpi{padding:14px 10px}
+  html[data-tema="nuevo"] .erp-kpi .val{font-size:22px;white-space:nowrap}
+}

@@ -66,6 +66,16 @@ async function leerPersona(id) {
 async function guardarPersona(persona) {
   await redis.set(`${PREFIJO}:persona:${persona.id}`, persona);
   await redis.sadd(`${PREFIJO}:persona:ids`, persona.id);
+  // 28/10/2026 ("todos los avisos deben llegar al email de la ficha... unificá estos email"): el correo de la FICHA es el único que vale. Cada vez que se guarda una ficha con email, los usuarios
+  // vinculados a esa persona quedan con ese mismo correo (antes eran dos datos separados y se desfasaban: caso Ignacio Irigoin, usuario con email vacío).
+  if (persona.email) {
+    try {
+      const usuarios = await leerUsuarios();
+      for (const u of usuarios) {
+        if (u && u.personaId === persona.id && u.email !== persona.email) await guardarUsuario(Object.assign({}, u, { email: persona.email }));
+      }
+    } catch (e) { console.error('guardarPersona: no se pudo sincronizar el email de los usuarios de ' + persona.id + ':', e && e.message ? e.message : e); }
+  }
 }
 async function eliminarPersona(id) {
   await redis.del(`${PREFIJO}:persona:${id}`);

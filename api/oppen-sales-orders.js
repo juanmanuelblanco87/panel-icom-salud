@@ -71,6 +71,8 @@
 //             ver ETIQUETA_LABELS.
 // }
 const BASE_URL = 'https://icomsalud.oppen.io/genericapi/ICOMGENERAL';
+// 17/10/2026: libro de órdenes de venta (ver api/_ov-ledger.js) -- lo cerrado (hasta anteayer) sale de archivos, sólo hoy/ayer se piden en vivo a Oppen.
+const { planificarSegmentos, leerOrdenesLedger, leerOrdenesReciente } = require('./_ov-ledger');
 
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
@@ -307,13 +309,15 @@ const OPERATION_TYPE_UNIT_MAP = {
   ML: 'minorista',
   IOMA: null,
 };
+const TIPOS_DESCONOCIDOS_AVISADOS = new Set();
 function classifyUnidadNegocio(operationType) {
   const code = String(operationType || '').trim().toUpperCase();
   if (!code) return 'minorista';
   if (Object.prototype.hasOwnProperty.call(OPERATION_TYPE_UNIT_MAP, code)) {
     return OPERATION_TYPE_UNIT_MAP[code];
   }
-  console.warn(`oppen-sales-orders: OperationType desconocido ("${operationType}"), se asume Minorista.`);
+  // un solo aviso por tipo y por instancia (antes: uno por CADA fila -- miles de líneas de log por pedido, que además frenaban la respuesta)
+  if (!TIPOS_DESCONOCIDOS_AVISADOS.has(code)) { TIPOS_DESCONOCIDOS_AVISADOS.add(code); console.warn(`oppen-sales-orders: OperationType desconocido ("${operationType}"), se asume Minorista.`); }
   return 'minorista';
 }
 
@@ -428,7 +432,9 @@ function toDDMMYYYY(isoDate) {
   return `${d}/${m}/${y}`;
 }
 
+const { avisarSinSesion } = require('./_acceso-aviso');
 module.exports = async function handler(req, res) {
+  avisarSinSesion(req, 'oppen-sales-orders'); // 14/10/2026: modo aviso (sólo registra, ver _acceso-aviso.js)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
 
@@ -465,19 +471,16 @@ module.exports = async function handler(req, res) {
     const byUnidadNegocio = {};
     const rows = [];
 
-    while (hasMore) {
-      const page = await fetchSalesOrdersPage(token, offset, LIMIT, fromDate, toDate);
-      const pageOrders = page.data || [];
-
-      for (const ord of pageOrders) {
+    const procesarOrden = async (ord) => {
+      {
         // Filtro de "orden válida" -- ver esOrdenConfirmada/esOrdenInvalida
         // y el comentario grande arriba (por qué se filtra acá y no en la query).
-        if (!esOrdenConfirmada(ord.Status) || esOrdenInvalida(ord.Invalid)) continue;
+        if (!esOrdenConfirmada(ord.Status) || esOrdenInvalida(ord.Invalid)) return;
         ordersProcessed++;
 
         const unidadNegocio = classifyUnidadNegocio(ord.OperationType);
 
-        if (unidadNegocioFilter && unidadNegocio !== unidadNegocioFilter) continue;
+        if (unidadNegocioFilter && unidadNegocio !== unidadNegocioFilter) return;
         ordersEnUnidad++;
 
         if (unidadNegocio) {
@@ -611,11 +614,55 @@ module.exports = async function handler(req, res) {
           });
         }
       }
+    };
 
-      hasMore = !!page.has_more;
-      offset += LIMIT;
-      if (offset > LIMIT * 50) break; // misma salvaguarda que oppen-invoices.js
+    // Tramos: lo cerrado sale del libro (rápido, sin Oppen); lo reciente (hoy y ayer) y cualquier hueco se piden en vivo con la paginación de siempre.
+    // ?ledger=0 fuerza el camino viejo (todo en vivo) -- sirve para comparar resultados y como salida de emergencia.
+    let segmentos = [{ tipo: 'vivo', desde: fromDate, hasta: toDate }];
+    if (url.searchParams.get('ledger') !== '0') {
+      try { segmentos = await planificarSegmentos(fromDate, toDate); }
+      catch (e) { console.error('oppen-sales-orders: el libro de OV no está disponible, se pide todo en vivo:', e); segmentos = [{ tipo: 'vivo', desde: fromDate, hasta: toDate }]; }
     }
+    let diasLibro = 0, tramosVivo = 0, atrasoReciente = -1;
+    // Oppen devuelve las órdenes ordenadas por internalId y el resultado depende del orden en un detalle (el nombre mostrado de un SKU es el de la primera línea): cuando se
+    // mezclan tramos (libro + vivo) se juntan todas y se procesan ordenadas por internalId. Si es todo en vivo se procesa en streaming, igual que siempre.
+    const hayLibro = segmentos.some((sg) => sg.tipo === 'ledger');
+    const juntas = [];
+    for (const seg of segmentos) {
+      if (seg.tipo === 'ledger') {
+        const ordenes = await leerOrdenesLedger(seg.desde, seg.hasta);
+        diasLibro += Math.round((Date.parse(seg.hasta) - Date.parse(seg.desde)) / 86400000) + 1;
+        for (const o of ordenes) juntas.push(o);
+      } else {
+        tramosVivo++;
+        // Igual que en oppen-invoices.js: el tramo en vivo se junta entero y, si Oppen limita las consultas, se usa la foto de hoy/ayer guardada en la base.
+        let delTramo = [];
+        try {
+          let offsetSeg = 0;
+          let hayMas = true;
+          while (hayMas) {
+            const page = await fetchSalesOrdersPage(token, offsetSeg, LIMIT, seg.desde, seg.hasta);
+            for (const o of (page.data || [])) delTramo.push(o);
+            hayMas = !!page.has_more;
+            offsetSeg += LIMIT;
+            if (offsetSeg > LIMIT * 50) break; // misma salvaguarda que oppen-invoices.js
+          }
+        } catch (errVivo) {
+          const rec = await leerOrdenesReciente(seg.desde, seg.hasta);
+          if (!rec) throw errVivo;
+          console.error('oppen-sales-orders: Oppen no respondió, se usa la foto guardada de hoy/ayer (' + rec.atrasoMin + ' min de atraso):', errVivo && errVivo.message);
+          delTramo = rec.crudas;
+          atrasoReciente = Math.max(atrasoReciente, rec.atrasoMin);
+        }
+        for (const o of delTramo) { if (hayLibro) juntas.push(o); else await procesarOrden(o); }
+      }
+    }
+    if (hayLibro) {
+      juntas.sort((a, b) => (Number(a.internalId) || 0) - (Number(b.internalId) || 0));
+      for (const o of juntas) await procesarOrden(o);
+    }
+    res.setHeader('X-Libro-OV', `dias-libro=${diasLibro};tramos-vivo=${tramosVivo}`);
+    if (atrasoReciente >= 0) res.setHeader('X-Libro-Reciente', 'atraso-min=' + atrasoReciente);
 
     const totals = Object.values(bySku).reduce(
       (acc, s) => ({ unidades: acc.unidades + s.unidades, totalNeto: acc.totalNeto + s.totalNeto }),

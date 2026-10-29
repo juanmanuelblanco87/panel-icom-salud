@@ -14,6 +14,7 @@ const { nuevoAcc, agregarPublicacion, finalizar, finalizarSubs, compactarPagina 
 const { leerProgreso, escribirProgreso, leerMes, escribirMes, leerSub, escribirSub, leerAcc, escribirAcc, borrarAcc, escribirRawPagina, escribirRawManifest, leerRawManifest, respaldar } = require('./_nubi-store');
 
 const { sincronizarEspejo } = require('./_nubi-espejo');
+const { mantenerAlias } = require('./_nubi-alias-store');
 
 const TZ = 'America/Argentina/Buenos_Aires';
 const CONCURRENCIA = 4;
@@ -178,7 +179,11 @@ async function ejecutar({ forzar = false, presupuestoMs = PRESUPUESTO_MS } = {})
     // plan del día completo: se aprovecha la invocación para copiar al hosting de Hostinger lo que falte (segunda copia, ver _nubi-espejo.js); si no está configurado no hace nada
     let espejo = null;
     try { espejo = await sincronizarEspejo({ presupuestoMs: Math.min(presupuestoMs, 80000) }); } catch (e) { espejo = { error: String(e.message || e).slice(0, 200) }; }
-    return { estado: 'al_dia', resumen: resumen(prog), espejo };
+    // 22/10/2026: después del espejo, mantenimiento de la lista de vendedores sin nombre (fichas nuevas si pasaron 20 h y, después, lotes del motor de identificación)
+    let alias = null;
+    // sólo si el espejo no tuvo trabajo en esta pasada (así la suma de los dos no pasa los 120 s de la función)
+    if (!espejo || !espejo.subidos) { try { alias = await mantenerAlias({ presupuestoMs: 35000 }); } catch (e) { alias = { error: String(e.message || e).slice(0, 200) }; } }
+    return { estado: 'al_dia', resumen: resumen(prog), espejo, alias };
   }
   if (prog.lockHasta && prog.lockHasta > Date.now()) return { estado: 'ocupado', resumen: resumen(prog) };
 

@@ -14,9 +14,11 @@
 // -- misma forma de bySku que ya esperaba el cliente (ver applyErpStock en
 // Seguimiento), así Seguimiento/Stocks no necesitan cambiar nada de cómo
 // leen ese dato, solo de dónde sale.
+const { avisarSinSesion } = require('./_acceso-aviso');
 const { leerSnapshot } = require('./_stock-store');
 
 module.exports = async function handler(req, res) {
+  avisarSinSesion(req, 'stock-snapshot'); // 14/10/2026: modo aviso (sólo registra, ver _acceso-aviso.js)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }

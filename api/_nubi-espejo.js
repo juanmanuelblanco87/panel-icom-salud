@@ -7,7 +7,7 @@
 // Activo sólo si existe la variable NUBI_ARCHIVO_URL (la misma NUBI_PROXY_SECRET del proxy hace de clave).
 const { list } = require('@vercel/blob');
 
-const PREFIJOS = ['nubi_respaldo/', 'nubi_mes_', 'nubi_sub_', 'nubi_raw/']; // en este orden: lo más valioso y chico primero
+const PREFIJOS = ['nubi_respaldo/', 'nubi_alias', 'nubi_sugerencias', 'nubi_fichas', 'nubi_mes_', 'nubi_sub_', 'nubi_raw/']; // en este orden: lo más valioso y chico primero
 
 function configuracion() {
   const url = (process.env.NUBI_ARCHIVO_URL || '').trim();
@@ -48,26 +48,32 @@ async function resumenRemoto() {
 }
 
 // Sube lo que falte o haya cambiado de tamaño, dentro del presupuesto de tiempo. Devuelve cuántos subió y cuántos quedan.
-async function sincronizarEspejo({ presupuestoMs = 60000 } = {}) {
+async function sincronizarEspejo({ presupuestoMs = 60000, prefijos } = {}) {
   const cfg = configuracion();
   if (!cfg) return { configurado: false };
   const t0 = Date.now();
   let subidos = 0, restantes = 0, errores = 0, ultimoError = null;
-  for (const prefijo of PREFIJOS) {
+  for (const prefijo of (prefijos || PREFIJOS)) {
     let remoto;
     try { remoto = await listarRemoto(cfg, prefijo); } catch (e) { return { configurado: true, error: String(e.message || e).slice(0, 200), subidos, restantes }; }
     const blobs = await listarBlobs(prefijo);
     const pendientes = blobs.filter((b) => remoto.get(b.pathname) !== b.size);
-    for (let i = 0; i < pendientes.length; i++) {
-      if (Date.now() - t0 > presupuestoMs) { restantes += pendientes.length - i; break; }
-      const b = pendientes[i];
-      try {
-        const r = await fetch(b.url + (b.url.includes('?') ? '&' : '?') + 'v=' + new Date(b.uploadedAt).getTime(), { cache: 'no-store' });
-        if (!r.ok) throw new Error('blob HTTP ' + r.status);
-        await subir(cfg, b.pathname, Buffer.from(await r.arrayBuffer()));
-        subidos++;
-      } catch (e) { errores++; ultimoError = String(e.message || e).slice(0, 200); }
-    }
+    // 19/10/2026: de a 3 archivos en paralelo (el libro de OV suma ~1.000 archivos y en serie tardaba horas en copiarse).
+    let sig = 0;
+    const trabajador = async () => {
+      while (sig < pendientes.length) {
+        if (Date.now() - t0 > presupuestoMs) return;
+        const b = pendientes[sig++];
+        try {
+          const r = await fetch(b.url + (b.url.includes('?') ? '&' : '?') + 'v=' + new Date(b.uploadedAt).getTime(), { cache: 'no-store' });
+          if (!r.ok) throw new Error('blob HTTP ' + r.status);
+          await subir(cfg, b.pathname, Buffer.from(await r.arrayBuffer()));
+          subidos++;
+        } catch (e) { errores++; ultimoError = String(e.message || e).slice(0, 200); }
+      }
+    };
+    await Promise.all([trabajador(), trabajador(), trabajador()]);
+    restantes += Math.max(0, pendientes.length - sig);
     if (Date.now() - t0 > presupuestoMs) { // lo que quede de prefijos siguientes se cuenta como pendiente sin listarlo
       break;
     }

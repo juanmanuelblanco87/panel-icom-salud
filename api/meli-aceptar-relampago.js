@@ -5,12 +5,12 @@
 // (el cliente las manda en secuencia, con la confirmación hecha una sola vez en el popup).
 //
 // Igual que meli-aceptar-propuesta.js: se ignoran los ids/precio que mande el cliente y se vuelve a pedir la oferta EN VIVO justo antes de aceptar (la propuesta
-// puede haber vencido o cambiado desde el último escaneo). Se usa el precio propuesto por MeLi y el stock MÍNIMO que pide (o el que mande el cliente si
+// puede haber vencido o cambiado desde el último escaneo). Se usa el precio propuesto por MeLi y el stock MÁXIMO que admite (o el que mande el cliente si
 // entra dentro del rango permitido).
 //
 // POST { itemId, sku, stock? } -> { ok:true, precioOferta, stock }
 const { requerirSesion, puedeAprobarMeli } = require('./_talento-auth');
-const { aceptarRelampago, buscarOfertaDeItem, humanizarErrorMeli } = require('./_meli-api');
+const { aceptarRelampago, buscarOfertaDeItem, humanizarErrorMeli, refrescarOfertaEnItem } = require('./_meli-api');
 const { leerSnapshot, escribirSnapshot } = require('./_meli-store');
 
 module.exports = async function handler(req, res) {
@@ -34,14 +34,15 @@ module.exports = async function handler(req, res) {
       try {
         const snapshot = await leerSnapshot();
         const item = snapshot.items && (snapshot.items[claveSnapshot] || snapshot.items[itemId]);
-        if (item && item.propuestaRelampago) { item.propuestaRelampago = null; await escribirSnapshot(snapshot); }
+        if (item && item.propuestaRelampago) { item.propuestaRelampago = null; item.cambioTs = Date.now(); await escribirSnapshot(snapshot); }
       } catch (e) { console.error('meli-aceptar-relampago: no se pudo limpiar el snapshot de ' + itemId + ':', e); }
       res.status(409).json({ ok: false, error: 'La propuesta Relámpago ya no está disponible en Mercado Libre (venció, cambió o ya se aceptó) -- refrescá la página.', codigo: 'propuesta_vencida' });
       return;
     }
     if (!p.promotionId) { res.status(502).json({ ok: false, error: 'Mercado Libre no informó el id de la campaña Relámpago de esta publicación.', codigo: 'sin_promotion_id' }); return; }
 
-    let stock = Number(p.stockMin) || Number(p.stockMax) || 0;
+    // 15/10/2026 ("coloca el máximo que acepte MeLi para esa publicación, no solo 5"): por defecto se compromete el stock MÁXIMO que admite MeLi para esta oferta.
+    let stock = Number(p.stockMax) || Number(p.stockMin) || 0;
     const pedido = Number((req.body || {}).stock);
     if (pedido && p.stockMin && p.stockMax && pedido >= p.stockMin && pedido <= p.stockMax) stock = pedido;
     if (!stock) { res.status(502).json({ ok: false, error: 'Mercado Libre no informó el stock a comprometer para esta oferta.', codigo: 'sin_stock' }); return; }
@@ -52,7 +53,13 @@ module.exports = async function handler(req, res) {
     try {
       const snapshot = await leerSnapshot();
       const item = snapshot.items && (snapshot.items[claveSnapshot] || snapshot.items[itemId]);
-      if (item) { item.propuestaRelampago = null; await escribirSnapshot(snapshot); }
+      if (item) {
+        item.propuestaRelampago = null;
+        // 28/10/2026: precio y promoción vigentes EN VIVO, para que el resto de los paneles abiertos vea el cambio sin esperar al escaneo
+        await refrescarOfertaEnItem(item, itemId, false);
+        item.cambioTs = Date.now();
+        await escribirSnapshot(snapshot);
+      }
     } catch (e) { console.error('meli-aceptar-relampago: aceptada en MeLi pero no se pudo actualizar el snapshot de ' + itemId + ':', e); }
 
     res.status(200).json({ ok: true, precioOferta, stock });

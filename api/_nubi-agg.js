@@ -14,10 +14,14 @@ const TOP_PUBLICACIONES = 300;
 const TOP_MARCAS = 400;
 const SUB_VENDEDORES = 100;
 const SUB_MARCAS = 60;
+// 22/10/2026 ("el filtro marca no aplica bien: abajo veo vendedores que no trabajan esa marca"): para poder filtrar la tabla de Vendedores por marca hace falta saber QUÉ vendedor
+// vendió QUÉ marca. Se guarda por marca (las TOP_MARCAS principales) los principales vendedores; en las subcategorías, los principales de cada una de sus marcas principales.
+const MV_VENDEDORES = 100;
+const SUB_MV_VENDEDORES = 25;
 const SUB_PUBLICACIONES = 40;
 
 function nuevoSub() {
-  return { pubs: 0, u: 0, ars: 0, usd: 0, canc: 0, daily: {}, sel: {}, brands: {}, tipos: {}, flags: { free: [0, 0, 0], full: [0, 0, 0], flex: [0, 0, 0] }, top: [] };
+  return { pubs: 0, u: 0, ars: 0, usd: 0, canc: 0, daily: {}, sel: {}, brands: {}, mv: {}, tipos: {}, flags: { free: [0, 0, 0], full: [0, 0, 0], flex: [0, 0, 0] }, top: [] };
 }
 function nuevoAcc() {
   return {
@@ -25,6 +29,7 @@ function nuevoAcc() {
     daily: {},      // { 'YYYY-MM-DD': [unidades, ars, usd] }
     sellers: {},    // { sellerKey: {...} }  (cada vendedor lleva un índice `i` que usan las subcategorías)
     brands: {},     // { marca: [pubs, u, ars, usd] }
+    mv: {},         // { marca: { sellerKey: [pubs, u, ars, usd, free, full, flex] } }  (vendedores por marca)
     tipos: {},      // { listingType: [pubs, u, ars] }
     subcats: {},    // { 'Nivel3 › Nivel4': [pubs, u, ars, usd] }
     flags: { free: [0, 0, 0], full: [0, 0, 0], flex: [0, 0, 0], oficial: [0, 0, 0] }, // [pubs, u, ars]
@@ -83,6 +88,15 @@ function agregarPublicacion(acc, x) {
 
   const marca = limpio(x.brand).toUpperCase() || '(sin marca)';
   sumar(acc.brands[marca] || (acc.brands[marca] = [0, 0, 0, 0]), 1, u, ars, usd);
+  if (marca !== '(sin marca)') {
+    if (!acc.mv) acc.mv = {};   // acumuladores guardados antes de este cambio no lo traen
+    const mvm = acc.mv[marca] || (acc.mv[marca] = {});
+    const fv = mvm[clave] || (mvm[clave] = [0, 0, 0, 0, 0, 0, 0]);
+    fv[0]++; fv[1] += u; fv[2] += ars; fv[3] += usd;
+    if (free) fv[4] += u;
+    if (full) fv[5] += u;
+    if (flex) fv[6] += u;
+  }
   const tipo = limpio(x.listingType) || '(s/d)';
   sumar(acc.tipos[tipo] || (acc.tipos[tipo] = [0, 0, 0]), 1, u, ars, usd);
 
@@ -118,6 +132,15 @@ function agregarPublicacion(acc, x) {
   if (full) fila[5] += u;
   if (flex) fila[6] += u;
   sumar(sb.brands[marca] || (sb.brands[marca] = [0, 0, 0, 0]), 1, u, ars, usd);
+  if (marca !== '(sin marca)') {
+    if (!sb.mv) sb.mv = {};
+    const mvs = sb.mv[marca] || (sb.mv[marca] = {});
+    const fs2 = mvs[s.i] || (mvs[s.i] = [0, 0, 0, 0, 0, 0, 0]);
+    fs2[0]++; fs2[1] += u; fs2[2] += ars; fs2[3] += usd;
+    if (free) fs2[4] += u;
+    if (full) fs2[5] += u;
+    if (flex) fs2[6] += u;
+  }
   sumar(sb.tipos[tipo] || (sb.tipos[tipo] = [0, 0, 0]), 1, u, ars, usd);
   if (free) sumar(sb.flags.free, 1, u, ars, usd);
   if (full) sumar(sb.flags.full, 1, u, ars, usd);
@@ -137,6 +160,7 @@ const redondear = (v) => Math.round(v);
 function finalizar(acc) {
   podar(acc.top, TOP_PUBLICACIONES);
   const sellers = Object.values(acc.sellers).sort((a, b) => b.ars - a.ars);
+  const posVend = new Map(sellers.map((s, i) => [s.k, i]));
   for (const s of sellers) { s.ars = redondear(s.ars); s.usd = redondear(s.usd); delete s.i; }
 
   const provincias = {};
@@ -155,6 +179,13 @@ function finalizar(acc) {
   const subcats = Object.entries(acc.subcats)
     .map(([n, v]) => ({ n, pubs: v[0], u: v[1], ars: redondear(v[2]), usd: redondear(v[3]) }))
     .sort((a, b) => b.ars - a.ars);
+  // vendedores por marca: [posición en `sellers`, pubs, u, ars, usd, free, full, flex], los MV_VENDEDORES principales de cada una de las TOP_MARCAS marcas
+  const mv = {};
+  for (const b of brands) {
+    const filas = Object.entries((acc.mv || {})[b.n] || {}).sort((x, y) => y[1][2] - x[1][2]).slice(0, MV_VENDEDORES)
+      .filter(([k]) => posVend.has(k)).map(([k, v]) => [posVend.get(k), v[0], v[1], redondear(v[2]), redondear(v[3]), v[4], v[5], v[6]]);
+    if (filas.length) mv[b.n] = filas;
+  }
   const tipos = {};
   for (const [k, v] of Object.entries(acc.tipos)) tipos[k] = [v[0], v[1], redondear(v[2])];
   const flags = {};
@@ -164,13 +195,23 @@ function finalizar(acc) {
 
   return {
     totales: { pubs: acc.pubs, u: acc.u, ars: redondear(acc.ars), usd: redondear(acc.usd), canc: acc.canc, vendedores: sellers.length },
-    daily, sellers, brands, subcats, tipos, flags, provincias, reputaciones, top: acc.top,
+    daily, sellers, brands, subcats, tipos, flags, provincias, reputaciones, top: acc.top, mv,
   };
 }
 
 // Detalle por subcategoría (blob aparte). Vendedores en un diccionario por categoría + filas compactas por subcategoría:
 //   { dict: [{k,n,nm,rep,st}, ...], subs: { 'N3 › N4': { t, daily, sellers:[[idx,pubs,u,ars,usd,free,full,flex],...], brands:[[n,pubs,u,ars,usd],...], tipos, flags, top } } }
 // Hay que llamarla ANTES de finalizar() (usa el índice `i` de cada vendedor).
+// { marca: [[idx del vendedor en dict, pubs, u, ars, usd, free, full, flex], ...] } para las SUB_MARCAS marcas principales de la subcategoría
+function mvSub(sb) {
+  const out = {};
+  for (const [n] of Object.entries(sb.brands).sort((a, b) => b[1][2] - a[1][2]).slice(0, SUB_MARCAS)) {
+    const filas = Object.entries((sb.mv || {})[n] || {}).sort((x, y) => y[1][2] - x[1][2]).slice(0, SUB_MV_VENDEDORES)
+      .map(([i, v]) => [Number(i), v[0], v[1], redondear(v[2]), redondear(v[3]), v[4], v[5], v[6]]);
+    if (filas.length) out[n] = filas;
+  }
+  return out;
+}
 function finalizarSubs(acc) {
   const dict = Object.values(acc.sellers).sort((a, b) => a.i - b.i).map((s) => ({ k: s.k, n: s.n, nm: s.nm, rep: s.rep, st: s.st }));
   const subs = {};
@@ -188,6 +229,7 @@ function finalizarSubs(acc) {
       sellers: Object.entries(sb.sel).sort((a, b) => b[1][2] - a[1][2]).slice(0, SUB_VENDEDORES)
         .map(([i, r]) => [Number(i), r[0], r[1], redondear(r[2]), redondear(r[3]), r[4], r[5], r[6]]),
       brands: Object.entries(sb.brands).sort((a, b) => b[1][2] - a[1][2]).slice(0, SUB_MARCAS).map(([n, v]) => [n, v[0], v[1], redondear(v[2]), redondear(v[3])]),
+      mv: mvSub(sb),
       tipos, flags, top: sb.top,
     };
   }
@@ -207,4 +249,4 @@ function compactarPagina(results) {
   }));
 }
 
-module.exports = { nuevoAcc, agregarPublicacion, finalizar, finalizarSubs, compactarPagina };
+module.exports = { nuevoAcc, agregarPublicacion, finalizar, finalizarSubs, compactarPagina, MV_VENDEDORES, SUB_MV_VENDEDORES, SUB_MARCAS, TOP_MARCAS };

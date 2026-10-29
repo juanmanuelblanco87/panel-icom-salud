@@ -1,0 +1,134 @@
+<style id="icomAvisosCss">
+.icav-velo{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,40,36,.46);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);animation:icavIn .14s ease-out}
+.icav-card{--icav-tono:#007067;--icav-tono-suave:#E6F2F1;width:100%;max-width:420px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;background:#fff;color:#222;border-radius:12px;border-top:4px solid var(--icav-tono);box-shadow:0 18px 50px rgba(0,0,0,.28);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;overflow:hidden}
+.icav-card.error{--icav-tono:#B3261E;--icav-tono-suave:#FBE9E7}
+.icav-card.peligro{--icav-tono:#B3261E;--icav-tono-suave:#FBE9E7}
+.icav-card.atencion{--icav-tono:#A35B00;--icav-tono-suave:#FFF3E0}
+.icav-card.ok{--icav-tono:#0F7A5A;--icav-tono-suave:#E3F4EE}
+.icav-cab{display:flex;align-items:center;gap:12px;padding:16px 20px 4px}
+.icav-ico{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:var(--icav-tono-suave);color:var(--icav-tono);display:flex;align-items:center;justify-content:center}
+.icav-ico svg{width:18px;height:18px}
+.icav-tit{font-size:16px;font-weight:700;color:#1b1b1b;line-height:1.25}
+.icav-msg{padding:8px 20px 4px 66px;font-size:14px;line-height:1.5;color:#444;white-space:pre-wrap;word-break:break-word;overflow:auto}
+.icav-campo{margin:10px 20px 0 66px;width:calc(100% - 86px);border:1px solid #d6d5cf;border-radius:8px;padding:9px 11px;font:inherit;font-size:14px;color:#222;background:#fff;min-height:40px;resize:vertical;box-sizing:border-box}
+.icav-campo:focus{outline:2px solid var(--icav-tono);outline-offset:0;border-color:var(--icav-tono)}
+.icav-pie{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px 18px}
+.icav-btn{font:inherit;font-size:14px;font-weight:600;min-height:38px;padding:0 20px;border-radius:8px;cursor:pointer;border:1px solid #cfcdc6;background:#fff;color:#333}
+.icav-btn:hover{background:#f4f3ef}
+.icav-btn.pri{background:var(--icav-tono);border-color:var(--icav-tono);color:#fff}
+.icav-btn.pri:hover{filter:brightness(.92)}
+.icav-btn:focus-visible{outline:2px solid var(--icav-tono);outline-offset:2px}
+@keyframes icavIn{from{opacity:0}to{opacity:1}}
+@media (max-width:520px){.icav-msg{padding-left:20px}.icav-campo{margin-left:20px;width:calc(100% - 40px)}.icav-pie .icav-btn{flex:1}}
+@media (prefers-reduced-motion:reduce){.icav-velo{animation:none}}
+</style>
+<script id="icomAvisosJs">
+/* Avisos corporativos (15/10/2026): reemplazan alert()/confirm()/prompt() nativos ("xxx.vercel.app dice") por un diálogo con la identidad del panel. alert() se redefine (no bloquea); confirm/prompt se usan como `await icomConfirmar(...)` / `await icomPedir(...)`. Bloque generado desde design/avisos.html con scripts/sync_avisos.py. */
+(function(){
+  if(window.icomConfirmar) return;
+  var ICONOS = {
+    info:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".6" fill="currentColor"/></svg>',
+    error:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+    peligro:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>',
+    atencion:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>',
+    reunion:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
+    ok:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>'
+  };
+  var TITULOS = { info:'Aviso', error:'No se pudo completar la acción', atencion:'Confirmar acción', ok:'Listo' };
+  var cola = [], abierto = false;
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function limpiar(m){ return String(m == null ? '' : m).replace(/^\s*[✓✔✅⚠❌]\s*/, ''); }
+  function tonoDe(m){
+    if(/^\s*[✓✔✅]/.test(m) || /\b(copiad[oa]|guardad[oa]|importad[oa]s?|enviad[oa]|actualizad[oa])\b/i.test(m)) return 'ok';
+    if(/^\s*[⚠❌]/.test(m) || /no se pudo|no se encontr|error|fall[óo]|inv[aá]lid|no pudo|bloque[óo]/i.test(m)) return 'error';
+    return 'info';
+  }
+  function peligroDe(m){ return /eliminar|borrar|quitar|se va a perder|se pierde|no se puede deshacer|excluye/i.test(m); }
+  function abrir(cfg){
+    return new Promise(function(resolver){
+      cola.push({ cfg: cfg, resolver: resolver }); if(!abierto) siguiente();
+    });
+  }
+  function siguiente(){
+    var it = cola.shift(); if(!it){ abierto = false; return; }
+    abierto = true;
+    var c = it.cfg, previo = document.activeElement;
+    var velo = document.createElement('div'); velo.className = 'icav-velo';
+    var tono = c.tono || 'info';
+    velo.innerHTML = '<div class="icav-card ' + (tono === 'info' ? '' : tono) + '" role="' + (c.tipo === 'aviso' ? 'alertdialog' : 'dialog') + '" aria-modal="true" aria-labelledby="icavT" aria-describedby="icavM">'
+      + '<div class="icav-cab"><span class="icav-ico">' + (ICONOS[c.icono] || ICONOS[tono]) + '</span><div class="icav-tit" id="icavT">' + esc(c.titulo) + '</div></div>'
+      + '<div class="icav-msg" id="icavM">' + esc(c.mensaje) + '</div>'
+      + (c.tipo === 'pedir' ? (c.multilinea ? '<textarea class="icav-campo" rows="3"></textarea>' : '<input class="icav-campo" type="text">') : '')
+      + '<div class="icav-pie">' + (c.tipo === 'aviso' ? '' : '<button type="button" class="icav-btn" data-r="no">' + esc(c.cancelar) + '</button>') + '<button type="button" class="icav-btn pri" data-r="si">' + esc(c.aceptar) + '</button></div></div>';
+    var campo = velo.querySelector('.icav-campo');
+    if(campo){ campo.value = c.valor || ''; if(c.placeholder) campo.placeholder = c.placeholder; }
+    function cerrar(ok){
+      document.removeEventListener('keydown', tecla, true); velo.remove();
+      try{ if(previo && previo.focus) previo.focus(); }catch(e){}
+      var r = c.tipo === 'pedir' ? (ok ? (campo.value || '') : null) : (c.tipo === 'aviso' ? undefined : !!ok);
+      it.resolver(r); siguiente();
+    }
+    function tecla(e){
+      if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); cerrar(false); }
+      else if(e.key === 'Enter' && !(e.target && e.target.tagName === 'TEXTAREA') && !(e.target && e.target.dataset && e.target.dataset.r === 'no')){ e.preventDefault(); e.stopPropagation(); cerrar(true); }
+      else if(e.key === 'Tab'){
+        var f = velo.querySelectorAll('button,input,textarea'); if(!f.length) return;
+        var p = f[0], u = f[f.length - 1];
+        if(e.shiftKey && document.activeElement === p){ e.preventDefault(); u.focus(); }
+        else if(!e.shiftKey && document.activeElement === u){ e.preventDefault(); p.focus(); }
+      }
+    }
+    velo.addEventListener('mousedown', function(e){ if(e.target === velo && c.tipo !== 'aviso') cerrar(false); });
+    velo.addEventListener('click', function(e){ var b = e.target.closest && e.target.closest('[data-r]'); if(b) cerrar(b.dataset.r === 'si'); });
+    document.addEventListener('keydown', tecla, true);
+    (document.body || document.documentElement).appendChild(velo);
+    var foco = campo || (c.peligro && c.tipo === 'confirmar' ? velo.querySelector('[data-r="no"]') : velo.querySelector('[data-r="si"]'));
+    try{ foco.focus(); if(campo) campo.select(); }catch(e){}
+  }
+  window.icomAviso = function(mensaje, o){
+    o = o || {}; var m = String(mensaje == null ? '' : mensaje), tono = o.tono || tonoDe(m);
+    return abrir({ tipo:'aviso', mensaje: limpiar(m), tono: tono, titulo: o.titulo || TITULOS[tono], aceptar: o.aceptar || 'Entendido' });
+  };
+  window.icomConfirmar = function(mensaje, o){
+    o = o || {}; var m = String(mensaje == null ? '' : mensaje), peligro = o.peligro != null ? o.peligro : peligroDe(m);
+    return abrir({ tipo:'confirmar', mensaje: limpiar(m), tono: o.tono || (peligro ? 'peligro' : 'info'), icono: o.icono, peligro: peligro, titulo: o.titulo || 'Confirmar acción', aceptar: o.aceptar || (peligro ? (/borrar/i.test(m) ? 'Borrar' : /eliminar/i.test(m) ? 'Eliminar' : /quitar/i.test(m) ? 'Quitar' : 'Confirmar') : 'Confirmar'), cancelar: o.cancelar || 'Cancelar' });
+  };
+  window.icomPedir = function(mensaje, o){
+    o = o || {};
+    return abrir({ tipo:'pedir', mensaje: limpiar(mensaje), tono:'info', titulo: o.titulo || 'Ingresá el dato', aceptar: o.aceptar || 'Aceptar', cancelar: o.cancelar || 'Cancelar', valor: o.valor, placeholder: o.placeholder, multilinea: !!o.multilinea });
+  };
+  window.alert = function(m){ window.icomAviso(m); };
+})();
+</script>
+<script id="icomDescargaNativa">
+/* Descargas en la app de iPhone (17/10/2026): dentro del WebView de iOS las descargas por <a download> (Excel, etc.) no hacen nada. En la app nativa (Capacitor) el archivo se guarda en la caché y se abre la hoja de
+   compartir de iOS (Guardar en Archivos, AirDrop, Mail...). En el navegador común este bloque no hace nada. */
+(function(){
+  var Cap = null;
+  try{ Cap = window.Capacitor || (window.parent && window.parent.Capacitor) || (window.top && window.top.Capacitor); }catch(e){}
+  if(!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) return;
+  var P = Cap.Plugins || {};
+  if(!P.Filesystem || !P.Share) return;
+  function guardarYCompartir(blob, nombre){
+    var r = new FileReader();
+    r.onload = function(){
+      var b64 = String(r.result).split(',')[1] || '';
+      P.Filesystem.writeFile({ path: nombre, data: b64, directory: 'CACHE' })
+        .then(function(res){ return P.Share.share({ title: nombre, url: res.uri }); })
+        .catch(function(e){ if(!/cancel/i.test(String(e && (e.message || e)))) alert('No se pudo guardar el archivo: ' + (e && e.message || e)); });
+    };
+    r.readAsDataURL(blob);
+  }
+  function interceptar(a){
+    if(!a || !a.download || !/^blob:/.test(a.href || '')) return false;
+    var nombre = String(a.download).replace(/[\/:*?"<>|]+/g, '_') || 'archivo';
+    fetch(a.href).then(function(r){ return r.blob(); }).then(function(b){ guardarYCompartir(b, nombre); });
+    return true;
+  }
+  var clickOrig = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function(){ if(interceptar(this)) return; return clickOrig.apply(this, arguments); };
+  var dispOrig = EventTarget.prototype.dispatchEvent;
+  EventTarget.prototype.dispatchEvent = function(ev){ if(this instanceof HTMLAnchorElement && ev && ev.type === 'click' && interceptar(this)) return true; return dispOrig.apply(this, arguments); };
+  document.addEventListener('click', function(e){ var a = e.target && e.target.closest && e.target.closest('a[download]'); if(a && interceptar(a)) e.preventDefault(); }, true);
+})();
+</script>
