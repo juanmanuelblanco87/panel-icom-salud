@@ -221,14 +221,25 @@ async function fetchItemCostPage(token, offset, limit) {
 // multiplicaría por muy poco beneficio la cantidad de llamadas; el
 // resto de los métodos de costeo ya viene bien en la paginación.
 const OPERATIVE_COST_METHOD_RECETA = 9;
+// 29/10/2026 ("hay varios códigos compuestos que no están tomando el costo por caja" -- ej. 011740 caja X 30: el listado de Oppen trae $7.678 y el recurso individual, el correcto, $78.580 = 30 x $2.619,34;
+// 014214 pack x 5: el listado trae $0 y el individual $13.096,70): en el escaneo, muchas de esas consultas individuales recibían 429 (Oppen limita el ritmo) y el código se quedaba con el valor VIEJO del
+// listado. Ahora cada consulta reintenta con espera creciente ante un 429 (respeta Retry-After) y el llamador las espacia.
+const _esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 async function fetchItemCostPorCodigo(token, code) {
-  const res = await fetch(`${BASE_URL}/ItemCost/${encodeURIComponent(code)}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (res.status === 401) { cachedToken = null; throw new Error('Token rechazado por oppen.io (401) consultando ItemCost/{code}.'); }
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Error consultando ItemCost/${code} (${res.status}): ${text}`);
+  for (let intento = 0; ; intento++) {
+    const res = await fetch(`${BASE_URL}/ItemCost/${encodeURIComponent(code)}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) { cachedToken = null; throw new Error('Token rechazado por oppen.io (401) consultando ItemCost/{code}.'); }
+    if (res.status === 429 && intento < 5) {
+      const ra = Number(res.headers.get('retry-after')) || 0;
+      await _esperar(Math.max(ra * 1000, 1500 * Math.pow(2, intento)));
+      continue;
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Error consultando ItemCost/${code} (${res.status}): ${text}`);
+    }
+    return res.json();
   }
-  return res.json();
 }
 
 // Escanea un PEDAZO del catálogo de ItemCost, arrancando en startOffset,
@@ -280,6 +291,7 @@ async function escanearItemCostCompleto({
       // página -- mejor un costo posiblemente viejo que ninguno.
       if (Number(row.OperativeCostMethod) === OPERATIVE_COST_METHOD_RECETA && row.Code) {
         try {
+          await _esperar(120);   // espaciado: Oppen limita el ritmo de las consultas individuales (ver fetchItemCostPorCodigo)
           const fresco = await fetchItemCostPorCodigo(token, row.Code);
           if (fresco) { row = fresco; recetaRefrescados++; }
         } catch (e) {

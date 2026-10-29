@@ -228,11 +228,22 @@ const SALESMAN_NAME_MAP = {
   NK: 'Nikole Kimmel',
   MP: 'Micaela Pioti',
   MG: 'Maria Galeano',
+  JYJ: 'Johnson & Johnson',   // Juan Manuel, 29/10/2026 (ver oppen-invoices.js)
 };
-function normalizeVendedor(code) {
+// Juan Manuel, 29/10/2026: estos códigos NO son vendedores de nuestro negocio y se agrupan en "Sin Vendedor": JE, VA, IC, RP, IVC, CR, EL, FJP, IVE (la lista original) y, a pedido, AC, AR, FFR, FP, AWC, MA, SA, GP y
+// las SHW* ("no tendría por qué haber movimientos de ellos en nuestro negocio, son de otras unidades de negocio"). Además, en la unidad 'minorista' (Ortopedia: cajas, cajeros, Mercado Libre, tienda online) cualquier código
+// sin nombre cargado también es "Sin Vendedor". Cualquier OTRA sigla desconocida (un vendedor nuevo) se muestra tal cual hasta tener el nombre.
+const CODIGOS_SIN_VENDEDOR = new Set(['JE', 'VA', 'IC', 'RP', 'IVC', 'CR', 'EL', 'FJP', 'IVE', 'AC', 'AR', 'FFR', 'FP', 'AWC', 'MA', 'SA', 'GP', 'ML', 'TN', 'LA', 'RR']);   // + cajas/cajeros de Ortopedia (CC/CJ/CP + número) por patrón en normalizeVendedor
+function normalizeVendedor(code, unidadNegocio) {
   const c = String(code || '').trim();
   if (!c) return 'Sin Vendedor';
-  return SALESMAN_NAME_MAP[c] || 'Sin Vendedor';
+  const cu = c.toUpperCase();
+  if (CODIGOS_SIN_VENDEDOR.has(cu) || /^SHW\d*$/.test(cu) || /^C[CJP]\d+$/.test(cu)) return 'Sin Vendedor';
+  if (SALESMAN_NAME_MAP[c] || SALESMAN_NAME_MAP[cu]) return SALESMAN_NAME_MAP[c] || SALESMAN_NAME_MAP[cu];
+  if (unidadNegocio === 'minorista') return 'Sin Vendedor';
+  // 29/10/2026 (Juan Manuel: "a partir de ahora dejá las iniciales hasta tener el nombre completo, no dejes nunca 'Sin Vendedor' si tenemos iniciales"): CAMBIO respecto del 27/07 -- un código que no
+  // esté en SALESMAN_NAME_MAP se muestra tal cual (las iniciales) hasta que se cargue el nombre; 'Sin Vendedor' queda SÓLO para cuando la factura no trae ningún código. La búsqueda ignora mayúsculas.
+  return c;
 }
 
 // Los 7 códigos de Cirugía General son los mismos que ya usaba
@@ -522,11 +533,11 @@ module.exports = async function handler(req, res) {
         // oppen-invoices.js); Cirugía General sigue con SalesMan/
         // SalesManInstitution.
         const vendedorCliente = unidadNegocio === 'cirugia_estetica'
-          ? normalizeVendedor(ord.MedicalSalesRepresentative)
-          : normalizeVendedor(ord.SalesMan);
+          ? normalizeVendedor(ord.MedicalSalesRepresentative, unidadNegocio)
+          : normalizeVendedor(ord.SalesMan, unidadNegocio);
         const vendedorInstitucion = unidadNegocio === 'cirugia_estetica'
-          ? normalizeVendedor(ord.MedicalSalesRepresentative)
-          : normalizeVendedor(ord.SalesManInstitution);
+          ? normalizeVendedor(ord.MedicalSalesRepresentative, unidadNegocio)
+          : normalizeVendedor(ord.SalesManInstitution, unidadNegocio);
         const cliente = ord.CustName ? String(ord.CustName).trim() : 'Sin Cliente';
         const subGrupoCliente = subPorNombre[normNombreCliente(ord.CustName)] || null;   // 29/10/2026: Customer.SubGroupCode (NAC/PROV/MUN/...) o null
         const tipoOperacion = normalizeTipoOperacion(ord.OperationType);
