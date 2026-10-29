@@ -50,6 +50,9 @@
     "api/stock-snapshot.js": {
       "maxDuration": 10
     },
+    "api/sucursales-indicadores.js": {
+      "maxDuration": 60
+    },
     "api/talento-guardar.js": {
       "maxDuration": 30
     },

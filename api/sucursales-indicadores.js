@@ -40,6 +40,42 @@ async function leerVentaCanal() {
   return JSON.parse(await new Response(result.stream).text());
 }
 
+// 29/10/2026 (Juan Manuel, con el SKU 9553 "Valva Coltex antiequina derecha mediana": "en teoría tenemos venta en
+// los últimos 12 meses y figura como inmo -- en Icom Central"): el artículo vendió 1 u. en Central en el mes EN CURSO
+// (octubre) y la base fija sólo tiene meses CERRADOS (2025-10 a 2026-09), así que seguía figurando como inmovilizado.
+// Para el inmovilizado se suma también lo vendido del 1° del mes a hoy, pidiéndolo a /api/oppen-invoices en tramos de
+// 5 días (igual que arma la base fija, ver api/_exhibiciones-venta-12m-core.js). Si algún tramo falla, esas ventas no se
+// cuentan (el resultado queda igual que antes para ellas) y se informa en `mesEnCurso.tramosFallidos`.
+const _esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+async function ventaMesEnCurso(host, canal) {
+  const ahora = new Date(Date.now() - 3 * 3600 * 1000); // fecha de Argentina (UTC-3)
+  const y = ahora.getUTCFullYear(), m = ahora.getUTCMonth() + 1, hoy = ahora.getUTCDate();
+  const pad = (n) => String(n).padStart(2, '0');
+  const tramos = [];
+  for (let d = 1; d <= hoy; d += 5) tramos.push([`${y}-${pad(m)}-${pad(d)}`, `${y}-${pad(m)}-${pad(Math.min(d + 4, hoy))}`]);
+  const mapa = new Map();
+  let fallidos = 0;
+  await Promise.all(tramos.map(async ([f, t]) => {
+    for (let intento = 0; intento < 3; intento++) {
+      try {
+        const r = await fetch(`https://${host}/api/oppen-invoices?from=${f}&to=${t}`);
+        if (r.ok) {
+          const j = await r.json();
+          if (j && j.ok) {
+            Object.entries(((j.byCanalSku || {})[canal]) || {}).forEach(([sku, v]) => {
+              mapa.set(sku, (mapa.get(sku) || 0) + (Number(v.unidades) || 0));
+            });
+            return;
+          }
+        }
+      } catch (e) { /* reintenta */ }
+      await _esperar(1500 * (intento + 1));
+    }
+    fallidos++;
+  }));
+  return { mapa, ym: `${y}-${pad(m)}`, hasta: `${y}-${pad(m)}-${pad(hoy)}`, tramos: tramos.length, fallidos };
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -50,7 +86,10 @@ module.exports = async function handler(req, res) {
     return;
   }
   try {
-    const [snapshot, ventas, inactivos] = await Promise.all([leerSnapshot(), leerVentaCanal(), leerInactivos()]);
+    const [snapshot, ventas, inactivos, mesCurso] = await Promise.all([
+      leerSnapshot(), leerVentaCanal(), leerInactivos(),
+      ventaMesEnCurso(req.headers.host, canal).catch(() => null),
+    ]);
     const bySku = snapshot.bySku || {};
     const todosMeses = Object.keys(ventas.months || {}).sort();
     // venta de la sucursal por SKU en los últimos N meses cerrados
@@ -70,7 +109,9 @@ module.exports = async function handler(req, res) {
     };
     const v6 = ventaEn(MESES_QUIEBRE), v12 = ventaEn(MESES_INMOVILIZADO);
     const venta = v6.mapa;
-    const conVenta12 = (sku) => { const a = v12.mapa.get(sku); return !!a && a.unidades > 0; };
+    const enCurso = mesCurso ? mesCurso.mapa : new Map();
+    // con venta = neto > 0 en los 12 meses cerrados, o algo vendido en lo que va del mes en curso
+    const conVenta12 = (sku) => { const a = v12.mapa.get(sku); return (!!a && a.unidades > 0) || (enCurso.get(sku) || 0) > 0; };
 
     // 1) Quiebres con stock en Bella Vista
     let universo = 0;
@@ -122,7 +163,10 @@ module.exports = async function handler(req, res) {
       ok: true,
       canal,
       ventana: { desde: v6.meses[0] || null, hasta: v6.meses[v6.meses.length - 1] || null, meses: v6.meses.length },
-      ventanaInmovilizado: { desde: v12.meses[0] || null, hasta: v12.meses[v12.meses.length - 1] || null, meses: v12.meses.length },
+      ventanaInmovilizado: {
+        desde: v12.meses[0] || null, hasta: v12.meses[v12.meses.length - 1] || null, meses: v12.meses.length,
+        mesEnCurso: mesCurso ? { mes: mesCurso.ym, hasta: mesCurso.hasta, tramos: mesCurso.tramos, tramosFallidos: mesCurso.fallidos } : null,
+      },
       generatedAtStock: snapshot.generatedAt || null,
       generatedAtVenta: ventas.generatedAt || null,
       quiebres: {
