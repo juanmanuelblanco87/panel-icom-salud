@@ -195,6 +195,9 @@ async function ejecutar({ forzar = false, presupuestoMs = PRESUPUESTO_MS } = {})
   await Promise.all(lote.map(async (t) => {
     t.acc = null;
     if (t.pags > 0) t.acc = await leerAcc(t.clave);
+    // 30/10/2026: un acumulador parcial guardado con una estructura de modelos anterior (sin `mb`, ver _nubi-agg.js) no se puede completar -- hacía fallar el cierre de la tarea y el escaneo quedaba clavado.
+    // Se descarta y la tarea arranca de cero (lo normal después de un cambio de formato; el crudo se vuelve a escribir igual).
+    if (t.acc && !t.acc.mb) t.acc = null;
     if (!t.acc) { t.acc = nuevoAcc(); t.tok = null; t.pags = 0; t.leidas = 0; } // sin acumulador no se puede seguir: se arranca de cero
   }));
   const limite = t0 + presupuestoMs;
