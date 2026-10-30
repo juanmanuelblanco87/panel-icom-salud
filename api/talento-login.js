@@ -126,7 +126,12 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ ok: false, error: 'Usuario y contraseña son obligatorios.' });
         return;
       }
-      const registro = await leerUsuario(usuario);
+      let registro = await leerUsuario(usuario);
+      // 30/10/2026: un CUIL se acepta con o sin guiones -- si no hay un usuario exacto se busca por sus 11 dígitos (cuentas guardadas como "20-47687986-9" o escritas así al ingresar).
+      if (!registro && /^[\d\s.-]+$/.test(usuario) && usuario.replace(/\D/g, '').length === 11) {
+        const dig = usuario.replace(/\D/g, '');
+        registro = (await leerUsuario(dig)) || (await leerUsuarios()).find((u) => String(u.usuario).replace(/\D/g, '') === dig) || null;
+      }
       if (!registro || !passwordValida(password, registro.salt, registro.hash)) {
         res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos.' });
         return;

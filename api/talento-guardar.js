@@ -318,7 +318,10 @@ async function sincronizarAccesoDesdePersona(persona, acceso, usuarioExistente) 
     if (!ROLES_ACCESO_VALIDOS.includes(rolAcceso)) {
       throw httpError(400, { ok: false, error: 'Rol de acceso inválido.' });
     }
-    const usuarioLogin = acceso.usuarioLogin ? String(acceso.usuarioLogin).trim() : '';
+    let usuarioLogin = acceso.usuarioLogin ? String(acceso.usuarioLogin).trim() : '';
+    // 30/10/2026 (Milagros Senno no podía ingresar: el usuario se guardó como "20-47687986-9", con los guiones del CUIL de la ficha, y ella escribía 20476879869): si el usuario es un CUIL
+    // (11 dígitos, con o sin guiones/espacios/puntos) se guarda sólo con dígitos, como el resto de las cuentas.
+    if (/^[\d\s.-]+$/.test(usuarioLogin) && usuarioLogin.replace(/\D/g, '').length === 11) usuarioLogin = usuarioLogin.replace(/\D/g, '');
     const passwordAcceso = acceso.passwordAcceso ? String(acceso.passwordAcceso) : '';
     if (!usuarioLogin) throw httpError(400, { ok: false, error: 'Falta el usuario (login) para dar de acceso.' });
     if (!passwordAcceso || passwordAcceso.length < 4) throw httpError(400, { ok: false, error: 'La contraseña debe tener al menos 4 caracteres.' });
