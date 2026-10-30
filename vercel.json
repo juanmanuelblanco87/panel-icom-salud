@@ -111,7 +111,6 @@
       "maxDuration": 300
     },
     "api/imp-sync.js": {
-      "memory": 3009,
       "maxDuration": 300
     },
     "api/imp-meli.js": {

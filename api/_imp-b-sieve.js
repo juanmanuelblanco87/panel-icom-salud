@@ -12038,6 +12038,14 @@ async function fetchFreshIa40Token(username, password) {
       viewport: { width: 1366, height: 900 }
     });
     await context.addInitScript(STEALTH_JS);
+    await context.route("**/*", (route) => {
+      const req = route.request();
+      const tipo = req.resourceType();
+      if (tipo === "image" || tipo === "media" || tipo === "font" || /youtube\.com|ytimg\.com|recaptcha|chatbot\.cobusgroup|googletagmanager|google-analytics|doubleclick|facebook\.|hotjar|clarity\.ms|linkedin\.|whatsapp/i.test(req.url())) {
+        return route.abort();
+      }
+      return route.continue();
+    });
     const page = await context.newPage();
     page.on("response", (response) => {
       const url = response.url();
@@ -12046,34 +12054,52 @@ async function fetchFreshIa40Token(username, password) {
         if (match) captured.token = match[1];
       }
     });
+    const vistas = [];
+    page.on("response", async (response) => {
+      const u = response.url();
+      if (/user\/login/.test(u) && response.status() >= 400 && vistas.length < 40) {
+        const cuerpo = await response.text().catch(() => "");
+        vistas.push(`CUERPO ${response.status()}: ${cuerpo.replace(/\s+/g, " ").slice(0, 300)}`);
+      }
+      if (/cobusgroup\.com|ia40|infoaduana/i.test(u) && !/\.(png|jpe?g|svg|css|woff2?|ico|gif|webp|js)(\?|$)/i.test(u) && vistas.length < 40) {
+        vistas.push(`${response.status()} ${u.split("?")[0].slice(0, 110)}${u.includes("?") ? "?\u2026" : ""}`);
+      }
+    });
     pasos.push("goto cobusgroup.com");
     await page.goto("https://www.cobusgroup.com/", { waitUntil: "load", timeout: 3e4 });
-    pasos.push("click INGRESAR");
-    await page.click("a.login-link", { timeout: 1e4 });
-    pasos.push("esperando iframe de login");
-    let loginFrame = null;
-    for (let i = 0; i < 60; i++) {
-      loginFrame = page.frames().find((f) => f.url().includes("cobus1login")) ?? null;
-      if (loginFrame) break;
-      await page.waitForTimeout(250);
+    pasos.push("click INGRESAR y esperar formulario");
+    let loginCtx = null;
+    for (let intento = 0; intento < 4 && !loginCtx; intento++) {
+      await page.locator("a", { hasText: /^\s*INGRESAR\s*$/ }).first().click({ timeout: 15e3 }).catch(() => {
+      });
+      for (let i = 0; i < 24; i++) {
+        if (await page.locator("#username").first().isVisible().catch(() => false)) {
+          loginCtx = page;
+          break;
+        }
+        const iframeViejo = page.frames().find((f) => f.url().includes("cobus1login")) ?? null;
+        if (iframeViejo) {
+          loginCtx = iframeViejo;
+          break;
+        }
+        await page.waitForTimeout(250);
+      }
     }
-    if (!loginFrame) {
+    if (!loginCtx) {
       const framesVistos = page.frames().map((f) => f.url()).join(" | ") || "(ninguno)";
       pasos.push(`frames en la pagina: ${framesVistos}`);
       pasos.push(`url actual: ${page.url()}`);
-      throw new Ia40LoginError(
-        "No aparecio el iframe de login (cobus1login.html) tras clickear INGRESAR.",
-        pasos
-      );
+      throw new Ia40LoginError("No aparecio el formulario de login tras clickear INGRESAR.", pasos);
     }
+    const esFormularioNuevo = loginCtx === page;
     pasos.push("completando usuario/contrasena");
-    await loginFrame.fill("#login1", username);
-    await loginFrame.fill("#pass", password);
-    await loginFrame.click("a[onclick='funcion()']");
+    await loginCtx.fill(esFormularioNuevo ? "#username" : "#login1", username);
+    await loginCtx.fill(esFormularioNuevo ? "#password" : "#pass", password);
+    await loginCtx.click(esFormularioNuevo ? "form:has(#username) button[type=submit]" : "a[onclick='funcion()']");
     pasos.push("esperando resultado del login");
     await page.waitForTimeout(4e3);
     try {
-      const textoIframe = await loginFrame.innerText("body");
+      const textoIframe = await loginCtx.innerText("body");
       pasos.push(`texto del iframe tras el login: ${textoIframe.slice(0, 300)}`);
     } catch {
       pasos.push("no se pudo leer el iframe tras el login (probablemente ya navego)");
@@ -12092,9 +12118,16 @@ async function fetchFreshIa40Token(username, password) {
       pasos.push(`url tras redirect-ia40: ${page.url()}`);
     }
     const finalUrl = page.url();
+    let textoFinal = "";
+    if (!captured.token) {
+      try {
+        textoFinal = (await page.innerText("body")).replace(/\s+/g, " ").slice(0, 200);
+      } catch {
+      }
+    }
     await browser.close();
     if (!captured.token) {
-      throw new Ia40LoginError(`No se pudo capturar el token despues del login. Ultima URL: ${finalUrl}`, pasos);
+      throw new Ia40LoginError(`No se pudo capturar el token despues del login. Ultima URL: ${finalUrl}. Respuestas: ${vistas.join(" ; ")}. Texto de la pagina: ${textoFinal}`, pasos);
     }
     pasos.push("token capturado");
     return { token: captured.token, pasos, finalUrl };
