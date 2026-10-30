@@ -13,6 +13,8 @@
 //
 // curar(p) recibe { t: título, b: marca, m: modelo, sku, c3, c4 } y devuelve { b, m, b0, m0, razon } (b/m = curados; b0/m0 = originales).
 
+const { DICT: DICT_MARCAS, claveMarca } = require('./_nubi-marcas');
+
 const sinTildes = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '');
 const mayus = (s) => sinTildes(s).toUpperCase().replace(/\s+/g, ' ').trim();
 // "palabras" de un texto: mayúsculas, sin tildes, sólo letras/números
@@ -84,6 +86,9 @@ function normalizarMarca(b) {
   if (MARCA_NO_ES_MARCA.has(clave) || /^(SIMIL|TIPO|SIMILAR|ESTILO) /.test(clave)) return '';
   const canon = ALIAS_MARCA[clave];
   if (canon) return canon;
+  // lo que no está en la tabla propia de sillas: el diccionario general de variantes/errores de tipeo/basura (api/_nubi-marcas.js)
+  const ck = claveMarca(b);
+  if (Object.prototype.hasOwnProperty.call(DICT_MARCAS, ck)) return DICT_MARCAS[ck];
   return mayus(b).replace(/\s*[-–]\s*$/, '').trim();
 }
 
@@ -172,6 +177,42 @@ function marcaSilla(campo, titulo) {
   return { b: norm, razon: cambio };
 }
 
+// ───────────────────────── Reglas generales (todas las subcategorías menos Sillas de ruedas, que tiene las suyas) ─────────────────────────
+// MARCA: se unen las variantes de escritura (puntos, espacios, guiones, "ARGENTINA"/"S.A.") y los errores de tipeo claros según el diccionario generado (api/_nubi-marcas.js);
+// "genérico", "sin marca", "importado"... no son una marca ('' = sin marca). Una marca que no está en el diccionario queda como venía (en mayúsculas, con sus tildes).
+function marcaGeneral(b0) {
+  const b = String(b0 == null ? '' : b0).trim();
+  if (!b) return '';
+  const ck = claveMarca(b);
+  if (Object.prototype.hasOwnProperty.call(DICT_MARCAS, ck)) return DICT_MARCAS[ck];
+  return b.toUpperCase();
+}
+// MODELO: en estas categorías Nubimetrics suele traer el nombre/código del producto con el texto pegado y sin espacios. Reglas:
+//  1) sin basura (N/A, GENÉRICO...) y sin espacios/guiones internos, para que "ME 23-C" y "ME23C" sean el mismo;
+//  2) se saca la marca pegada al principio ("FREESTYLELIBRE2PLUS" de FREESTYLE -> "LIBRE2PLUS"); un modelo igual a la marca no es un modelo;
+//  3) un CÓDIGO (1 a 6 letras + 2 a 5 números + 1 letra opcional) con texto pegado detrás se queda con el código ("ME23C1520MMHG", "ME23CFULL" -> "ME23C"; "AIRSENSE10AUTOSET" -> "AIRSENSE10"):
+//     los códigos con un solo número (LIBRE2 / LIBRE2PLUS) no se tocan porque suelen ser productos distintos.
+const DESCRIPTORES = new Set(['FULL', 'PLUS', 'PRO', 'MAX', 'MINI', 'KIT', 'KITS', 'SET', 'PACK', 'COMBO', 'BASIC', 'BASICO', 'PREMIUM', 'DELUXE', 'STANDARD', 'ORIGINAL', 'SPORT', 'LITE', 'SMART', 'ULTRA', 'NEO']);
+function modeloGeneral(m0, marca) {
+  let c = modeloBasico(m0).replace(/[^A-Z0-9]/g, '');
+  if (!c) return '';
+  const bk = marca ? claveMarca(marca) : '';
+  if (bk && c === bk) return '';
+  // marca pegada al principio: se saca sólo si lo que queda empieza con una letra y no es una palabra suelta sin sentido ("URBEFULL" -> "FULL" no)
+  if (bk.length >= 4 && c.indexOf(bk) === 0) {
+    const resto = c.slice(bk.length);
+    if (resto.length >= 4 && /^[A-Z]/.test(resto) && !DESCRIPTORES.has(resto)) c = resto;
+  }
+  // código + texto pegado: el código (letras + números completos, sin partir el número) y, si lo sigue UNA letra y un número ("ME23C1520MMHG"), esa letra; se corta si queda texto de 3 o más caracteres
+  const k = c.match(/^[A-Z]{1,6}\d{2,5}(?!\d)/);
+  if (k) {
+    let core = k[0], resto = c.slice(core.length);
+    if (/^[A-Z]\d/.test(resto)) { core += resto[0]; resto = resto.slice(1); }
+    if (resto.length >= 3 && !ES_MEDIDA.test(core)) c = core;
+  }
+  return c.length > 30 ? c.slice(0, 30) : c;
+}
+
 const esSilla = (c3, c4) => /SILLAS DE RUEDAS/i.test(mayus(c3)) && mayus(c4) === 'SILLAS DE RUEDAS';
 
 // ───────────────────────── Entrada principal ─────────────────────────
@@ -182,8 +223,9 @@ function curar(p) {
     const bb = marcaSilla(b0, p.t);
     return { b: bb.b === SIN_MARCA ? '' : bb.b, m: mm.m, b0, m0, razon: [bb.razon, mm.razon].filter(Boolean).join(' · ') };
   }
-  // resto de las subcategorías: marca EXACTAMENTE como se agregaba antes (mayúsculas, con sus tildes) y modelo básico
-  return { b: b0.toUpperCase(), m: modeloBasico(m0), b0, m0, razon: '' };
+  // resto de las subcategorías (30/10/2026, "avanzá con el resto de las categorías"): reglas GENERALES y conservadoras -- ver marcaGeneral / modeloGeneral
+  const bg = marcaGeneral(b0);
+  return { b: bg, m: modeloGeneral(m0, bg), b0, m0, razon: '' };
 }
 
 // Clave de agrupación del modelo: un código con letras y números identifica el modelo aunque lo vendan con distintas marcas (YK9031 de Magesa, Trinidad, Intco);
