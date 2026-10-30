@@ -28,8 +28,9 @@
 // exhibiciones-seed-inicial.js. La clave nunca queda en el código fuente
 // ni en el historial de git: la elige quien la corre, como query param
 // de una llamada puntual.
-const { leerUsuario, guardarUsuario, leerPersona, leerPersonas, leerUsuarios } = require('./_talento-store');
-const { generarSaltYHash, passwordValida, firmarSesion } = require('./_talento-auth');
+const { leerUsuario, guardarUsuario, leerPersonas, leerUsuarios } = require('./_talento-store');
+const { generarSaltYHash, passwordValida } = require('./_talento-auth');
+const { armarSesion } = require('./_talento-sesion');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -130,44 +131,8 @@ module.exports = async function handler(req, res) {
         res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos.' });
         return;
       }
-      let personaNombre = registro.nombre || registro.usuario;
-      // 08/09/2026 ("cerrar los accesos... que no vean la existencia de
-      // las otras apps en el menu lateral") + 08/09/2026 (2da vuelta,
-      // "deja todas las opciones... por si mañana tenemos una
-      // necesidad distinta"): el shell necesita saber QUÉ apps mostrar
-      // en el sidebar desde el momento del login mismo (todavía no
-      // cargó nada de Talento) -- se resuelve acá, leyendo la Persona
-      // vinculada. Cada canal de unidad de negocio es su PROPIO token
-      // dentro de appsPermitidas (ver calcularAppsPermitidas en
-      // talento-guardar.js) -- ya no hace falta un booleano aparte
-      // "todas las unidades sí/no", el shell simplemente mira si cada
-      // token de canal está en la lista. `rol==='admin'` (RR.HH.) nunca
-      // pasa por acá -- el shell lo trata aparte como "todas las apps".
-      let appsPermitidas = ['gestion_talento', 'correo']; // default seguro si no hay Persona vinculada (ej. cuentas admin sin ficha)
-      if (registro.personaId) {
-        const persona = await leerPersona(registro.personaId);
-        if (persona) {
-          personaNombre = persona.nombre;
-          appsPermitidas = Array.isArray(persona.appsPermitidas) ? persona.appsPermitidas : ['gestion_talento', 'correo'];
-          // 15/10/2026: fichas anteriores a la app Correo y Calendario reciben el acceso solas; recién cuando RR.HH. guarda Apps a mano (appsV2) se respeta lo que tildó.
-          if (!persona.appsV2 && !appsPermitidas.includes('correo')) appsPermitidas = appsPermitidas.concat('correo');
-        }
-      }
-      // 14/08/2026: se agrega `token` -- a partir de acá el cliente lo
-      // manda como "Authorization: Bearer <token>" en cada pedido, y el
-      // resto de los endpoints lo verifican en vez de confiar en
-      // rol/personaId sueltos que mande el cliente (ver _talento-auth.js).
-      // 24/09/2026 ("permiso para aprobar Mercado Libre"): appsPermitidas
-      // se firma DENTRO del token (no sólo se manda suelto en el body de
-      // abajo) -- hace falta que quede verificado server-side para que
-      // puedeAprobarMeli (_talento-auth.js) pueda confiar en él sin
-      // volver a leer la Persona en cada pedido a meli-aceptar-propuesta/
-      // meli-crear-descuento.
-      const token = firmarSesion({
-        usuario: registro.usuario, rol: registro.rol, personaId: registro.personaId,
-        unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, appsPermitidas,
-      });
-      res.status(200).json({ ok: true, rol: registro.rol, personaId: registro.personaId, unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, appsPermitidas, token });
+      // 30/10/2026: el armado del token (apps permitidas + firma) vive en api/_talento-sesion.js, compartido con api/talento-renovar.js.
+      res.status(200).json(Object.assign({ ok: true }, await armarSesion(registro)));
       return;
     }
 
