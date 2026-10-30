@@ -14,6 +14,7 @@
 // curar(p) recibe { t: título, b: marca, m: modelo, sku, c3, c4 } y devuelve { b, m, b0, m0, razon } (b/m = curados; b0/m0 = originales).
 
 const { DICT: DICT_MARCAS, claveMarca } = require('./_nubi-marcas');
+const { ALIAS_MODELOS } = require('./_nubi-modelos');
 
 const sinTildes = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '');
 const mayus = (s) => sinTildes(s).toUpperCase().replace(/\s+/g, ' ').trim();
@@ -210,7 +211,10 @@ function modeloGeneral(m0, marca) {
     if (/^[A-Z]\d/.test(resto)) { core += resto[0]; resto = resto.slice(1); }
     if (resto.length >= 3 && !ES_MEDIDA.test(core)) c = core;
   }
-  return c.length > 30 ? c.slice(0, 30) : c;
+  if (c.length > 30) c = c.slice(0, 30);
+  // 4) familia de la misma marca (api/_nubi-modelos.js, generado): "AIRSENSE10AUTOSET" -> "AIRSENSE10", "DREAMWEARFULL" -> "DREAMWEAR"
+  if (bk) { const base = ALIAS_MODELOS[bk + '|' + c]; if (base) c = base; }
+  return c;
 }
 
 const esSilla = (c3, c4) => /SILLAS DE RUEDAS/i.test(mayus(c3)) && mayus(c4) === 'SILLAS DE RUEDAS';
