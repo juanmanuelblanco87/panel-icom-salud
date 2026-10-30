@@ -23,7 +23,10 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
   const solicitante = requerirSesion(req);
-  if (!solicitante || (solicitante.rol !== 'admin' && solicitante.rol !== 'gerente')) {
+  // 30/10/2026: manda el PERMISO DE APP 'importaciones' (firmado dentro del token, ver talento-login.js/_talento-sesion.js) por encima del rol; admin (RR.HH./Admin) entra siempre.
+  // Antes sólo pasaban los roles admin y gerente: alguien con la app habilitada pero otro rol (ej. supervisor) veía el ítem del menú y el servidor lo rechazaba.
+  const conApp = !!solicitante && (solicitante.rol === 'admin' || (Array.isArray(solicitante.appsPermitidas) && solicitante.appsPermitidas.includes('importaciones')));
+  if (!conApp) {
     res.status(403).json({ ok: false, error: 'No autorizado.' });
     return;
   }
