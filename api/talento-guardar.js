@@ -103,7 +103,11 @@ const EPS = 1e-6;
 // ACCIÓN (publicar/moderar el Muro, ver accionCrearPost/accionEliminarPost/
 // accionEliminarComentarioMuro más abajo y puedeEditarMuro en _talento-auth.js),
 // deliberadamente opt-in, nunca un default automático.
-const APPS_VALIDAS = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'importaciones', 'gestion_talento', 'meli_aprobar', 'muro_editar', 'correo'];
+// 30/10/2026 ("el P&L que sólo lo puedan ver las personas a quienes se les dio permisos en el tablero de talentos, debe ser una app más
+// para habilitar; de momento sólo los gerentes de unidad de negocio"): 'pnl' habilita las tablas de P&L de Dashboard y Ventas en Vivo
+// (el shell las oculta sin el permiso y api/pnl-gastos.js no entrega el detalle sin él). Default: sólo la función Gerente (y CEO, que
+// recibe todo); al resto lo tilda RR.HH. a mano. El rol admin (RR.HH./Admin) ve todo, como con las demás apps.
+const APPS_VALIDAS = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'importaciones', 'gestion_talento', 'meli_aprobar', 'muro_editar', 'correo', 'pnl'];
 // 15/10/2026 ("Correo y Calendario ... todos los usuarios nacen con acceso a esta app"): 'correo' es un ítem del sidebar que TODOS reciben por defecto (RR.HH. puede quitarlo desde Apps). Cada persona conecta SU cuenta de Google.
 const UNIDAD_A_CANAL_APP = { 'Ortopedia': 'minorista', 'Movilidad': 'movilidad', 'Cirugía Estética': 'cirugia_estetica', 'Cirugía': 'cirugia_general' };
 function calcularAppsPermitidas(funcion, unidadNegocio) {
@@ -111,7 +115,7 @@ function calcularAppsPermitidas(funcion, unidadNegocio) {
   if (f === 'ceo') return APPS_VALIDAS.slice();
   if (f === 'gerente') {
     // "TODAS LAS UNIDADES DE NEGOCIO" -- los 4 canales, no sólo el propio.
-    const apps = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'gestion_talento', 'correo'];
+    const apps = ['ventas_vivo', 'stocks', 'minorista', 'movilidad', 'cirugia_estetica', 'cirugia_general', 'gestion_talento', 'correo', 'pnl'];
     // "APP Importaciones: CEO, Admin RRHH, Gerente Ortopedia y Gerente
     // de Movilidad" -- por combinación función+unidad, no por persona
     // puntual (si el día de mañana cambia quién ocupa el puesto, el

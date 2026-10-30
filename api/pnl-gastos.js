@@ -22,7 +22,29 @@
 // viniendo del blob diario de siempre, sin cambios. El "acumulado a hoy" queda fresco a como
 // mucho 15 minutos, no 24hs.
 const { avisarSinSesion } = require('./_acceso-aviso');
+const { requerirSesion } = require('./_talento-auth');
 const { head } = require('@vercel/blob');
+
+// 30/10/2026 ("el P&L que sólo lo puedan ver las personas a quienes se les dio permisos en el tablero de talentos"): el detalle del P&L
+// (ventas, CMV, gastos, utilidad) sólo se entrega con una sesión admin o con el permiso 'pnl' (app "P&L" en Talento > Apps). Sin él se
+// devuelve SÓLO la proyección de cierre por unidad/canal del mes en curso, que sigue necesitando el gráfico "Evolución mensual" de todos.
+function puedeVerPnl(sol) {
+  return !!sol && (sol.rol === 'admin' || (Array.isArray(sol.appsPermitidas) && sol.appsPermitidas.includes('pnl')));
+}
+function soloProyeccion(porMes, mesActual) {
+  const out = {};
+  for (const [m, p] of Object.entries(porMes)) {
+    if (m !== mesActual || !p) { out[m] = null; continue; }
+    const r = {};
+    for (const k of ['porUnidad', 'porSubcanal']) {
+      if (!p[k]) continue;
+      r[k] = {};
+      for (const [nombre, fila] of Object.entries(p[k])) r[k][nombre] = { ventaProyectada: fila && fila.ventaProyectada !== undefined ? fila.ventaProyectada : null };
+    }
+    out[m] = r;
+  }
+  return out;
+}
 
 function blobGastosPara(mesYYYYMM) {
   return `pnl_gastos_${mesYYYYMM}.json`;
@@ -34,12 +56,17 @@ function mesActualYYYYMM() {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
+const _cacheBlob = new Map(); // pathname -> { at, data } -- 2 min en memoria de la instancia (antes la respuesta entera se cacheaba 5 min en el borde)
 async function leerBlob(pathname) {
+  const c = _cacheBlob.get(pathname);
+  if (c && Date.now() - c.at < 2 * 60 * 1000) return JSON.parse(c.data);
   try {
     const info = await head(pathname);
     const blobRes = await fetch(info.url);
     if (!blobRes.ok) return null;
-    return await blobRes.json();
+    const txt = await blobRes.text();
+    _cacheBlob.set(pathname, { at: Date.now(), data: txt });
+    return JSON.parse(txt);
   } catch (e) {
     return null; // blob todavía no sembrado
   }
@@ -93,10 +120,13 @@ module.exports = async function handler(req, res) {
       pisarVentaEnVivo(porMes[mesActual], ventaVivo);
     }
 
-    // Cambia como mucho cada 15 min (Ventas, Cron de actualizar-pnl-venta-vivo) o 1 vez por día
-    // (Gastos, Cron de actualizar-pnl-gastos) -- los meses cerrados nunca cambian. Se cachea
-    // igual de corto para simplificar (el costo de leer Blob es chico).
-    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=3600');
+    // 30/10/2026: la respuesta depende de la sesión (detalle completo vs sólo proyección) -> NO se cachea en el borde compartido
+    // (antes 'public, s-maxage=300'): un caché público serviría el detalle completo a cualquiera. El navegador sí la guarda 60 s.
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    if (!puedeVerPnl(requerirSesion(req))) {
+      res.status(200).json({ ok: true, restringido: true, porMes: soloProyeccion(porMes, mesActual) });
+      return;
+    }
     res.status(200).json({ ok: true, porMes });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e.message || e) });
