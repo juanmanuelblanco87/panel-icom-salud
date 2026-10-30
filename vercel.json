@@ -50,6 +50,9 @@
     "api/stock-snapshot.js": {
       "maxDuration": 10
     },
+    "api/nubi-base.js": {
+      "maxDuration": 90
+    },
     "api/sucursales-indicadores.js": {
       "maxDuration": 60
     },
