@@ -1,0 +1,455 @@
+/* 26/08/2026 ("estos colores no conversan... curaduría de colores"):
+   este proyecto tenía su propia identidad teal (#025f5b), sin relación
+   con el resto del panel de Icom Salud (navy #1a3d70, el mismo color
+   del sidebar/header de icom_panel_unificado.html y de
+   panel-icom-salud en general -- ver ICOM_PIE_COLORS/DASH_PALETTE
+   ahí). Referencia visual que dio el usuario: la pantalla "Ventas en
+   Vivo" de ese panel (navy dominante, fondo blanco/crema, un solo
+   acento verde para estados positivos -- "azul - verde", nunca verde
+   como color dominante de un header). El resto de la hoja de estilos
+   (.panel, .admin-table, .filter-field, .kpi-row, etc.) ya lee estas
+   variables, así que cambiarlas acá corrige la mayoría del look de un
+   solo lugar. */
+:root {
+  --bg: #f7f6f2;
+  --panel: #ffffff;
+  --border: #e8e7e2;
+  --text: #222222;
+  --muted: #999999;
+  --accent: #1a3d70;
+  --accent-light: #1baf7a;
+  --header-bg: #1a3d70;
+  --shadow: 0 1px 2px rgba(16, 24, 22, 0.06), 0 4px 14px rgba(16, 24, 22, 0.06);
+}
+* { box-sizing: border-box; }
+/* 26/08/2026 ("permite moverse hacia los costados, sensación de
+   inestabilidad -- corrígelo como Ventas en Vivo, que no lo permite"):
+   ese otro pane nunca tuvo este problema no porque tenga una regla
+   defensiva -- ahí simplemente ningún elemento supera nunca el ancho
+   de la pantalla. Acá, en cambio, con tantos componentes (filtros,
+   tablas anchas, gráficos con ejes rotados) es fácil que alguno se
+   pase por un pixel de más en algún breakpoint puntual, y sin esta
+   regla eso mueve TODA la página hacia el costado. El contenido
+   ancho a propósito (.table-scroll, tablas con overflow-x:auto)
+   sigue scrolleando igual, DENTRO de su propio contenedor -- esto
+   sólo evita que un desborde puntual arrastre la página entera. */
+html, body {
+  overflow-x: hidden;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Poppins", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+/* max-width fluido: en pantallas normales se comporta como el 1180px fijo de
+   siempre (min(1180px, 96vw) da 1180px apenas la ventana supera ~1230px),
+   pero en monitores/tablets anchos (pantallas "apaisadas") crece con la
+   ventana en vez de dejar franjas vacias a los costados. Tope en 1600px
+   para que el texto no quede demasiado estirado en monitores gigantes. */
+.container { max-width: min(1600px, 96vw); margin: 0 auto; padding: 0 24px 40px; }
+
+/* 26/08/2026 ("dejala similar a la de gestion de talentos, quita el
+   logo... queda repetido con el general de la app"): header blanco con
+   borde inferior (antes fondo navy + logo propio) -- mismo criterio
+   que ya usa Gestión de Talento (otro módulo embebido de la misma
+   forma dentro de icom_panel_unificado.html, que ya trae SU PROPIO
+   header con el logo arriba de todo). */
+.app-header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  margin-bottom: 24px;
+}
+.app-header-inner {
+  max-width: min(1600px, 96vw);
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.app-header-title {
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* Boton de navegacion entre el Modulo de Importaciones y el Calculador de
+   Importacion (20/07/2026, ver components/AppHeader.tsx). */
+.app-header-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.app-header-nav-btn:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+/* Spinner de carga (20/07/2026) -- usado en el Calculador de Importacion
+   mientras se espera una respuesta de IA (arancel/IVA/CBM/PVP/flete) o el
+   calculo del FOB, para que quede claro que la app esta "pensando" y no
+   trabada. Un solo div, sin dependencias externas. */
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  /* 26/08/2026 (auditoría de diseño, "spinner sigue en el teal viejo"):
+     rgba(2,95,91,...) es #025f5b, la identidad teal descartada cuando
+     se migró a navy -- el resto de la app ya usa var(--accent), este
+     spinner había quedado afuera. */
+  border: 2px solid rgba(26, 61, 112, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+.spinner-light {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+}
+select, button, input {
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-family: inherit;
+}
+input { width: 100%; border-radius: 8px; }
+/* 26/08/2026 (auditoría de diseño, "los filtros mezclan pildora y
+   rectangulo"): la regla de arriba deja select/button/input en
+   999px (pildora) y esto corregia SOLO input y button a 8px --
+   select nunca se corrigio, asi que un <select> (ej. "Categoria")
+   quedaba redondo al lado de un <button> (ej. "Meses") rectangular
+   en la misma fila de filtros. */
+select { border-radius: 8px; }
+button { cursor: pointer; border-radius: 8px; font-weight: 500; }
+button:hover { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: 0.6; cursor: default; }
+h1 { font-size: 19px; color: var(--text); font-weight: 700; }
+h2 { font-size: 14px; color: var(--muted); font-weight: 500; }
+label {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.row { display: flex; gap: 16px; flex-wrap: wrap; }
+.admin-table { width: 100%; border-collapse: collapse; }
+.admin-table th, .admin-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+.admin-table th { color: var(--muted); font-weight: 600; }
+
+.kpi-icon {
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  border-radius: 50%;
+  background: #e7f3df;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 20px;
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+
+/* Filtros: por defecto ancho fijo (desktop). En pantallas medianas pasan a
+   ocupar ~45% (2 por fila) y en celulares angostos, 100% (1 por fila). */
+.filter-field {
+  width: 170px;
+  min-width: 170px;
+  flex: 0 0 auto;
+}
+
+/* Filas que en desktop van lado a lado y en mobile se apilan en columna. */
+.kpi-row,
+.stack-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.kpi-row > .panel {
+  flex: 1 1 260px;
+  min-width: 260px;
+}
+.stack-row > .panel {
+  flex: 1 1 260px;
+  min-width: 260px;
+}
+
+/* Contenedor de graficos con alto controlado por CSS (recharts
+   ResponsiveContainer necesita un alto explicito en el padre). */
+.chart-wrap {
+  width: 100%;
+  height: 380px;
+}
+.pie-wrap {
+  width: 100%;
+  height: 300px;
+}
+
+/* Tablas anchas: siempre con scroll horizontal propio en vez de romper el
+   layout de la pagina. */
+.table-scroll {
+  overflow-x: auto;
+}
+.admin-table input,
+.admin-table select {
+  min-width: 90px;
+}
+
+@media (max-width: 900px) {
+  .filter-field {
+    flex: 1 1 45%;
+    width: auto;
+    min-width: 140px;
+  }
+}
+
+/* Pantallas muy anchas (monitores grandes, tablets/notebooks apaisadas):
+   dejar que los campos de filtro crezcan un poco para repartir el ancho
+   extra en vez de quedar todos pegados a la izquierda con hueco a la
+   derecha. Tope en 260px para que no queden gigantes. */
+@media (min-width: 1400px) {
+  .filter-field {
+    flex: 1 1 170px;
+    width: auto;
+    max-width: 260px;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 0 12px 28px;
+  }
+  .app-header {
+    padding: 10px 12px;
+  }
+  .app-header-title {
+    font-size: 14.5px;
+  }
+  .filter-field {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+  .kpi-row > .panel,
+  .stack-row > .panel {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .panel {
+    padding: 14px;
+  }
+  .chart-wrap {
+    height: 260px;
+  }
+  /* 26/08/2026 ("se rompen los graficos"): antes 220px, muy poca altura
+     para un circulo + su leyenda debajo sin pisarse (el radio del
+     circulo ahora es responsive -- ver outerRadius="70%" en
+     SegmentoPieChart -- pero igual necesita este espacio extra para que
+     la leyenda entre cómoda). */
+  .pie-wrap {
+    height: 280px;
+  }
+}
+
+/* Celulares en horizontal: poco alto disponible, hay que achicar lo que
+   ocupa mas espacio vertical (graficos, imagen del modal). El ancho ya
+   suele alcanzar para 2 columnas, por eso esta regla es solo por alto. */
+@media (max-height: 480px) and (orientation: landscape) {
+  .chart-wrap {
+    height: 200px;
+  }
+  .pie-wrap {
+    height: 180px;
+  }
+  .app-header {
+    padding: 6px 12px;
+  }
+}
+
+/* ============================================================
+   TEMA NUEVO del panel de Icom (20/10/2026, "este diseño no se ve bien")
+   Todo cuelga de html[data-tema="nuevo"] (lo marca app/layout.tsx cuando el panel pasa ?tema=nuevo); sin eso la app se ve igual que siempre.
+   Mismos verdes, Inter, tarjetas de borde fino, controles todos de la misma altura y esquina, íconos de línea en vez de emojis (components/Ic.tsx).
+   ============================================================ */
+.ic-new { display: none; }
+html[data-tema="nuevo"] .ic-old { display: none; }
+html[data-tema="nuevo"] .ic-new {
+  display: inline-block; width: 1.1em; height: 1.1em; vertical-align: -0.18em; flex-shrink: 0;
+  fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+}
+html[data-tema="nuevo"] .ic-new.ic-dot { width: 0.6em; height: 0.6em; border-radius: 50%; background: #1e8e5a; vertical-align: 0.04em; margin-right: 2px; }
+
+html[data-tema="nuevo"] {
+  --bg: #f4f6f5; --panel: #ffffff; --border: #e4e8e7; --text: #1c2624; --muted: #66716d;
+  --accent: #007067; --accent-light: #1e8e5a; --header-bg: #007067;
+  --line-input: #d3d9d7; --accent-soft: #e6f2f1; --danger: #c5392a;
+  --shadow: 0 1px 2px rgba(16, 40, 36, 0.04), 0 4px 14px rgba(16, 40, 36, 0.05);
+}
+html[data-tema="nuevo"] body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+
+/* encabezado: rótulo + título grande, igual que las demás pantallas del panel */
+html[data-tema="nuevo"] .app-header { padding: 16px 24px; margin-bottom: 20px; }
+html[data-tema="nuevo"] .app-header-title { font-size: 22px; letter-spacing: -0.02em; line-height: 1.15; }
+html[data-tema="nuevo"] .app-header-title::before {
+  content: "ICOM · HERRAMIENTAS"; display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--accent); margin-bottom: 4px;
+}
+html[data-tema="nuevo"] .app-header-nav-btn { border-radius: 10px; padding: 0 14px; height: 36px; font-weight: 600; }
+
+/* tarjetas */
+html[data-tema="nuevo"] .panel { border-radius: 16px; padding: 22px; }
+html[data-tema="nuevo"] h1 { color: var(--text); letter-spacing: -0.01em; }
+html[data-tema="nuevo"] h2 { color: var(--muted); }
+html[data-tema="nuevo"] label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+
+/* controles: TODOS de 40px de alto, esquina 10, mismo borde, mismo tamaño de letra (antes mezclaban selects nativos, botones desplegables y píldoras) */
+html[data-tema="nuevo"] select,
+html[data-tema="nuevo"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-tema="nuevo"] .filter-field button {
+  height: 40px; border: 1px solid var(--line-input); border-radius: 10px; padding: 0 12px; font-size: 14px; font-weight: 400; color: var(--text); background-color: #fff;
+}
+html[data-tema="nuevo"] select {
+  appearance: none; -webkit-appearance: none; padding-right: 34px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2366716d' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center; background-size: 14px;
+}
+html[data-tema="nuevo"] select:focus,
+html[data-tema="nuevo"] input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+html[data-tema="nuevo"] .filter-field button:hover { border-color: var(--accent); color: var(--text); }
+/* el ▾ del selector múltiple se dibuja con el mismo chevron que los selects nativos */
+html[data-tema="nuevo"] .filter-field button > span:last-child {
+  font-size: 0; opacity: 1; width: 14px; height: 14px; flex-shrink: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2366716d' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* botones de acción: misma altura y letra, texto verde, sin tamaños sueltos */
+html[data-tema="nuevo"] button:not(.filter-field button) {
+  min-height: 36px; padding: 0 14px !important; font-size: 13px !important; font-weight: 600; border-radius: 10px; line-height: 1.2;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--accent);
+}
+html[data-tema="nuevo"] button:not(.filter-field button):hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+html[data-tema="nuevo"] button:disabled { opacity: 0.55; }
+/* botones dentro del selector múltiple (limpiar selección) y de tablas: más chicos */
+html[data-tema="nuevo"] .admin-table button { min-height: 30px; padding: 0 10px !important; font-size: 12px !important; }
+/* barras de avance */
+html[data-tema="nuevo"] div:is([style*="width: 120px"],[style*="width:120px"]):is([style*="height: 8px"],[style*="height:8px"]) { height: 6px !important; width: 140px !important; border-radius: 3px !important; }
+html[data-tema="nuevo"] div:is([style*="width: 120px"],[style*="width:120px"]):is([style*="height: 8px"],[style*="height:8px"]) > div { border-radius: 3px; }
+
+/* indicadores: sin el círculo con ícono (la tarjeta ya dice qué es), cifra grande y limpia */
+html[data-tema="nuevo"] .kpi-icon { display: none; }
+html[data-tema="nuevo"] .kpi-row > .panel { padding: 22px 24px; }
+html[data-tema="nuevo"] .kpi-row > .panel div:is([style*="font-size: 28px"],[style*="font-size:28px"]) { font-size: 30px !important; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+
+/* tablas */
+html[data-tema="nuevo"] .admin-table { font-variant-numeric: tabular-nums; }
+html[data-tema="nuevo"] .admin-table th { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); padding: 9px 10px; }
+html[data-tema="nuevo"] .admin-table td { font-size: 13px; border-bottom: 1px solid #eef1f0; padding: 9px 10px; }
+html[data-tema="nuevo"] .admin-table tbody tr:hover td { background: #f7f9f8; }
+html[data-tema="nuevo"] .spinner { border-color: rgba(0, 112, 103, 0.25); border-top-color: var(--accent); }
+
+/* campos chicos dentro de una línea de texto (ej. "Unidades por 40HC"): compactos y centrados con el texto, no de 40px */
+html[data-tema="nuevo"] input:is([style*="padding: 3px 6px"],[style*="padding:3px 6px"]),
+html[data-tema="nuevo"] input:is([style*="padding: 4px 8px"],[style*="padding:4px 8px"]),
+html[data-tema="nuevo"] input:is([style*="padding: 2px 6px"],[style*="padding:2px 6px"]) { height: 30px !important; padding: 0 8px !important; border-radius: 8px; font-size: 13px !important; }
+
+/* nota "espejo" de la tarjeta de MeLi: sólo existe para alinear las dos tablas lado a lado */
+@media (max-width: 640px) { .nota-espejo { display: none; } }
+
+/* ventanas de edición (Editar tipo de producto, Supuestos): rótulos de 1 o 2 renglones reservan el mismo alto, así todos los controles de una fila arrancan a la misma altura */
+html[data-tema="nuevo"] div:is([style*="position: fixed"],[style*="position:fixed"]) .row { align-items: flex-start; }
+html[data-tema="nuevo"] div:is([style*="position: fixed"],[style*="position:fixed"]) .row > div > label { min-height: 2.6em; display: flex; align-items: flex-end; }
+html[data-tema="nuevo"] div:is([style*="position: fixed"],[style*="position:fixed"]) .row > div > div:is([style*="align-items: center"],[style*="align-items:center"]) { min-height: 40px; }
+/* las filas de campos de las ventanas de edición usan la MISMA grilla de columnas (antes cada fila se partía distinto y quedaban campos sueltos de ancho entero) */
+html[data-tema="nuevo"] div:is([style*="position: fixed"],[style*="position:fixed"]) .row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px 16px; }
+html[data-tema="nuevo"] div:is([style*="position: fixed"],[style*="position:fixed"]) .row > div { min-width: 0 !important; flex: none !important; }
+/* filas de campos sueltos (nuevo tipo de producto, mapeo de marcas…): los controles quedan alineados por abajo aunque un rótulo ocupe 2 renglones */
+html[data-tema="nuevo"] .row { align-items: flex-end; }
+
+/* acción principal de ancho completo (ingreso): relleno verde, texto centrado */
+html[data-tema="nuevo"] button:is([style*="width: 100%"],[style*="width:100%"]):not(.filter-field button) { background: var(--accent); color: #fff; border-color: var(--accent); min-height: 42px; }
+html[data-tema="nuevo"] button:is([style*="width: 100%"],[style*="width:100%"]):not(.filter-field button):hover { background: #005a52; color: #fff; }
+/* tarjetas "Top …": las dos cajas internas se reparten el alto de la tarjeta (antes tenían un alto mínimo fijo y quedaba aire vacío abajo) */
+html[data-tema="nuevo"] .stack-row > .panel { display: flex; flex-direction: column; }
+html[data-tema="nuevo"] .stack-row > .panel > div:is([style*="min-height: 132px"],[style*="min-height:132px"]) { min-height: 0 !important; flex: 1 1 auto; border-radius: 12px !important; background: #f7f9f8 !important; }
+html[data-tema="nuevo"] .stack-row > .panel > div:is([style*="min-height: 132px"],[style*="min-height:132px"]) > div:is([style*="text-transform: uppercase"],[style*="text-transform:uppercase"]) { font-size: 11px !important; letter-spacing: 0.05em !important; font-weight: 600; margin-bottom: 8px !important; }
+/* detalle del estado de sincronización: la tabla conserva su ancho (se desliza de costado en celular, no se aprieta) y la barra de desplazamiento no pisa el texto de abajo */
+html[data-tema="nuevo"] .panel div:has(> table:not(.admin-table)) { padding-bottom: 12px; }
+html[data-tema="nuevo"] .panel table:not(.admin-table) { min-width: 620px; font-size: 12.5px !important; }
+html[data-tema="nuevo"] .panel table:not(.admin-table) th,
+html[data-tema="nuevo"] .panel table:not(.admin-table) td { white-space: nowrap; vertical-align: middle; }
+html[data-tema="nuevo"] .panel table:not(.admin-table) td div { white-space: normal; min-width: 190px; }
+
+/* celular: los botones del encabezado (Volver / Cálculo + Salir) entran en una sola fila */
+@media (max-width: 640px) {
+  html[data-tema="nuevo"] .app-header-title { font-size: 20px; }
+  html[data-tema="nuevo"] .app-header-nav-btn,
+  html[data-tema="nuevo"] .app-header button { padding: 0 10px !important; font-size: 12.5px !important; min-height: 34px; height: 34px; }
+}
+
+/* ============================================================
+   Filtros (20/10/2026): una sola grilla de columnas iguales; "Más/Menos filtros" en la cabecera de la tarjeta
+   ============================================================ */
+.filtros-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.filtros-titulo { font-size: 13px; font-weight: 600; color: var(--text); }
+.filtros-toggle { font-size: 12px; padding: 6px 12px; color: var(--muted); }
+.filtros-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: end; }
+.filtros-grid > .filter-field { width: auto; min-width: 0; max-width: none; flex: none; }
+@media (min-width: 1300px) { .filtros-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .filtros-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* celular angosto: Categoría de ancho completo y el resto de a dos (5 renglones en vez de 9) */
+@media (max-width: 640px) { .filtros-grid > .filter-field:first-child { grid-column: 1 / -1; } .filtros-grid { gap: 12px; } }
+/* "— 22.400 USD" no se parte en dos renglones: si no entra al lado del nombre, baja entero */
+html[data-tema="nuevo"] .stack-row .panel strong:is([style*="color: var(--accent)"], [style*="color:var(--accent)"]) { white-space: nowrap; }
+
+/* estado de la sincronización: el texto ocupa su propio renglón y los dos botones quedan juntos debajo (antes uno de los botones caía solo a otra línea) */
+html[data-tema="nuevo"] .estado-fila { display: grid !important; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px 10px !important; }
+html[data-tema="nuevo"] .estado-texto { display: flex !important; flex-direction: column; gap: 2px; min-width: 0; }
+@media (max-width: 640px) {
+  html[data-tema="nuevo"] .estado-fila { grid-template-columns: auto auto; justify-content: start; }
+  html[data-tema="nuevo"] .estado-texto { grid-column: 1 / -1; }
+}
+
+/* herramientas de datos: cada botón con su barra de avance forma una unidad que baja entera a la línea siguiente (antes la barra quedaba huérfana debajo del botón de al lado) */
+.herr-grupo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* encabezados de tablas en una sola línea: dos tablas lado a lado ya no quedan con el encabezado a distinta altura */
+html[data-tema="nuevo"] .admin-table th { white-space: nowrap; }
+/* celular: menos aire entre tarjetas apiladas (el hueco era margen de la tarjeta + separación de la fila) */
+@media (max-width: 640px) {
+  html[data-tema="nuevo"] .kpi-row, html[data-tema="nuevo"] .stack-row { gap: 0; }
+  html[data-tema="nuevo"] .panel { margin-bottom: 14px; }
+}

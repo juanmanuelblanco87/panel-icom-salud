@@ -22,7 +22,7 @@
 const { requerirSesion } = require('./_talento-auth');
 const { puedeEditarAlquileres } = require('./alquileres-guardar');
 
-const IA40_RENTAL_PRICE_URL = 'https://ia40-dashboard-hztm.vercel.app/api/rental-price-ai';
+const IA40_RENTAL_PRICE_URL = 'https://panel.icomsalud.com.ar/api/imp-meli?r=rental-price-ai';
 
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');

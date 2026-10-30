@@ -3076,7 +3076,7 @@ function loadImportacionesLogin(){
       + '</div></div>';
     return;
   }
-  mostrarImportacionesIframe(sesion.token);
+  mostrarImportacionesIframe();
 }
 // 25/08/2026 ("Quedo un doble ingreso, quita el 2do en importaciones"):
 // ia40-dashboard tiene SU PROPIO login aparte (portal por cookie, ver
@@ -3090,21 +3090,44 @@ function loadImportacionesLogin(){
 // loguea sola. Si por lo que sea ese pedido falla, se cae de vuelta al
 // iframe SIN el query param -- peor UX (pide su login propio) pero
 // nunca rompe el acceso.
-async function mostrarImportacionesIframe(sessionToken){
+function mostrarImportacionesIframe(){
   const container = document.getElementById('pane-importaciones');
-  let src = 'https://ia40-dashboard-hztm.vercel.app/';
-  try{
-    const resp = await fetch('/api/importaciones-token', { headers: { Authorization: 'Bearer ' + sessionToken } });
-    const j = await resp.json().catch(()=>null);
-    if(resp.ok && j && j.ok && j.token) src += '?panelAuth=' + encodeURIComponent(j.token);
-  }catch(e){ /* ver comentario de arriba -- se sigue igual, sin el auto-login */ }
-  // tema nuevo (20/10/2026): Importaciones es otro proyecto en otro dominio, no puede leer el atributo del panel -> se lo pasamos por la URL
-  if(document.documentElement.getAttribute('data-tema') === 'nuevo') src += (src.indexOf('?') >= 0 ? '&' : '?') + 'tema=nuevo';
+  // 30/10/2026 (traslado de Importaciones al panel, ya sin ia40-dashboard): tres pantallas propias del mismo origen, como pestañas (Tablero, Calculador, Administración -sólo admin-).
+  // Usan la sesión del panel (sessionStorage) y las funciones api/imp-*.js; los botones internos de navegación le avisan al panel por postMessage ({impNavegar}).
   container.innerHTML = '';
-  const iframe = document.createElement('iframe');
-  iframe.title = 'importaciones';
-  iframe.src = src;
-  container.appendChild(iframe);
+  const caja = document.createElement('div');
+  caja.style.cssText = 'display:flex;flex-direction:column;height:100%';
+  const barra = document.createElement('div');
+  barra.style.cssText = 'display:flex;gap:6px;padding:8px 14px 0;background:#f7f6f2;border-bottom:1px solid #e8e7e2;flex:0 0 auto';
+  const cuerpo = document.createElement('div');
+  cuerpo.style.cssText = 'flex:1;min-height:0;position:relative';
+  const pestanas = [{ id:'tablero', texto:'Tablero', url:'/importaciones-tablero.html' }, { id:'calculador', texto:'Calculador', url:'/importaciones.html' }];
+  if(sesion && sesion.rol === 'admin') pestanas.push({ id:'admin', texto:'Administración', url:'/importaciones-admin.html' });
+  const marcos = {}, botones = {};
+  function elegir(id){
+    if(!botones[id]) return;
+    pestanas.forEach(function(t){
+      const activa = t.id === id;
+      botones[t.id].style.cssText = 'border:0;border-bottom:3px solid ' + (activa ? '#007067' : 'transparent') + ';background:none;padding:7px 14px;font:600 13px Poppins,sans-serif;cursor:pointer;color:' + (activa ? '#007067' : '#666');
+      if(activa && !marcos[t.id]){
+        const f = document.createElement('iframe'); f.title = 'importaciones-' + t.id; f.src = t.url; f.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0';
+        cuerpo.appendChild(f); marcos[t.id] = f;
+      }
+      if(marcos[t.id]) marcos[t.id].style.display = activa ? 'block' : 'none';
+    });
+  }
+  pestanas.forEach(function(t){
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = t.texto; b.onclick = function(){ elegir(t.id); };
+    botones[t.id] = b; barra.appendChild(b);
+  });
+  caja.appendChild(barra); caja.appendChild(cuerpo); container.appendChild(caja);
+  window.addEventListener('message', function(ev){
+    const d = ev.data;
+    if(!d || typeof d.impNavegar !== 'string') return;
+    const destino = d.impNavegar.indexOf('calculo-importacion') >= 0 ? 'calculador' : (d.impNavegar.indexOf('admin') >= 0 ? 'admin' : 'tablero');
+    elegir(destino);
+  });
+  elegir('tablero');
   loaded['importaciones'] = true;
 }
 

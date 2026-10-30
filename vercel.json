@@ -50,32 +50,8 @@
     "api/stock-snapshot.js": {
       "maxDuration": 10
     },
-    "api/nubi-base.js": {
-      "maxDuration": 90
-    },
     "api/sucursales-indicadores.js": {
       "maxDuration": 60
-    },
-    "api/talento-guardar.js": {
-      "maxDuration": 30
-    },
-    "api/alquileres-data.js": {
-      "maxDuration": 60
-    },
-    "api/alquileres-snapshot.js": {
-      "maxDuration": 60
-    },
-    "api/alquileres-scrape.js": {
-      "maxDuration": 75
-    },
-    "api/alquileres-ai-precio.js": {
-      "maxDuration": 60
-    },
-    "api/meli-actualizar-publicaciones.js": {
-      "maxDuration": 60
-    },
-    "api/meli-resolver.js": {
-      "maxDuration": 30
     },
     "api/actualizar-pnl-gastos.js": {
       "maxDuration": 120
@@ -95,47 +71,14 @@
     "api/listas-precios-guardar.js": {
       "maxDuration": 15
     },
-    "api/google-resenas.js": {
-      "maxDuration": 30
-    },
     "api/actualizar-google-resenas.js": {
       "maxDuration": 60
     },
     "api/resenar.js": {
       "maxDuration": 15
     },
-    "api/meli-reactivar-promocion.js": {
-      "maxDuration": 30
-    },
     "api/anio-pasado-liviano.js": {
       "maxDuration": 150
-    },
-    "api/talento-video.js": {
-      "maxDuration": 60
-    },
-    "api/talento-chat-adjunto.js": {
-      "maxDuration": 30
-    },
-    "api/google-correo.js": {
-      "maxDuration": 30
-    },
-    "api/google-agenda.js": {
-      "maxDuration": 30
-    },
-    "api/google-conectar.js": {
-      "maxDuration": 30
-    },
-    "api/talento-link-preview.js": {
-      "maxDuration": 15
-    },
-    "api/nubi-actualizar.js": {
-      "maxDuration": 120
-    },
-    "api/nubi-data.js": {
-      "maxDuration": 30
-    },
-    "api/nubi-vigilancia.js": {
-      "maxDuration": 30
     },
     "api/facturas-sincronizar.js": {
       "maxDuration": 180
@@ -143,14 +86,37 @@
     "api/ov-sincronizar.js": {
       "maxDuration": 180
     },
-    "api/nubi-alias.js": {
+    "api/google-*.js": {
+      "maxDuration": 30
+    },
+    "api/nubi-*.js": {
       "maxDuration": 120
     },
-    "api/meli-promociones-refrescar.js": {
+    "api/talento-*.js": {
       "maxDuration": 60
     },
-    "api/meli-aplicar-promocion.js": {
-      "maxDuration": 30
+    "api/meli-*.js": {
+      "maxDuration": 60
+    },
+    "api/alquileres-*.js": {
+      "maxDuration": 75
+    },
+    "api/imp-calculador.js": {
+      "maxDuration": 90
+    },
+    "api/imp-datos.js": {
+      "maxDuration": 60
+    },
+    "api/imp-sieve.js": {
+      "maxDuration": 300
+    },
+    "api/imp-sync.js": {
+      "memory": 3009,
+      "maxDuration": 300
+    },
+    "api/imp-meli.js": {
+      "memory": 3009,
+      "maxDuration": 90
     }
   },
   "crons": [
@@ -245,6 +211,10 @@
     {
       "path": "/api/ov-sincronizar?modo=reconciliar",
       "schedule": "25 6 * * *"
+    },
+    {
+      "path": "/api/imp-sync?r=sync",
+      "schedule": "*/15 11-23 * * *"
     }
   ],
   "rewrites": [

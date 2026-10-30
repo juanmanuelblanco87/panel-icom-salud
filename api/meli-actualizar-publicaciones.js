@@ -71,7 +71,7 @@ async function buscarVentasPorSkuOppen(rango7d) {
 // (MELI_PROXY_SECRET) que ya usa api/alquileres-scrape.js para pedirle
 // un precio a este mismo proyecto -- MELI_PROXY_SECRET ya está
 // configurado en este proyecto por eso.
-const IA40_SHIPPING_PROXY_URL = 'https://ia40-dashboard-hztm.vercel.app/api/meli-shipping-proxy';
+const IA40_SHIPPING_PROXY_URL = 'https://panel.icomsalud.com.ar/api/imp-meli?r=meli-shipping-proxy';
 async function obtenerTablaEnvioIa40() {
   const secret = process.env.MELI_PROXY_SECRET;
   if (!secret) return null;

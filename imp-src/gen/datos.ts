@@ -1,0 +1,11 @@
+import * as r0 from "../ia40/app/api/categories/route";
+import * as r1 from "../ia40/app/api/evolution/route";
+import * as r2 from "../ia40/app/api/records/route";
+import * as r3 from "../ia40/app/api/providers/route";
+import * as r4 from "../ia40/app/api/estado-datos/route";
+import * as r5 from "../ia40/app/api/model-overrides/route";
+import * as r6 from "../ia40/app/api/model-pvp/route";
+import * as r7 from "../ia40/app/api/model-pvp/search/route";
+import * as r8 from "../ia40/app/api/model-images/search/route";
+import * as r9 from "../ia40/app/api/token/route";
+export const rutas = { "categories": r0, "evolution": r1, "records": r2, "providers": r3, "estado-datos": r4, "model-overrides": r5, "model-pvp": r6, "model-pvp/search": r7, "model-images/search": r8, "token": r9 };

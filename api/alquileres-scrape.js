@@ -51,7 +51,7 @@ const MAX_BYTES = 2_000_000; // 2MB -- una página de producto normal pesa mucho
 // 25/08/2026: URL del proyecto ia40-dashboard (no es secreto, es
 // pública) -- el secreto real es MELI_PROXY_SECRET, que viaja en el
 // header Authorization de cada pedido, nunca en la URL.
-const IA40_MELI_PROXY_URL = 'https://ia40-dashboard-hztm.vercel.app/api/meli-price-proxy';
+const IA40_MELI_PROXY_URL = 'https://panel.icomsalud.com.ar/api/imp-meli?r=meli-price-proxy';
 
 async function consultarPrecioMeli(url) {
   const secret = process.env.MELI_PROXY_SECRET;
@@ -69,7 +69,7 @@ async function consultarPrecioMeli(url) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 70_000);
   try {
-    const resp = await fetch(`${IA40_MELI_PROXY_URL}?url=${encodeURIComponent(url)}`, {
+    const resp = await fetch(`${IA40_MELI_PROXY_URL}&url=${encodeURIComponent(url)}`, {
       headers: { authorization: `Bearer ${secret}` },
       signal: controller.signal,
     });
