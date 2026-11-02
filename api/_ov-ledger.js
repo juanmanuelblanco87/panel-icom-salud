@@ -131,11 +131,17 @@ async function listarDias(forzar = false) {
 async function leerDia(d, info) {
   info = info || (await listarDias()).get(d);
   if (!info) return null;
+  // 02/11/2026 ("No se pudo leer el día 2026-09-24 del libro de facturas (403)" en Ventas en Vivo): Blob devolvió un 403 pasajero en la URL pública (el mismo archivo se lee bien minutos
+  // después). Antes eran 3 intentos en ~1 s sobre la misma URL: ahora 5 intentos con más espera y, si la URL pública falla, se pide una URL fresca (head) antes del siguiente intento.
+  let urlFresca = null;
   return conReintento(async () => {
-    const r = await fetch(info.url + '?v=' + new Date(info.up).getTime(), { cache: 'no-store' });
-    if (!r.ok) throw new Error(`No se pudo leer el día ${d} del libro de de OV (${r.status}).`);
+    const r = await fetch((urlFresca || info.url) + '?v=' + new Date(info.up).getTime(), { cache: 'no-store' });
+    if (!r.ok) {
+      try { const h = await head(P_DIA + d + '.json.gz'); urlFresca = h.downloadUrl || h.url; } catch (e) { /* se reintenta igual */ }
+      throw new Error(`No se pudo leer el día ${d} del libro de OV (${r.status}).`);
+    }
     return JSON.parse(zlib.gunzipSync(Buffer.from(await r.arrayBuffer())).toString('utf8'));
-  });
+  }, 5);
 }
 async function escribirDia(d, facturas) {
   const payload = { d, n: facturas.length, f: facturas, t: new Date().toISOString() };

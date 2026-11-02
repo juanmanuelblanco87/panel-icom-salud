@@ -5293,7 +5293,11 @@ function erpSetCompareStatus(text, cls){
   if(!el) return;
   el.innerHTML = '🔀<span class="erp-status-spin"></span><span>'+text+'</span>';
   el.className = 'erp-status ' + cls;
+  // 02/11/2026 ("¿por qué ese error y por qué no me deja recalcular?"): con la comparación en error no había nada para tocar -> la píldora roja se puede tocar y vuelve a pedir el período.
+  if(cls === 'err' && erpUltimaComparacion){ el.style.cursor = 'pointer'; el.title = 'Tocá para reintentar la comparación'; el.onclick = function(){ el.onclick = null; el.style.cursor = ''; erpFetchCompareData(erpUltimaComparacion[0], erpUltimaComparacion[1]); }; }
+  else { el.onclick = null; el.style.cursor = ''; el.title = 'Estado de la comparación'; }
 }
+let erpUltimaComparacion = null;
 
 function erpSetStockStatus(text, cls){
   const el = document.getElementById('erpStockStatus');
@@ -6005,6 +6009,7 @@ async function erpFetchViewData(fromStr, toStr){
 async function erpFetchCompareData(fromStr, toStr){
   if(!erpCompareEnabled) return;
   const targetChannel = currentChannel;
+  erpUltimaComparacion = [fromStr, toStr];
   erpSetCompareStatus('Cargando…', 'loading');
   try{
     const chunks = erpDateChunksForRange(fromStr, toStr);
