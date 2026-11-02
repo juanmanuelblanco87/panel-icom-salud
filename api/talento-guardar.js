@@ -541,6 +541,31 @@ function validarCertificado(certificado) {
   if (f.length > CERTIFICADO_MAX_CHARS) throw httpError(400, { ok: false, error: 'El certificado es demasiado pesado -- probá con otro archivo.' });
   return f;
 }
+// 02/11/2026 ("se podrá agregar la opción de adjuntar más de un documento?"): una novedad puede tener varios archivos. `certificado` queda como el
+// PRIMERO (todo lo que ya miraba ese campo -- alertas de certificado pendiente, emails, Excel -- sigue andando igual) y el resto va en `certificadosExtra`.
+// Tope por novedad, y tope de peso por PEDIDO (Vercel corta los cuerpos de más de ~4,5 MB): si no entran juntos, se suben de a uno desde Editar / «Cargar comprobante».
+const CERTIFICADOS_MAX_ARCHIVOS = 5;
+const CERTIFICADOS_MAX_CHARS_PEDIDO = 4200000;
+function certsDeRegistro(r) {
+  return r ? [r.certificado].concat(Array.isArray(r.certificadosExtra) ? r.certificadosExtra : []).filter(Boolean) : [];
+}
+function validarCertificadosPayload(payload) {
+  const p = payload || {};
+  const lista = [p.certificado].concat(Array.isArray(p.certificadosExtra) ? p.certificadosExtra : []).filter(Boolean).map(validarCertificado);
+  if (lista.reduce((t, c) => t + c.length, 0) > CERTIFICADOS_MAX_CHARS_PEDIDO) {
+    throw httpError(400, { ok: false, error: 'Los archivos juntos pesan demasiado -- subí menos por vez (el resto se puede agregar después).' });
+  }
+  return lista;
+}
+function validarCupoCertificados(lista) {
+  if (lista.length > CERTIFICADOS_MAX_ARCHIVOS) {
+    throw httpError(400, { ok: false, error: 'Cada novedad admite hasta ' + CERTIFICADOS_MAX_ARCHIVOS + ' archivos.' });
+  }
+  return lista;
+}
+function conCertificados(base, lista) {
+  return Object.assign({}, base, { certificado: lista[0] || null, certificadosExtra: lista.slice(1) });
+}
 // 28/08/2026 ("dejar un seleccionable de estos y quitar 'otros'"): la
 // lista fija reemplaza el motivo de texto libre "otro". Certificado
 // obligatorio para las 4 figuras con respaldo médico/legal real
@@ -1234,7 +1259,7 @@ function validarMotivoLicencia(payload) {
 }
 
 async function accionCrearLicencia(payload, solicitante) {
-  const { personaId, motivo, fechaInicio, fechaFin, certificado, comentario } = payload || {};
+  const { personaId, motivo, fechaInicio, fechaFin, comentario } = payload || {};
   const persona = await leerPersona(personaId);
   if (!(await puedeGestionarPersona(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para cargar licencias de esta persona.' });
@@ -1249,23 +1274,23 @@ async function accionCrearLicencia(payload, solicitante) {
   // se sigue usando, pero sólo para decidir qué queda "pendiente" (ver
   // certLink en el sub-app y el badge de Novedades), ya no para
   // rechazar el guardado.
-  const certificadoValidado = validarCertificado(certificado);
+  const certificadosNuevos = validarCupoCertificados(validarCertificadosPayload(payload));
   const dias = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
 
-  const licencia = {
+  const licencia = conCertificados({
     id: nuevoId('lic'), personaId, motivo,
     motivoOtroTexto: '', // 28/08/2026: "otro" ya no es seleccionable -- se deja el campo vacío por compatibilidad con licencias viejas que sí lo usan.
-    fechaInicio, fechaFin, dias, certificado: certificadoValidado || null,
+    fechaInicio, fechaFin, dias,
     comentario: comentario ? String(comentario).trim() : '',
     cargadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
     fecha: new Date().toISOString(),
-  };
+  }, certificadosNuevos);
   await guardarLicencia(licencia);
   return { status: 200, body: { ok: true, licencia } };
 }
 
 async function accionEditarLicencia(payload, solicitante) {
-  const { id, motivo, fechaInicio, fechaFin, certificado, comentario } = payload || {};
+  const { id, motivo, fechaInicio, fechaFin, comentario } = payload || {};
   const licencia = await leerLicencia(id);
   if (!licencia) throw httpError(404, { ok: false, error: 'La licencia no existe (puede que ya se haya eliminado).' });
   const persona = await leerPersona(licencia.personaId);
@@ -1274,7 +1299,7 @@ async function accionEditarLicencia(payload, solicitante) {
   }
   validarMotivoLicencia(payload);
   const { inicio, fin } = validarFechasLicencia(fechaInicio, fechaFin);
-  const certificadoValidado = validarCertificado(certificado);
+  const certificadosNuevos = validarCertificadosPayload(payload);
   // 19/08/2026: si no se manda un certificado nuevo en la edición, se
   // conserva el que ya estaba (no se pisa con null) -- salvo que el
   // nuevo motivo ya no lo requiera, en cuyo caso se limpia.
@@ -1283,15 +1308,18 @@ async function accionEditarLicencia(payload, solicitante) {
   // faltando -- esta misma acción (editarLicencia) es justamente el
   // camino para agregarlo después, así que no puede exigirlo para
   // dejar pasar cualquier otro cambio (fechas, comentario, etc.).
-  const certificadoFinal = certificadoValidado || (MOTIVOS_LICENCIA_CON_CERTIFICADO.includes(motivo) ? licencia.certificado : null);
+  // 02/11/2026 (varios archivos): los nuevos se SUMAN a los que ya había; `quitarCertificados` trae las posiciones (0 = el primero) de los guardados que se sacan.
+  const quitar = (Array.isArray(payload.quitarCertificados) ? payload.quitarCertificados : []).map(Number);
+  const conservados = MOTIVOS_LICENCIA_CON_CERTIFICADO.includes(motivo) ? certsDeRegistro(licencia).filter((_, i) => !quitar.includes(i)) : [];
+  const certificadosFinal = validarCupoCertificados(conservados.concat(certificadosNuevos));
   const dias = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
 
-  const actualizada = {
+  const actualizada = conCertificados({
     ...licencia, motivo,
     motivoOtroTexto: '', // 28/08/2026: "otro" ya no es seleccionable -- ver accionCrearLicencia.
-    fechaInicio, fechaFin, dias, certificado: certificadoFinal,
+    fechaInicio, fechaFin, dias,
     comentario: comentario ? String(comentario).trim() : '',
-  };
+  }, certificadosFinal);
   await guardarLicencia(actualizada);
   return { status: 200, body: { ok: true, licencia: actualizada } };
 }
@@ -1332,19 +1360,20 @@ async function accionEliminarLicencia(payload, solicitante) {
 // (mismo criterio que accionCrearLicencia desde la 1ra vuelta de este
 // pedido) -- puede subirse después, ver accionSubirCertificadoLicenciaPropia.
 async function accionCrearSolicitudLicencia(payload, solicitante) {
-  const { personaId, motivo, fechaInicio, fechaFin, certificado, comentario } = payload || {};
+  const { personaId, motivo, fechaInicio, fechaFin, comentario } = payload || {};
   const persona = await leerPersona(personaId);
   if (!(await puedeCrearSolicitud(solicitante, persona))) {
     throw httpError(403, { ok: false, error: 'No tenés permiso para informar una novedad para esta persona.' });
   }
   validarMotivoLicencia(payload);
   const { inicio, fin } = validarFechasLicencia(fechaInicio, fechaFin);
-  const certificadoValidado = validarCertificado(certificado);
+  const certificadosNuevos = validarCupoCertificados(validarCertificadosPayload(payload));
   const dias = Math.round((fin - inicio) / (24 * 60 * 60 * 1000)) + 1;
 
   const solicitud = {
     id: nuevoId('sollic'), personaId, motivo, fechaInicio, fechaFin, dias,
-    certificado: certificadoValidado || null,
+    certificado: certificadosNuevos[0] || null,
+    certificadosExtra: certificadosNuevos.slice(1),
     comentario: comentario ? String(comentario).trim() : '',
     estado: 'pendiente', fechaSolicitud: new Date().toISOString(),
     resueltoPor: null, fechaResolucion: null, comentarioResolucion: '', licenciaCreadaId: null,
@@ -1421,14 +1450,13 @@ async function accionAprobarSolicitudLicencia(payload, solicitante) {
   // Recién ACÁ se crea la Licencia real -- antes de aprobarse, la
   // "novedad" sólo existe como solicitud, no aparece en el historial
   // de Novedades ni cuenta para nada.
-  const licencia = {
+  const licencia = conCertificados({
     id: nuevoId('lic'), personaId: solicitud.personaId, motivo: solicitud.motivo, motivoOtroTexto: '',
     fechaInicio: solicitud.fechaInicio, fechaFin: solicitud.fechaFin, dias: solicitud.dias,
-    certificado: solicitud.certificado || null,
     comentario: solicitud.comentario,
     cargadoPor: { rol: solicitante.rol, personaId: solicitante.personaId || null },
     fecha: new Date().toISOString(),
-  };
+  }, certsDeRegistro(solicitud));
   await guardarLicencia(licencia);
 
   const actualizada = Object.assign({}, solicitud, {
@@ -1518,16 +1546,17 @@ async function accionCancelarSolicitudLicencia(payload, solicitante) {
 // ser la del propio solicitante) -- sin importar el rol, cualquiera
 // puede subir el comprobante de SU PROPIA novedad ya aprobada.
 async function accionSubirCertificadoLicenciaPropia(payload, solicitante) {
-  const { id, certificado } = payload || {};
+  const { id } = payload || {};
   if (!id) throw httpError(400, { ok: false, error: 'Falta el id de la novedad.' });
   const licencia = await leerLicencia(id);
   if (!licencia) throw httpError(404, { ok: false, error: 'La novedad no existe.' });
   if (!solicitante.personaId || licencia.personaId !== solicitante.personaId) {
     throw httpError(403, { ok: false, error: 'Sólo podés subir el comprobante de tu propia novedad.' });
   }
-  const certificadoValidado = validarCertificado(certificado);
-  if (!certificadoValidado) throw httpError(400, { ok: false, error: 'Subí un archivo válido.' });
-  const actualizada = Object.assign({}, licencia, { certificado: certificadoValidado });
+  const certificadosNuevos = validarCertificadosPayload(payload);
+  if (!certificadosNuevos.length) throw httpError(400, { ok: false, error: 'Subí un archivo válido.' });
+  // 02/11/2026: ahora se SUMA a lo que ya había subido (antes reemplazaba el único archivo).
+  const actualizada = conCertificados(licencia, validarCupoCertificados(certsDeRegistro(licencia).concat(certificadosNuevos)));
   await guardarLicencia(actualizada);
   return { status: 200, body: { ok: true, licencia: actualizada } };
 }
