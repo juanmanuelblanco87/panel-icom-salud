@@ -97,4 +97,30 @@ function calcularImportacion(input) {
   return { costoNacionalizado, meli, distribucion };
 }
 
-module.exports = { tamanoEnvioPorCbm, calcularImportacion };
+/*
+ * Cálculo inverso del canal MeLi: precio de venta CON IVA que deja un margen objetivo SOBRE LA VENTA NETA DE IVA (la misma base que muestra la pantalla como "Margen").
+ * margen = neto*(1 - comisión - IIBB) - envío - PVP*PADS - fee - costoNacionalizado, con neto = PVP/(1+IVA) y margen = m*neto  =>
+ *   PVP * [ (1 - comisión - IIBB - m)/(1 + IVA) - PADS ] = envío + fee + costoNacionalizado
+ * Hay dos tramos: con PVP >= umbral rige el envío de Mercado Envíos; con PVP < umbral, el fee fijo de bajo valor. Se resuelven los dos y se elige el que sea consistente
+ * con su propio umbral; si ninguno lo es (el margen salta al cruzar el umbral) se devuelve el umbral, que es el precio más bajo que cumple el objetivo.
+ * input: { margenNeto (0.25 = 25%), supuestos, producto (mismo formato que calcularImportacion), costoNacionalizadoArs, envioArsNetoApi (null = tabla) }
+ * -> { precio, margenMaximo } o { error: true, margenMaximo } si el objetivo es inalcanzable (la comisión, IIBB y PADS ya se comen todo el precio).
+ */
+function precioParaMargenNeto(input) {
+  const { margenNeto, supuestos: s, producto, costoNacionalizadoArs, envioArsNetoApi } = input;
+  const iva = producto.ivaPct;
+  const k = (1 - s.comisionMlPct - s.iibbPct - margenNeto) / (1 + iva) - s.padsPct;
+  const margenMaximo = 1 - s.comisionMlPct - s.iibbPct - s.padsPct * (1 + iva); // límite cuando el precio tiende a infinito
+  if (!(k > 0)) return { error: true, margenMaximo };
+  let envioNeto = envioArsNetoApi;
+  if (envioNeto == null) {
+    const tabla = producto.tamanoEnvio === 'chico' ? s.envioChicoArs : producto.tamanoEnvio === 'grande' ? s.envioGrandeArs : s.envioMedianoArs;
+    envioNeto = tabla / (1 + iva);
+  }
+  const conEnvio = (envioNeto + costoNacionalizadoArs) / k;
+  const conFee = (s.feeBajoTicketArs + costoNacionalizadoArs) / k;
+  const precio = conEnvio >= s.umbralBajoValorArs ? conEnvio : conFee < s.umbralBajoValorArs ? conFee : s.umbralBajoValorArs;
+  return { precio, margenMaximo };
+}
+
+module.exports = { tamanoEnvioPorCbm, calcularImportacion, precioParaMargenNeto };

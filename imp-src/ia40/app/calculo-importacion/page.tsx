@@ -128,7 +128,9 @@ interface CalcCanal {
 interface RunResult {
   productType: ProductType;
   supuestos: Supuestos;
-  pvpFuente: "manual" | "cache" | "ia";
+  pvpFuente: "manual" | "cache" | "ia" | "objetivo";
+  /** Presente cuando el precio se calculó al revés a partir de un margen objetivo (sobre la venta neta de IVA). */
+  gmObjetivo?: { pct: number; base: string; precio: number };
   envioFuente: "api" | "tabla_fija";
   resultado: {
     costoNacionalizado: CalcCostoNacionalizado;
@@ -377,6 +379,9 @@ export default function CalculoImportacionPage() {
 
   const [fobUsd, setFobUsd] = useState("");
   const [pvpManual, setPvpManual] = useState("");
+  // Modo "margen objetivo": en vez de cargar el precio de venta, se carga el margen que se quiere y el servidor calcula el precio que lo logra.
+  const [modoGm, setModoGm] = useState(false);
+  const [gmObjetivo, setGmObjetivo] = useState("");
   const [calculando, setCalculando] = useState(false);
   const [resultado, setResultado] = useState<RunResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
@@ -576,7 +581,8 @@ export default function CalculoImportacionPage() {
     const id = esc.productType?.id;
     if (id) setSelectedId(Number(id));
     setFobUsd(String(esc.fobUsd));
-    setPvpManual(esc.pvpFuente === "manual" && esc.pvpMeliArsConIva != null ? String(esc.pvpMeliArsConIva) : "");
+    setPvpManual((esc.pvpFuente === "manual" || esc.pvpFuente === "objetivo") && esc.pvpMeliArsConIva != null ? String(esc.pvpMeliArsConIva) : "");
+    setModoGm(false); // el escenario trae su precio: se usa tal cual
     setResultado(null);
     setRunError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -725,6 +731,11 @@ export default function CalculoImportacionPage() {
       setRunError("Cargá un FOB válido (mayor a 0).");
       return;
     }
+    const gm = Number(gmObjetivo);
+    if (modoGm && (gmObjetivo.trim() === "" || !Number.isFinite(gm) || gm < 0 || gm >= 100)) {
+      setRunError("Cargá un margen objetivo entre 0 y 100.");
+      return;
+    }
     setCalculando(true);
     setRunError(null);
     setResultado(null);
@@ -734,7 +745,8 @@ export default function CalculoImportacionPage() {
       body: JSON.stringify({
         productTypeId: selected.id,
         fobUsd: fob,
-        pvpArsManual: pvpManual.trim() ? Number(pvpManual) : undefined,
+        pvpArsManual: !modoGm && pvpManual.trim() ? Number(pvpManual) : undefined,
+        gmObjetivoPct: modoGm ? gm : undefined,
       }),
     })
       .then((r) => r.json())
@@ -1106,15 +1118,45 @@ export default function CalculoImportacionPage() {
                 />
               </div>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <label htmlFor="calc-pvp">Precio de venta en MeLi (con IVA) — opcional</label>
-                <input
-                  id="calc-pvp"
-                  type="number"
-                  value={pvpManual}
-                  onChange={(e) => setPvpManual(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
-                  placeholder={selected.pvp_ars_estimado != null ? `vacío = $${fmtNumber(selected.pvp_ars_estimado)} (estimado por IA)` : "vacío = lo estima la IA"}
-                />
+                {modoGm ? (
+                  <>
+                    <label htmlFor="calc-gm">Margen objetivo (%) — calcula el precio de venta</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        id="calc-gm"
+                        type="number"
+                        value={gmObjetivo}
+                        onChange={(e) => setGmObjetivo(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
+                        placeholder="ej. 25"
+                        autoFocus
+                        onFocus={(e) => e.target.select()}
+                        onClick={(e) => e.currentTarget.select()}
+                      />
+                      <button type="button" onClick={() => setModoGm(false)} title="Volver a cargar el precio de venta a mano" aria-label="Volver a cargar el precio de venta a mano">✕</button>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 4, lineHeight: 1.35 }}>
+                      Sobre la venta neta de IVA (el mismo «Margen» del resultado). El precio sale con IVA.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <label htmlFor="calc-pvp" style={{ margin: 0 }}>Precio de venta en MeLi (con IVA) — opcional</label>
+                      <button type="button" className="enlace-btn" style={{ fontSize: 12 }} onClick={() => setModoGm(true)} title="Poner el margen que querés y calcular el precio que lo logra" aria-label="Calcular el precio a partir de un margen objetivo">
+                        ✎ Margen objetivo
+                      </button>
+                    </div>
+                    <input
+                      id="calc-pvp"
+                      type="number"
+                      value={pvpManual}
+                      onChange={(e) => setPvpManual(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
+                      placeholder={selected.pvp_ars_estimado != null ? `vacío = $${fmtNumber(selected.pvp_ars_estimado)} (estimado por IA)` : "vacío = lo estima la IA"}
+                    />
+                  </>
+                )}
               </div>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
                 <button
@@ -1130,6 +1172,22 @@ export default function CalculoImportacionPage() {
               </div>
             </div>
             {runError && <div style={{ color: "#B3261E", fontSize: 13, marginTop: 10 }}>{runError}</div>}
+            {modoGm && resultado && !resultado.error && resultado.gmObjetivo && (
+              <div className="ncm-aviso" role="status">
+                Precio de venta calculado: <b>${fmtNumber(resultado.gmObjetivo.precio)}</b> (con IVA) para un margen de <b>{resultado.gmObjetivo.pct}%</b> sobre la venta neta.{" "}
+                <button
+                  type="button"
+                  className="enlace-btn"
+                  style={{ fontSize: 12 }}
+                  onClick={() => {
+                    setPvpManual(String(resultado.gmObjetivo?.precio ?? ""));
+                    setModoGm(false);
+                  }}
+                >
+                  Usar como precio de venta
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1222,6 +1280,7 @@ export default function CalculoImportacionPage() {
                     {resultado.pvpFuente === "manual" && "(cargado a mano)"}
                     {resultado.pvpFuente === "cache" && "(estimado por IA, ya guardado)"}
                     {resultado.pvpFuente === "ia" && "(recién estimado por IA)"}
+                    {resultado.pvpFuente === "objetivo" && "(calculado para el margen objetivo)"}
                   </div>
                   <div>
                     Costo de envío usado: {resultado.envioFuente === "api" ? "dato real de la API de Mercado Libre ✓" : "tabla fija (editable en Supuestos generales)"}

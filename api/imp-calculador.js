@@ -6,7 +6,7 @@
 // Respuestas con la MISMA forma que las rutas originales (para que el sub-app del Calculador funcione casi sin cambios).
 const { requerirSesion } = require('./_talento-auth');
 const { query } = require('./_imp-db');
-const { calcularImportacion, tamanoEnvioPorCbm } = require('./_imp-calc');
+const { calcularImportacion, tamanoEnvioPorCbm, precioParaMargenNeto } = require('./_imp-calc');
 const ai = require('./_imp-ai');
 const { buscarNcm, similares, tarifaDe, usarTarifas, vigencia: ncmVigencia } = require('./_ncm-motor');
 const { descargarArancelArca } = require('./_ncm-tarifas');
@@ -44,6 +44,14 @@ function supuestosToCalc(row) {
 }
 
 // ---------- tipos de producto ----------
+// Datos del tipo de producto con la forma que espera calcularImportacion / precioParaMargenNeto.
+function productoParaCalculo(producto, envioArsNetoApi) {
+  return {
+    arancelPct: producto.arancel_pct == null ? 0 : producto.arancel_pct, ivaPct: producto.iva_pct == null ? 0.21 : producto.iva_pct, traderPct: producto.trader_pct,
+    cbmM3: producto.cbm_m3 == null ? 0 : producto.cbm_m3, tamanoEnvio: producto.tamano_envio, envioArsNetoApi,
+  };
+}
+
 function tipoToNumbers(row) {
   return {
     ...row,
@@ -279,8 +287,11 @@ async function correr(body) {
   const productTypeId = Number(body && body.productTypeId);
   const fobUsd = Number(body && body.fobUsd);
   const pvpArsManual = body && body.pvpArsManual !== undefined && body.pvpArsManual !== null && body.pvpArsManual !== '' ? Number(body.pvpArsManual) : null;
+  // Margen objetivo (en %, sobre la venta neta de IVA): si viene, el PVP de MeLi se calcula al revés para lograrlo (y no se usa el manual ni el estimado por IA).
+  const gmObjetivoPct = body && body.gmObjetivoPct !== undefined && body.gmObjetivoPct !== null && body.gmObjetivoPct !== '' ? Number(body.gmObjetivoPct) : null;
   if (!Number.isFinite(productTypeId)) return { status: 400, data: { error: "Falta 'productTypeId'" } };
   if (!Number.isFinite(fobUsd) || fobUsd <= 0) return { status: 400, data: { error: "'fobUsd' invalido" } };
+  if (gmObjetivoPct != null && !(gmObjetivoPct >= 0 && gmObjetivoPct < 100)) return { status: 400, data: { error: 'El margen objetivo tiene que ser un porcentaje entre 0 y 100.' } };
 
   const supuestos = supuestosToCalc(await getOrCreateSupuestos());
   const rows = await query('select * from calc_product_types where id=$1', [productTypeId]);
@@ -303,7 +314,16 @@ async function correr(body) {
 
   // PVP de MeLi: manual > cacheado > estimado por IA (y cacheado). El PVP manual pasa a ser el nuevo PVP cacheado del tipo de producto.
   let pvpMeliArsConIva, pvpFuente;
-  if (pvpArsManual != null && pvpArsManual > 0) {
+  // Con margen objetivo: el costo nacionalizado no depende del precio, así que se despeja el PVP directamente (primera pasada con el envío de la tabla; abajo se afina con la API de MeLi).
+  const costoNacionalizadoArs = gmObjetivoPct != null
+    ? calcularImportacion({ fobUsd, pvpMeliArsConIva: 1, supuestos, producto: productoParaCalculo(producto, null) }).costoNacionalizado.costoNacionalizadoArs
+    : null;
+  const errorMargenInalcanzable = (r) => ({ data: { error: `No se puede lograr un margen de ${gmObjetivoPct}%: con la comisión de MeLi, IIBB y PADS actuales, el máximo posible es ${(r.margenMaximo * 100).toFixed(1)}% sobre la venta neta. Probá con un margen menor.` } });
+  if (gmObjetivoPct != null) {
+    const r0 = precioParaMargenNeto({ margenNeto: gmObjetivoPct / 100, supuestos, producto: productoParaCalculo(producto, null), costoNacionalizadoArs, envioArsNetoApi: null });
+    if (r0.error) return errorMargenInalcanzable(r0);
+    pvpMeliArsConIva = Math.ceil(r0.precio); pvpFuente = 'objetivo';
+  } else if (pvpArsManual != null && pvpArsManual > 0) {
     pvpMeliArsConIva = pvpArsManual; pvpFuente = 'manual';
     await query(`update calc_product_types set pvp_ars_estimado=$1, pvp_confianza='alta', pvp_razonamiento='Cargado a mano por el usuario en Calcular.', pvp_status='found', pvp_fetched_at=now(), updated_at=now() where id=$2`, [pvpArsManual, productTypeId]);
     producto.pvp_ars_estimado = pvpArsManual;
@@ -320,7 +340,7 @@ async function correr(body) {
 
   // Costo de envío real vía API de MeLi (mejor esfuerzo: si algo falla se cae a la tabla fija por tamaño; el cálculo NUNCA se rompe por esto).
   // La API devuelve el costo SIN IVA (la tabla fija se carga CON IVA).
-  let envioArsNetoApi = null, envioFuente = 'tabla_fija';
+  let envioArsNetoApi = null, envioFuente = 'tabla_fija', pesoParaEnvio = null;
   try {
     let categoryId = producto.ml_category_id || null;
     if (!categoryId) {
@@ -337,6 +357,7 @@ async function correr(body) {
       }
     }
     if (pesoKg != null && producto.cbm_m3 != null) {
+      pesoParaEnvio = pesoKg;
       const r = await consultarCostosMeli({ price: pvpMeliArsConIva, cbmM3: producto.cbm_m3, billableWeightKg: pesoKg });
       if (r.envioArs != null) {
         envioArsNetoApi = r.envioArs; envioFuente = 'api';
@@ -347,14 +368,24 @@ async function correr(body) {
     }
   } catch (e) { /* best-effort */ }
 
-  const resultado = calcularImportacion({
-    fobUsd, pvpMeliArsConIva, supuestos,
-    producto: {
-      arancelPct: producto.arancel_pct == null ? 0 : producto.arancel_pct, ivaPct: producto.iva_pct == null ? 0.21 : producto.iva_pct, traderPct: producto.trader_pct,
-      cbmM3: producto.cbm_m3 == null ? 0 : producto.cbm_m3, tamanoEnvio: producto.tamano_envio, envioArsNetoApi,
-    },
-  });
-  return { data: { productType: producto, supuestos, pvpFuente, envioFuente, resultado } };
+  // Margen objetivo: el costo de envío de MeLi depende del precio, así que se recalcula el precio con el envío real y se vuelve a consultar la API con ese precio (hasta 3 vueltas).
+  let gmObjetivo = null;
+  if (gmObjetivoPct != null) {
+    for (let i = 0; i < 3; i++) {
+      const r = precioParaMargenNeto({ margenNeto: gmObjetivoPct / 100, supuestos, producto: productoParaCalculo(producto, envioArsNetoApi), costoNacionalizadoArs, envioArsNetoApi });
+      if (r.error) return errorMargenInalcanzable(r);
+      pvpMeliArsConIva = Math.ceil(r.precio);
+      if (envioFuente !== 'api' || pesoParaEnvio == null || producto.cbm_m3 == null || pvpMeliArsConIva < supuestos.umbralBajoValorArs) break;
+      let nuevoEnvio = null;
+      try { nuevoEnvio = (await consultarCostosMeli({ price: pvpMeliArsConIva, cbmM3: producto.cbm_m3, billableWeightKg: pesoParaEnvio })).envioArs; } catch (e) { /* best-effort */ }
+      if (nuevoEnvio == null || Math.abs(nuevoEnvio - envioArsNetoApi) <= 0.5) break;
+      envioArsNetoApi = nuevoEnvio;
+    }
+    gmObjetivo = { pct: gmObjetivoPct, base: 'neto', precio: pvpMeliArsConIva };
+  }
+
+  const resultado = calcularImportacion({ fobUsd, pvpMeliArsConIva, supuestos, producto: productoParaCalculo(producto, envioArsNetoApi) });
+  return { data: { productType: producto, supuestos, pvpFuente, envioFuente, resultado, ...(gmObjetivo ? { gmObjetivo } : {}) } };
 }
 
 // ---------- escenarios ----------
