@@ -32,6 +32,21 @@ function tarifasDeNomenclador(texto) {
   return res;
 }
 
+// texto del nomenclador (latin1) -> Map(ncm8 -> descripción de la posición). Los acentos vienen reemplazados por '?' en este archivo.
+function textosDeNomenclador(texto) {
+  const res = new Map();
+  for (const linea of String(texto).split(/\r?\n/)) {
+    if (!linea.startsWith('2@')) continue;
+    const p = linea.split('@');
+    const m = /^(\d{4})\.(\d{2})\.(\d{2})\.(\d{3})[A-Z]?$/.exec((p[1] || '').trim());
+    if (!m) continue;
+    const ncm = m[1] + m[2] + m[3];
+    const txt = p.slice(10).join('@').trim().replace(/^[-\s]+/, '');
+    if (txt && (m[4] === '000' || !res.has(ncm))) res.set(ncm, txt);
+  }
+  return res;
+}
+
 // Lector mínimo de zip (central directory + deflate, con soporte ZIP64: el zip de ARCA lo usa), sin dependencias. -> Map(nombre -> Buffer)
 function leerZip(buf) {
   let fin = -1;
@@ -87,4 +102,4 @@ async function descargarArancelArca() {
   throw new Error('El zip de ARCA no trae el archivo nomenclador.');
 }
 
-module.exports = { tarifasDeNomenclador, leerZip, descargarArancelArca, URL_ARANCEL };
+module.exports = { tarifasDeNomenclador, textosDeNomenclador, leerZip, descargarArancelArca, URL_ARANCEL };

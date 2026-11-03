@@ -220,7 +220,22 @@ interface NcmSimilar {
   tarifa?: NcmTarifa | null;
 }
 const fmtDerecho = (n: number) => `${n.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`;
-const fuenteLegible = (f: string) => f.replace(/(\d{2})(\d{2})(\d{4})$/, "$1/$2/$3");
+// "Arancel Integrado ARCA 03112026" -> "03/11/2026" ('' si la fuente no trae fecha)
+const fechaFuente = (f?: string) => (f ? f.replace(/^.*?(\d{2})(\d{2})(\d{4})$/, "$1/$2/$3") : "").replace(/^[^\d].*$/, "");
+// Agrupa las candidatas por partida (4 dígitos), conservando el orden de relevancia: el texto largo de la partida se muestra una sola vez.
+function agruparPorPartida(cands: NcmCandidato[]) {
+  const grupos: { partida4: string; codigo: string; titulo: string; items: NcmCandidato[] }[] = [];
+  for (const c of cands) {
+    const p4 = c.ncm.slice(0, 4);
+    let g = grupos.find((x) => x.partida4 === p4);
+    if (!g) {
+      g = { partida4: p4, codigo: `${p4.slice(0, 2)}.${p4.slice(2)}`, titulo: c.partida, items: [] };
+      grupos.push(g);
+    }
+    g.items.push(c);
+  }
+  return grupos;
+}
 function ChipArancel({ t }: { t: NcmTarifa }) {
   const mercosur = t.dii != null && t.dii !== t.die ? `; con origen Mercosur: ${fmtDerecho(t.dii)}` : "";
   return (
@@ -313,18 +328,22 @@ function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, onElegir, me
             </button>
           ))}
           {res.candidatos.length === 0 && <div className="ncm-vacio">No hay coincidencias. Probá con otras palabras (ej. el nombre técnico del producto).</div>}
-          {res.candidatos.map((c) => (
-            <button type="button" key={c.ncm} role="listitem" className={`ncm-fila${ncmActual === c.ncm ? " ncm-elegida" : ""}`} onClick={() => elegir(c.ncm, c.tarifa)}>
-              <span className="ncm-cod">{c.ncm}</span>
-              <span className="ncm-txt">
-                <b>{c.detalle || c.partida}</b>
-                {c.detalle && <small>{c.partida}</small>}
-              </span>
-              {c.tarifa && <ChipArancel t={c.tarifa} />}
-            </button>
+          {agruparPorPartida(res.candidatos).map((g) => (
+            <div key={g.partida4} className="ncm-grupo" role="group" aria-label={`Partida ${g.codigo}`}>
+              {g.items.some((c) => c.detalle) && (
+                <div className="ncm-grupo-tit"><b>{g.codigo}</b> {g.titulo}</div>
+              )}
+              {g.items.map((c) => (
+                <button type="button" key={c.ncm} role="listitem" className={`ncm-fila${ncmActual === c.ncm ? " ncm-elegida" : ""}`} onClick={() => elegir(c.ncm, c.tarifa)}>
+                  <span className="ncm-cod">{c.ncm}</span>
+                  <span className="ncm-txt"><b>{c.detalle || c.partida}</b></span>
+                  {c.tarifa && <ChipArancel t={c.tarifa} />}
+                </button>
+              ))}
+            </div>
           ))}
           <div className="ncm-pie">
-            Derechos de importación según el {fuenteLegible(res.candidatos.find((c) => c.tarifa)?.tarifa?.fuente ?? "Arancel Integrado de ARCA")}: son los de mercadería de origen fuera del Mercosur. La tasa de estadística y el IVA se calculan aparte. Confirmá la posición con tu despachante.
+            Derechos de importación del Arancel Integrado de ARCA{fechaFuente(res.candidatos.find((c) => c.tarifa)?.tarifa?.fuente) ? ` (al ${fechaFuente(res.candidatos.find((c) => c.tarifa)?.tarifa?.fuente)})` : ""}: son los de mercadería de origen fuera del Mercosur. La tasa de estadística y el IVA se calculan aparte. Confirmá la posición con tu despachante.
           </div>
         </div>
       )}

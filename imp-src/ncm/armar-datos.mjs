@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const aca = dirname(fileURLToPath(import.meta.url));
-const { tarifasDeNomenclador } = createRequire(import.meta.url)("../../api/_ncm-tarifas.js");
+const { tarifasDeNomenclador, textosDeNomenclador } = createRequire(import.meta.url)("../../api/_ncm-tarifas.js");
 const [rutaBr, rutaAr, rutaArca] = process.argv.slice(2);
 if (!rutaBr || !rutaAr || !rutaArca) throw new Error("Uso: node armar-datos.mjs <ncm_br.json> <ncm_ar_raw.txt> <nomenclador_DDMMAAAA.txt>");
 
@@ -60,6 +60,28 @@ for (const linea of lineas) {
 // --- 3) Impuestos de ARCA (por NCM de 8 dígitos) ---
 const tarifas = tarifasDeNomenclador(readFileSync(rutaArca, "latin1"));
 
+// El mismo archivo trae el texto en español de cada posición (con los acentos cambiados por "?"). Se usa para las posiciones que el PDF de 2017 no tiene,
+// reparando los acentos con el vocabulario del propio PDF (clave: la palabra con las letras acentuadas cambiadas por "?").
+const textosArca = textosDeNomenclador(readFileSync(rutaArca, "latin1"));
+const vocab = new Map();
+for (const d of es.values()) {
+  for (const w of d.match(/[A-Za-záéíóúüñÁÉÍÓÚÜÑ]+/g) || []) {
+    if (!/[áéíóúüñÁÉÍÓÚÜÑ]/.test(w)) continue;
+    const minus = w.toLowerCase();
+    const clave = minus.replace(/[áéíóúüñ]/g, "?");
+    const cuenta = vocab.get(clave) || new Map();
+    cuenta.set(minus, (cuenta.get(minus) || 0) + 1);
+    vocab.set(clave, cuenta);
+  }
+}
+const repararAcentos = (txt) =>
+  txt.replace(/[A-Za-z?]*\?[A-Za-z?]*/g, (w) => {
+    const cuenta = vocab.get(w.toLowerCase());
+    if (!cuenta) return w.replace(/\?/g, "");
+    const mejor = [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    return /^[A-Z]/.test(w) ? mejor[0].toUpperCase() + mejor.slice(1) : mejor;
+  });
+
 // --- Jerarquía por prefijo de dígitos y tabla de textos ---
 const textos = []; // [portugués, español|""]
 const idx = new Map();
@@ -73,7 +95,7 @@ const codigos = [];
 let conEs = 0;
 for (const n of nodos) {
   while (pila.length && !n.dig.startsWith(pila[pila.length - 1].dig)) pila.pop();
-  const e = es.get(n.dig) || "";
+  const e = es.get(n.dig) || (n.dig.length === 8 ? repararAcentos(textosArca.get(n.dig) || "") : "");
   const nodo = { dig: n.dig, id: idDe(n.pt, e), tieneEs: !!e };
   if (n.dig.length === 8 && tarifas.has(n.dig)) { // solo existen los códigos que figuran en el arancel argentino
     codigos.push([n.dig, [...pila.map((p) => p.id), nodo.id], tarifas.get(n.dig)]);
