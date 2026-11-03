@@ -322,7 +322,7 @@ async function correr(body) {
   if (gmObjetivoPct != null) {
     const r0 = precioParaMargenNeto({ margenNeto: gmObjetivoPct / 100, supuestos, producto: productoParaCalculo(producto, null), costoNacionalizadoArs, envioArsNetoApi: null });
     if (r0.error) return errorMargenInalcanzable(r0);
-    pvpMeliArsConIva = Math.ceil(r0.precio); pvpFuente = 'objetivo';
+    pvpMeliArsConIva = r0.precio; pvpFuente = 'objetivo'; // ya viene redondeado a 499/999
   } else if (pvpArsManual != null && pvpArsManual > 0) {
     pvpMeliArsConIva = pvpArsManual; pvpFuente = 'manual';
     await query(`update calc_product_types set pvp_ars_estimado=$1, pvp_confianza='alta', pvp_razonamiento='Cargado a mano por el usuario en Calcular.', pvp_status='found', pvp_fetched_at=now(), updated_at=now() where id=$2`, [pvpArsManual, productTypeId]);
@@ -374,7 +374,7 @@ async function correr(body) {
     for (let i = 0; i < 3; i++) {
       const r = precioParaMargenNeto({ margenNeto: gmObjetivoPct / 100, supuestos, producto: productoParaCalculo(producto, envioArsNetoApi), costoNacionalizadoArs, envioArsNetoApi });
       if (r.error) return errorMargenInalcanzable(r);
-      pvpMeliArsConIva = Math.ceil(r.precio);
+      pvpMeliArsConIva = r.precio;
       if (envioFuente !== 'api' || pesoParaEnvio == null || producto.cbm_m3 == null || pvpMeliArsConIva < supuestos.umbralBajoValorArs) break;
       let nuevoEnvio = null;
       try { nuevoEnvio = (await consultarCostosMeli({ price: pvpMeliArsConIva, cbmM3: producto.cbm_m3, billableWeightKg: pesoParaEnvio })).envioArs; } catch (e) { /* best-effort */ }

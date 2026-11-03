@@ -1136,7 +1136,7 @@ export default function CalculoImportacionPage() {
                       <button type="button" onClick={() => setModoGm(false)} title="Volver a cargar el precio de venta a mano" aria-label="Volver a cargar el precio de venta a mano">✕</button>
                     </div>
                     <div style={{ fontSize: 11, color: "#666", marginTop: 4, lineHeight: 1.35 }}>
-                      Sobre la venta neta de IVA (el mismo «Margen» del resultado). El precio sale con IVA.
+                      Sobre la venta neta de IVA (el mismo «Margen» del resultado). El precio sale con IVA, redondeado hacia arriba a 499 o 999.
                     </div>
                   </>
                 ) : (
@@ -1174,7 +1174,7 @@ export default function CalculoImportacionPage() {
             {runError && <div style={{ color: "#B3261E", fontSize: 13, marginTop: 10 }}>{runError}</div>}
             {modoGm && resultado && !resultado.error && resultado.gmObjetivo && (
               <div className="ncm-aviso" role="status">
-                Precio de venta calculado: <b>${fmtNumber(resultado.gmObjetivo.precio)}</b> (con IVA) para un margen de <b>{resultado.gmObjetivo.pct}%</b> sobre la venta neta.{" "}
+                Precio de venta calculado: <b>${fmtNumber(resultado.gmObjetivo.precio)}</b> (con IVA, redondeado a 499/999) para un margen mínimo de <b>{resultado.gmObjetivo.pct}%</b> sobre la venta neta; el margen real del canal MeLi figura en el resultado.{" "}
                 <button
                   type="button"
                   className="enlace-btn"

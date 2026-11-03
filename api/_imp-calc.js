@@ -119,8 +119,19 @@ function precioParaMargenNeto(input) {
   }
   const conEnvio = (envioNeto + costoNacionalizadoArs) / k;
   const conFee = (s.feeBajoTicketArs + costoNacionalizadoArs) / k;
-  const precio = conEnvio >= s.umbralBajoValorArs ? conEnvio : conFee < s.umbralBajoValorArs ? conFee : s.umbralBajoValorArs;
-  return { precio, margenMaximo };
+  const exacto = conEnvio >= s.umbralBajoValorArs ? conEnvio : conFee < s.umbralBajoValorArs ? conFee : s.umbralBajoValorArs;
+  // Precio comercial: se redondea HACIA ARRIBA a una terminación 499 o 999 (el margen real nunca queda por debajo del objetivo).
+  let precio = redondearPrecioComercial(exacto);
+  // Si el redondeo cruzó el umbral y pasó al tramo con envío (más caro que el fee), se despeja de nuevo con ese envío.
+  if (exacto < s.umbralBajoValorArs && precio >= s.umbralBajoValorArs) precio = redondearPrecioComercial(Math.max(conEnvio, s.umbralBajoValorArs));
+  return { precio, precioExacto: exacto, margenMaximo };
 }
 
-module.exports = { tamanoEnvioPorCbm, calcularImportacion, precioParaMargenNeto };
+// Menor precio >= `precio` cuyos últimos tres dígitos sean 499 o 999 (ej. 137450 -> 137499, 137500 -> 137999, 137999.5 -> 138499).
+function redondearPrecioComercial(precio) {
+  const base = Math.floor(precio / 1000) * 1000;
+  for (const fin of [499, 999]) if (base + fin >= precio) return base + fin;
+  return base + 1499;
+}
+
+module.exports = { tamanoEnvioPorCbm, calcularImportacion, precioParaMargenNeto, redondearPrecioComercial };
