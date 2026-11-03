@@ -23,6 +23,7 @@ function traducir(url) {
   let m;
   // Calculador (ya portado a mano: una sola función con ?a=)
   if (p === "/api/calc/product-types") return `${API}?a=tipos`;
+  if (p === "/api/calc/ncm") return `${API}?a=ncm&q=${encodeURIComponent(u.searchParams.get("q") || "")}`;
   if ((m = p.match(/^\/api\/calc\/product-types\/(\d+)\/refresh$/))) return `${API}?a=tipo-refresh&id=${m[1]}&field=${encodeURIComponent(u.searchParams.get("field") || "")}`;
   if ((m = p.match(/^\/api\/calc\/product-types\/(\d+)$/))) return `${API}?a=tipo&id=${m[1]}`;
   if (p === "/api/calc/supuestos") return `${API}?a=supuestos`;

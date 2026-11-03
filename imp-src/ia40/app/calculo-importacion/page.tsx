@@ -197,6 +197,40 @@ function ConfianzaDot({ confianza, razonamiento }: { confianza: string | null; r
   );
 }
 
+// Impuestos de la posición (Arancel Integrado de ARCA). die = derecho de importación para origen fuera del Mercosur; dii = origen Mercosur con certificado.
+interface NcmTarifa {
+  die: number;
+  dieMax: number | null; // algunos SIM de la misma NCM pagan más
+  dii: number | null;
+  especifico: number | null;
+  fuente: string;
+}
+interface NcmCandidato {
+  ncm: string;
+  partida: string; // texto de la partida (4 dígitos)
+  detalle: string; // texto de la posición concreta (8 dígitos)
+  puntaje: number;
+  confianza?: number;
+  tarifa?: NcmTarifa | null;
+}
+interface NcmSimilar {
+  nombre: string;
+  ncm: string;
+  parecido: number;
+  tarifa?: NcmTarifa | null;
+}
+const fmtDerecho = (n: number) => `${n.toLocaleString("es-AR", { maximumFractionDigits: 2 })}%`;
+const fuenteLegible = (f: string) => f.replace(/(\d{2})(\d{2})(\d{4})$/, "$1/$2/$3");
+function ChipArancel({ t }: { t: NcmTarifa }) {
+  const mercosur = t.dii != null && t.dii !== t.die ? `; con origen Mercosur: ${fmtDerecho(t.dii)}` : "";
+  return (
+    <span className="ncm-imp" title={`Derecho de importación para mercadería de origen fuera del Mercosur${mercosur}`}>
+      <b>{fmtDerecho(t.die)}</b>
+      <small>{t.dieMax != null ? `hasta ${fmtDerecho(t.dieMax)}` : "arancel"}</small>
+    </span>
+  );
+}
+
 export default function CalculoImportacionPage() {
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -207,6 +241,12 @@ export default function CalculoImportacionPage() {
   const [nuevoNcm, setNuevoNcm] = useState("");
   const [creando, setCreando] = useState(false);
   const [creandoError, setCreandoError] = useState<string | null>(null);
+
+  // Buscador de NCM sobre la lista oficial (sin IA): candidatas ordenadas + productos parecidos que ya se clasificaron antes.
+  const [ncmQ, setNcmQ] = useState("");
+  const [ncmBuscando, setNcmBuscando] = useState(false);
+  const [ncmRes, setNcmRes] = useState<{ candidatos: NcmCandidato[]; similares: NcmSimilar[]; vigencia?: string } | null>(null);
+  const [ncmAplicado, setNcmAplicado] = useState<{ ncm: string; tarifa: NcmTarifa } | null>(null); // última posición elegida, para avisar que el arancel se completó
 
   const [showEditar, setShowEditar] = useState(false);
   const [refrescando, setRefrescando] = useState<string | null>(null); // 'ncm' | 'arancel' | 'iva' | 'cbm' | 'pvp' | 'peso' | null
@@ -482,8 +522,33 @@ export default function CalculoImportacionPage() {
       .finally(() => setCreando(false));
   };
 
+  // Elegir una posición: se carga el NCM y el arancel pasa a ser el derecho de importación oficial de esa posición (se puede cambiar después).
+  const elegirNcm = (ncm: string, tarifa?: NcmTarifa | null) => {
+    if (!editForm) return;
+    setEditForm({ ...editForm, ncmCode: ncm, ...(tarifa ? { arancelPct: String(tarifa.die) } : {}) });
+    setNcmAplicado(tarifa ? { ncm, tarifa } : null);
+  };
+
+  const buscarNcmLista = (texto: string) => {
+    const q = texto.trim();
+    if (!q || ncmBuscando) return;
+    setNcmBuscando(true);
+    fetch(`/api/calc/ncm?q=${encodeURIComponent(q)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.candidatos) setNcmRes({ candidatos: d.candidatos, similares: d.similares ?? [], vigencia: d.vigencia });
+        else alert(d.error || "No se pudo buscar el NCM. Probá de nuevo.");
+      })
+      .catch(() => alert("No se pudo buscar el NCM. Probá de nuevo."))
+      .finally(() => setNcmBuscando(false));
+  };
+
   const abrirEditar = () => {
     if (!selected) return;
+    setNcmQ(selected.nombre);
+    setNcmRes(null);
+    setNcmAplicado(null);
+    if (!selected.ncm_code) buscarNcmLista(selected.nombre); // sin NCM cargado: las sugerencias aparecen solas
     setEditForm({
       ncmCode: selected.ncm_code ?? "",
       arancelPct: fmtPctInput(selected.arancel_pct),
@@ -809,7 +874,7 @@ export default function CalculoImportacionPage() {
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 160 }}>
-                  <label>NCM (opcional: si lo dejás vacío lo busca la IA)</label>
+                  <label>NCM (opcional: si lo dejás vacío lo busca en la lista oficial)</label>
                   <input type="text" value={nuevoNcm} onChange={(e) => setNuevoNcm(e.target.value)} placeholder="8713.10.00" />
                 </div>
               </div>
@@ -1198,9 +1263,54 @@ export default function CalculoImportacionPage() {
                     placeholder="0000.00.00"
                     style={inputStyle}
                   />
-                  <button onClick={() => recalcularCampo("ncm")} disabled={refrescando === "ncm"} title="Buscar con IA">
-                    {refrescando === "ncm" ? <Spinner /> : <Ic n="refresh" e="🔄" />}
-                  </button>
+                </div>
+                {ncmAplicado && editForm.ncmCode === ncmAplicado.ncm && (
+                  <div className="ncm-aviso" role="status">
+                    Arancel completado con el derecho de importación oficial de esta posición: <b>{fmtDerecho(ncmAplicado.tarifa.die)}</b>
+                    {ncmAplicado.tarifa.dieMax != null && <> (según el SIM puede llegar a {fmtDerecho(ncmAplicado.tarifa.dieMax)})</>}
+                    . Podés cambiarlo más abajo.
+                  </div>
+                )}
+                <div className="ncm-panel">
+                  <label>Buscar en la lista oficial de la NCM</label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      type="text"
+                      value={ncmQ}
+                      onChange={(e) => setNcmQ(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") buscarNcmLista(ncmQ); }}
+                      placeholder="ej. silla de ruedas, jeringa, nebulizador"
+                      style={inputStyle}
+                    />
+                    <button onClick={() => buscarNcmLista(ncmQ)} disabled={ncmBuscando || !ncmQ.trim()}>
+                      {ncmBuscando ? <Spinner /> : "Buscar"}
+                    </button>
+                  </div>
+                  {ncmRes && (
+                    <div className="ncm-lista" role="list">
+                      {ncmRes.similares.map((s) => (
+                        <button type="button" key={`s${s.ncm}${s.nombre}`} role="listitem" className="ncm-fila ncm-previo" onClick={() => elegirNcm(s.ncm, s.tarifa)}>
+                          <span className="ncm-cod">{s.ncm}</span>
+                          <span className="ncm-txt"><b>Ya usado en «{s.nombre}»</b><small>Elegido antes para un producto parecido</small></span>
+                          {s.tarifa && <ChipArancel t={s.tarifa} />}
+                        </button>
+                      ))}
+                      {ncmRes.candidatos.length === 0 && <div className="ncm-vacio">No hay coincidencias. Probá con otras palabras (ej. el nombre técnico del producto).</div>}
+                      {ncmRes.candidatos.map((c) => (
+                        <button type="button" key={c.ncm} role="listitem" className={`ncm-fila${editForm.ncmCode === c.ncm ? " ncm-elegida" : ""}`} onClick={() => elegirNcm(c.ncm, c.tarifa)}>
+                          <span className="ncm-cod">{c.ncm}</span>
+                          <span className="ncm-txt">
+                            <b>{c.detalle || c.partida}</b>
+                            {c.detalle && <small>{c.partida}</small>}
+                          </span>
+                          {c.tarifa && <ChipArancel t={c.tarifa} />}
+                        </button>
+                      ))}
+                      <div className="ncm-pie">
+                        Derechos de importación según el {fuenteLegible(ncmRes.candidatos.find((c) => c.tarifa)?.tarifa?.fuente ?? "Arancel Integrado de ARCA")}: son los de mercadería de origen fuera del Mercosur. La tasa de estadística y el IVA se calculan aparte. Al elegir una posición se completa el Arancel; confirmala con tu despachante.
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

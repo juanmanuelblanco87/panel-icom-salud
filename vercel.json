@@ -120,6 +120,10 @@
   },
   "crons": [
     {
+      "path": "/api/imp-calculador?a=ncm-actualizar",
+      "schedule": "40 7 * * *"
+    },
+    {
       "path": "/api/talento-recordatorios",
       "schedule": "0 12 * * *"
     },

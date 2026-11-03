@@ -8,6 +8,8 @@ const { requerirSesion } = require('./_talento-auth');
 const { query } = require('./_imp-db');
 const { calcularImportacion, tamanoEnvioPorCbm } = require('./_imp-calc');
 const ai = require('./_imp-ai');
+const { buscarNcm, similares, tarifaDe, usarTarifas, vigencia: ncmVigencia } = require('./_ncm-motor');
+const { descargarArancelArca } = require('./_ncm-tarifas');
 const { obtenerTipoCambioOficialBcra } = require('./_imp-bcra');
 const { predecirCategoriaMeli, consultarCostosMeli } = require('./_imp-meli');
 
@@ -73,17 +75,73 @@ async function tiposListar() {
   return { productTypes: rows.map(tipoToNumbers) };
 }
 
+// ---------- NCM (motor propio sobre la lista oficial, sin IA) ----------
+// Impuestos por NCM: el despliegue trae el Arancel Integrado de ARCA de la fecha del armado; un cron diario baja el vigente y lo guarda en ncm_tarifas_vivas.
+let tarifasCargadasEn = 0;
+async function asegurarTarifas() {
+  if (Date.now() - tarifasCargadasEn < 30 * 60 * 1000) return;
+  tarifasCargadasEn = Date.now();
+  try {
+    await query('create table if not exists ncm_tarifas_vivas (id int primary key, fecha text not null, actualizado timestamptz not null default now(), datos jsonb not null)');
+    const rows = await query('select fecha, datos from ncm_tarifas_vivas where id=1');
+    if (rows.length) usarTarifas(new Map(Object.entries(rows[0].datos)), rows[0].fecha);
+  } catch (e) { /* sin tabla o sin base: se usa lo incluido en el despliegue */ }
+}
+// Arancel (derecho de importación extrazona) oficial de una NCM, con la forma que devuelve la IA: { pct, confianza, razonamiento } -- o null si la NCM no está.
+async function arancelPorNcm(ncm) {
+  await asegurarTarifas();
+  const t = ncm ? tarifaDe(ncm) : null;
+  if (!t) return null;
+  const razon = [`Derecho de Importación Extrazona vigente: ${t.die}% (${t.fuente}), para mercadería de origen fuera del Mercosur.`];
+  if (t.dieMax != null) razon.push(`Atención: según el SIM de la mercadería puede llegar a ${t.dieMax}%.`);
+  if (t.dii != null && t.dii !== t.die) razon.push(`Con origen Mercosur y certificado de origen: ${t.dii}%.`);
+  if (t.especifico) razon.push(`Tiene además un derecho específico mínimo de US$ ${t.especifico}.`);
+  return { pct: t.die / 100, confianza: 'alta', razonamiento: razon.join(' ') };
+}
+// Con NCM conocida el arancel sale del archivo oficial (exacto y sin costo de IA); sin NCM, o si la NCM no figura, se estima con IA como antes.
+async function estimarArancelConNcm(nombre, ncm) {
+  return (await arancelPorNcm(ncm)) || ai.estimarArancel(nombre, ncm);
+}
+async function ncmActualizarTarifas() {
+  const { tarifas, fecha } = await descargarArancelArca();
+  if (tarifas.size < 5000) throw new Error(`El Arancel Integrado bajado trae solo ${tarifas.size} posiciones; no se guarda por parecer incompleto.`);
+  const datos = JSON.stringify(Object.fromEntries(tarifas));
+  await query('create table if not exists ncm_tarifas_vivas (id int primary key, fecha text not null, actualizado timestamptz not null default now(), datos jsonb not null)');
+  await query('insert into ncm_tarifas_vivas (id, fecha, actualizado, datos) values (1, $1, now(), $2::jsonb) on conflict (id) do update set fecha=excluded.fecha, actualizado=now(), datos=excluded.datos', [fecha, datos]);
+  usarTarifas(tarifas, fecha);
+  tarifasCargadasEn = Date.now();
+  return { ok: true, fecha, posiciones: tarifas.size };
+}
+async function ncmClasificados() {
+  const rows = await query("select nombre, ncm_code from calc_product_types where ncm_code is not null and ncm_code <> ''");
+  return rows.map((r) => ({ nombre: r.nombre, ncm: r.ncm_code }));
+}
+async function ncmAutomatico(nombre) {
+  const igual = similares(nombre, await ncmClasificados(), 1)[0];
+  if (igual && igual.parecido >= 0.99) return igual.ncm;
+  const top = buscarNcm(nombre, 2)[0];
+  return top && top.confianza >= 0.4 ? top.ncm : null;
+}
+async function ncmSugerir(texto) {
+  const t = String(texto || '').trim();
+  if (!t) return { status: 400, data: { error: 'Escribí qué producto buscar.' } };
+  await asegurarTarifas();
+  const sim = similares(t, await ncmClasificados()).map((s) => ({ ...s, tarifa: tarifaDe(s.ncm) }));
+  return { data: { candidatos: buscarNcm(t, 6), similares: sim, vigencia: ncmVigencia } };
+}
+
 async function tiposCrear(body) {
   const nombre = String((body && body.nombre) || '').trim();
   if (!nombre) return { status: 400, data: { error: "Falta 'nombre'" } };
   let ncmCode = body.ncmCode ? (ai.normalizarNcm(body.ncmCode) || String(body.ncmCode).trim()) : null;
-  // Sin NCM cargado: se pide a la IA (best-effort) ANTES de estimar el arancel, que la usa como referencia. Si falla, el tipo se crea igual sin NCM.
-  if (!ncmCode) { try { ncmCode = (await ai.estimarNcm(nombre)).ncm; } catch (err) { ncmCode = null; } }
+  // Sin NCM cargado: se busca en la lista oficial (sin IA) ANTES de estimar el arancel, que la usa como referencia. Solo se asigna solo si hay un producto ya clasificado igual
+  // o un candidato que le saca clara ventaja al resto; si no, queda vacío y se elige a mano con las sugerencias (Editar).
+  if (!ncmCode) ncmCode = await ncmAutomatico(nombre);
   const inserted = await query(`insert into calc_product_types (nombre, ncm_code) values ($1, $2) on conflict (nombre) do nothing returning *`, [nombre, ncmCode]);
   if (inserted.length === 0) return { status: 409, data: { error: `Ya existe un tipo de producto llamado "${nombre}"` } };
   const id = inserted[0].id;
   // Las 3 estimaciones por IA en paralelo; si alguna falla el tipo se crea igual (columna en 'error') y /run reintenta lo que falte.
-  const [arancelR, ivaR, cbmR] = await Promise.allSettled([ai.estimarArancel(nombre, ncmCode), ai.estimarIva(nombre), ai.estimarCbm(nombre)]);
+  const [arancelR, ivaR, cbmR] = await Promise.allSettled([estimarArancelConNcm(nombre, ncmCode), ai.estimarIva(nombre), ai.estimarCbm(nombre)]);
   if (arancelR.status === 'fulfilled') await guardarArancel(id, arancelR.value);
   else await query(`update calc_product_types set arancel_status='error', arancel_razonamiento=$1, updated_at=now() where id=$2`, [msgErr(arancelR.reason), id]);
   if (ivaR.status === 'fulfilled') await guardarIva(id, ivaR.value);
@@ -140,18 +198,18 @@ async function tiposRefrescar(id, field) {
   const rows = await query('select * from calc_product_types where id=$1', [id]);
   if (rows.length === 0) return { status: 404, data: { error: 'Tipo de producto no encontrado' } };
   const p = rows[0];
-  // El NCM no tiene columnas de estado/confianza: se guarda sólo el código (la IA sugiere; el usuario lo corrige a mano en Editar).
+  // El NCM no tiene columnas de estado/confianza: se guarda sólo el código. Acá se toma la mejor candidata; en Editar se ven las 6 mejores para elegir.
   if (field === 'ncm') {
     try {
-      const r = await ai.estimarNcm(p.nombre);
-      if (!r.ncm) return { data: { error: 'La IA no pudo determinar la posición NCM -- cargala a mano.' } };
-      await query('update calc_product_types set ncm_code=$1, updated_at=now() where id=$2', [r.ncm, id]);
+      const mejor = (await ncmSugerir(p.nombre)).data.candidatos[0];
+      if (!mejor) return { data: { error: 'No se encontró una posición NCM para ese nombre -- cargala a mano.' } };
+      await query('update calc_product_types set ncm_code=$1, updated_at=now() where id=$2', [mejor.ncm, id]);
     } catch (err) { return { data: { error: msgErr(err) } }; }
     const nuevo = await query('select * from calc_product_types where id=$1', [id]);
     return { data: { productType: tipoToNumbers(nuevo[0]) } };
   }
   try {
-    if (field === 'arancel') await guardarArancel(id, await ai.estimarArancel(p.nombre, p.ncm_code));
+    if (field === 'arancel') await guardarArancel(id, await estimarArancelConNcm(p.nombre, p.ncm_code));
     else if (field === 'iva') await guardarIva(id, await ai.estimarIva(p.nombre));
     else if (field === 'cbm') await guardarCbm(id, await ai.estimarCbm(p.nombre), null);
     else if (field === 'pvp') {
@@ -231,7 +289,7 @@ async function correr(body) {
 
   // Red de seguridad: completa arancel/IVA/CBM si por algún motivo faltan.
   if (producto.arancel_pct == null) {
-    try { const r = await ai.estimarArancel(producto.nombre, producto.ncm_code); await guardarArancel(productTypeId, r); producto.arancel_pct = r.pct; }
+    try { const r = await estimarArancelConNcm(producto.nombre, producto.ncm_code); await guardarArancel(productTypeId, r); producto.arancel_pct = r.pct; }
     catch (err) { return { data: { error: `No se pudo estimar el arancel: ${msgErr(err)}` } }; }
   }
   if (producto.iva_pct == null) {
@@ -349,6 +407,14 @@ async function escenariosBorrar(id) {
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   const solicitante = requerirSesion(req);
+  // Cron diario de Vercel (Authorization: Bearer CRON_SECRET) o administrador: baja el Arancel Integrado de ARCA y lo guarda.
+  if (String((req.query || {}).a || '') === 'ncm-actualizar') {
+    const secreto = process.env.CRON_SECRET;
+    const viaCron = !!secreto && (req.headers['authorization'] || '') === 'Bearer ' + secreto;
+    if (!viaCron && !(solicitante && solicitante.rol === 'admin')) { res.status(403).json({ ok: false, error: 'No autorizado.' }); return; }
+    try { res.status(200).json(await ncmActualizarTarifas()); } catch (e) { res.status(502).json({ ok: false, error: msgErr(e) }); }
+    return;
+  }
   const conApp = !!solicitante && (solicitante.rol === 'admin' || (Array.isArray(solicitante.appsPermitidas) && solicitante.appsPermitidas.includes('importaciones')));
   if (!conApp) { res.status(403).json({ ok: false, error: 'No autorizado.' }); return; }
 
@@ -364,6 +430,7 @@ module.exports = async function handler(req, res) {
     else if (a === 'refresh-flete' && m === 'POST') out = { data: await refrescarFlete() };
     else if (a === 'refresh-tipo-cambio' && m === 'POST') out = { data: await refrescarTipoCambio() };
     else if (a === 'bcra' && m === 'GET') out = { data: await obtenerTipoCambioOficialBcra() };
+    else if (a === 'ncm' && m === 'GET') out = await ncmSugerir(q.q);
     else if (a === 'tipos' && m === 'GET') out = { data: await tiposListar() };
     else if (a === 'tipos' && m === 'POST') out = await tiposCrear(body);
     else if (a === 'tipo' && m === 'PATCH' && Number.isFinite(id)) out = await tiposEditar(id, body);
