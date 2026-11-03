@@ -83,13 +83,13 @@ const CAPITULOS = { 90: 1.5, 94: 1.3, 30: 1.3, 87: 1.25, 40: 1.15, 39: 1.1, 63: 
 const CAPITULO_OTRO = 0.7, CAPITULO_ALIMENTO = 0.4; // resto de capítulos / capítulos 01-24 (alimentos)
 const PRIORIDAD = (cap) => CAPITULOS[cap] || (+cap <= 24 ? CAPITULO_ALIMENTO : CAPITULO_OTRO);
 
-// Raíz: lleva la palabra a una forma común español/portugués (colchón/colchões, oxígeno/oxigênio, -ción/-ção), quita el plural y recorta a 6 letras.
+// Raíz: lleva la palabra a una forma común español/portugués (colchón/colchões, oxígeno/oxigênio, -ción/-ção), quita el plural y recorta a 7 letras (con 6, «antiescaras» chocaba con «antiestática»).
 const raiz = (w) => {
   if (/^\d+$/.test(w)) return w;
   let r = w.replace(/(ciones|coes)$/, 'cion').replace(/cao$/, 'cion').replace(/oes$/, 'on').replace(/ao$/, 'on').replace(/io$/, 'o');
   r = r.replace(/(es|s)$/, '');
   if (r.length < 3) r = w;
-  return r.length > 6 ? r.slice(0, 6) : r;
+  return r.length > 7 ? r.slice(0, 7) : r;
 };
 
 // --- Índice (se arma una vez por instancia de la función) ---

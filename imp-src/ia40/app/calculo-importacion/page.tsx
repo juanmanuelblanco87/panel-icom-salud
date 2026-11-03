@@ -231,6 +231,107 @@ function ChipArancel({ t }: { t: NcmTarifa }) {
   );
 }
 
+// Buscador de NCM sobre la lista oficial (sin IA), con el arancel de cada posición. Con `controlado` busca por el texto que le pasan (formulario "Nuevo": el nombre del producto);
+// si no, tiene su propia caja de texto (modal Editar). onElegir recibe la posición y su tarifa para que quien lo usa complete el NCM (y el arancel).
+function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, onElegir, mensaje, nota }: {
+  texto: string;
+  controlado?: boolean;
+  ncmActual: string;
+  buscarAlAbrir?: boolean;
+  onElegir: (ncm: string, tarifa?: NcmTarifa | null) => void;
+  mensaje: string;
+  nota: string;
+}) {
+  const [q, setQ] = useState(texto);
+  const [buscando, setBuscando] = useState(false);
+  const [res, setRes] = useState<{ candidatos: NcmCandidato[]; similares: NcmSimilar[] } | null>(null);
+  const [aplicado, setAplicado] = useState<{ ncm: string; tarifa: NcmTarifa } | null>(null); // última posición elegida, para avisar qué arancel quedó
+  const consulta = (controlado ? texto : q).trim();
+
+  const buscar = () => {
+    if (!consulta || buscando) return;
+    setBuscando(true);
+    fetch(`/api/calc/ncm?q=${encodeURIComponent(consulta)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.candidatos) setRes({ candidatos: d.candidatos, similares: d.similares ?? [] });
+        else alert(d.error || "No se pudo buscar el NCM. Probá de nuevo.");
+      })
+      .catch(() => alert("No se pudo buscar el NCM. Probá de nuevo."))
+      .finally(() => setBuscando(false));
+  };
+  useEffect(() => { if (buscarAlAbrir) buscar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const elegir = (ncm: string, tarifa?: NcmTarifa | null) => {
+    onElegir(ncm, tarifa);
+    setAplicado(tarifa ? { ncm, tarifa } : null);
+  };
+
+  return (
+    <div className="ncm-panel">
+      {aplicado && ncmActual === aplicado.ncm && (
+        <div className="ncm-aviso" role="status">
+          {mensaje} <b>{fmtDerecho(aplicado.tarifa.die)}</b>
+          {aplicado.tarifa.dieMax != null && <> (según el SIM puede llegar a {fmtDerecho(aplicado.tarifa.dieMax)})</>}
+          .{nota}
+        </div>
+      )}
+      {controlado ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" onClick={buscar} disabled={buscando || !consulta}>
+            {buscando ? <Spinner /> : "Buscar NCM"}
+          </button>
+          <span style={{ fontSize: 12, color: "#666" }}>
+            {consulta ? `Busca en la lista oficial de la NCM según «${consulta}».` : "Escribí el nombre del producto para buscar su NCM."}
+          </span>
+        </div>
+      ) : (
+        <>
+          <label>Buscar en la lista oficial de la NCM</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              type="text"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") buscar(); }}
+              placeholder="ej. silla de ruedas, jeringa, nebulizador"
+              style={{ width: "100%", boxSizing: "border-box" }}
+            />
+            <button type="button" onClick={buscar} disabled={buscando || !consulta}>
+              {buscando ? <Spinner /> : "Buscar"}
+            </button>
+          </div>
+        </>
+      )}
+      {res && (
+        <div className="ncm-lista" role="list">
+          {res.similares.map((s) => (
+            <button type="button" key={`s${s.ncm}${s.nombre}`} role="listitem" className="ncm-fila ncm-previo" onClick={() => elegir(s.ncm, s.tarifa)}>
+              <span className="ncm-cod">{s.ncm}</span>
+              <span className="ncm-txt"><b>Ya usado en «{s.nombre}»</b><small>Elegido antes para un producto parecido</small></span>
+              {s.tarifa && <ChipArancel t={s.tarifa} />}
+            </button>
+          ))}
+          {res.candidatos.length === 0 && <div className="ncm-vacio">No hay coincidencias. Probá con otras palabras (ej. el nombre técnico del producto).</div>}
+          {res.candidatos.map((c) => (
+            <button type="button" key={c.ncm} role="listitem" className={`ncm-fila${ncmActual === c.ncm ? " ncm-elegida" : ""}`} onClick={() => elegir(c.ncm, c.tarifa)}>
+              <span className="ncm-cod">{c.ncm}</span>
+              <span className="ncm-txt">
+                <b>{c.detalle || c.partida}</b>
+                {c.detalle && <small>{c.partida}</small>}
+              </span>
+              {c.tarifa && <ChipArancel t={c.tarifa} />}
+            </button>
+          ))}
+          <div className="ncm-pie">
+            Derechos de importación según el {fuenteLegible(res.candidatos.find((c) => c.tarifa)?.tarifa?.fuente ?? "Arancel Integrado de ARCA")}: son los de mercadería de origen fuera del Mercosur. La tasa de estadística y el IVA se calculan aparte. Confirmá la posición con tu despachante.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CalculoImportacionPage() {
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -241,12 +342,6 @@ export default function CalculoImportacionPage() {
   const [nuevoNcm, setNuevoNcm] = useState("");
   const [creando, setCreando] = useState(false);
   const [creandoError, setCreandoError] = useState<string | null>(null);
-
-  // Buscador de NCM sobre la lista oficial (sin IA): candidatas ordenadas + productos parecidos que ya se clasificaron antes.
-  const [ncmQ, setNcmQ] = useState("");
-  const [ncmBuscando, setNcmBuscando] = useState(false);
-  const [ncmRes, setNcmRes] = useState<{ candidatos: NcmCandidato[]; similares: NcmSimilar[]; vigencia?: string } | null>(null);
-  const [ncmAplicado, setNcmAplicado] = useState<{ ncm: string; tarifa: NcmTarifa } | null>(null); // última posición elegida, para avisar que el arancel se completó
 
   const [showEditar, setShowEditar] = useState(false);
   const [refrescando, setRefrescando] = useState<string | null>(null); // 'ncm' | 'arancel' | 'iva' | 'cbm' | 'pvp' | 'peso' | null
@@ -522,33 +617,8 @@ export default function CalculoImportacionPage() {
       .finally(() => setCreando(false));
   };
 
-  // Elegir una posición: se carga el NCM y el arancel pasa a ser el derecho de importación oficial de esa posición (se puede cambiar después).
-  const elegirNcm = (ncm: string, tarifa?: NcmTarifa | null) => {
-    if (!editForm) return;
-    setEditForm({ ...editForm, ncmCode: ncm, ...(tarifa ? { arancelPct: String(tarifa.die) } : {}) });
-    setNcmAplicado(tarifa ? { ncm, tarifa } : null);
-  };
-
-  const buscarNcmLista = (texto: string) => {
-    const q = texto.trim();
-    if (!q || ncmBuscando) return;
-    setNcmBuscando(true);
-    fetch(`/api/calc/ncm?q=${encodeURIComponent(q)}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.candidatos) setNcmRes({ candidatos: d.candidatos, similares: d.similares ?? [], vigencia: d.vigencia });
-        else alert(d.error || "No se pudo buscar el NCM. Probá de nuevo.");
-      })
-      .catch(() => alert("No se pudo buscar el NCM. Probá de nuevo."))
-      .finally(() => setNcmBuscando(false));
-  };
-
   const abrirEditar = () => {
     if (!selected) return;
-    setNcmQ(selected.nombre);
-    setNcmRes(null);
-    setNcmAplicado(null);
-    if (!selected.ncm_code) buscarNcmLista(selected.nombre); // sin NCM cargado: las sugerencias aparecen solas
     setEditForm({
       ncmCode: selected.ncm_code ?? "",
       arancelPct: fmtPctInput(selected.arancel_pct),
@@ -810,7 +880,7 @@ export default function CalculoImportacionPage() {
         <div className="panel">
           <h1 className="paso-tit"><span className="paso-n">1</span> Producto</h1>
           <div className="paso-desc">
-            Elegí qué vas a importar o creá un tipo de producto nuevo. Los impuestos y el volumen los estima la IA la primera vez; podés corregirlos con Editar.
+            Elegí qué vas a importar o creá un tipo de producto nuevo. Con NCM cargado, el arancel sale del archivo oficial de ARCA; el IVA y el volumen los estima la IA la primera vez. Podés corregirlos con Editar.
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -875,9 +945,17 @@ export default function CalculoImportacionPage() {
                 </div>
                 <div style={{ flex: 1, minWidth: 160 }}>
                   <label>NCM (opcional: si lo dejás vacío lo busca en la lista oficial)</label>
-                  <input type="text" value={nuevoNcm} onChange={(e) => setNuevoNcm(e.target.value)} placeholder="8713.10.00" />
+                  <input type="text" value={nuevoNcm} onChange={(e) => setNuevoNcm(e.target.value)} placeholder="0000.00.00" />
                 </div>
               </div>
+              <NcmBuscador
+                controlado
+                texto={nuevoNombre}
+                ncmActual={nuevoNcm}
+                onElegir={(ncm) => setNuevoNcm(ncm)}
+                mensaje="Al crear el producto, el arancel se completa con el derecho de importación oficial de esta posición:"
+                nota=" Después lo podés corregir con Editar."
+              />
               {creandoError && <div style={{ color: "#d93a3a", fontSize: 12, marginTop: 6 }}>{creandoError}</div>}
               <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
                 <button
@@ -1264,54 +1342,14 @@ export default function CalculoImportacionPage() {
                     style={inputStyle}
                   />
                 </div>
-                {ncmAplicado && editForm.ncmCode === ncmAplicado.ncm && (
-                  <div className="ncm-aviso" role="status">
-                    Arancel completado con el derecho de importación oficial de esta posición: <b>{fmtDerecho(ncmAplicado.tarifa.die)}</b>
-                    {ncmAplicado.tarifa.dieMax != null && <> (según el SIM puede llegar a {fmtDerecho(ncmAplicado.tarifa.dieMax)})</>}
-                    . Podés cambiarlo más abajo.
-                  </div>
-                )}
-                <div className="ncm-panel">
-                  <label>Buscar en la lista oficial de la NCM</label>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <input
-                      type="text"
-                      value={ncmQ}
-                      onChange={(e) => setNcmQ(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") buscarNcmLista(ncmQ); }}
-                      placeholder="ej. silla de ruedas, jeringa, nebulizador"
-                      style={inputStyle}
-                    />
-                    <button onClick={() => buscarNcmLista(ncmQ)} disabled={ncmBuscando || !ncmQ.trim()}>
-                      {ncmBuscando ? <Spinner /> : "Buscar"}
-                    </button>
-                  </div>
-                  {ncmRes && (
-                    <div className="ncm-lista" role="list">
-                      {ncmRes.similares.map((s) => (
-                        <button type="button" key={`s${s.ncm}${s.nombre}`} role="listitem" className="ncm-fila ncm-previo" onClick={() => elegirNcm(s.ncm, s.tarifa)}>
-                          <span className="ncm-cod">{s.ncm}</span>
-                          <span className="ncm-txt"><b>Ya usado en «{s.nombre}»</b><small>Elegido antes para un producto parecido</small></span>
-                          {s.tarifa && <ChipArancel t={s.tarifa} />}
-                        </button>
-                      ))}
-                      {ncmRes.candidatos.length === 0 && <div className="ncm-vacio">No hay coincidencias. Probá con otras palabras (ej. el nombre técnico del producto).</div>}
-                      {ncmRes.candidatos.map((c) => (
-                        <button type="button" key={c.ncm} role="listitem" className={`ncm-fila${editForm.ncmCode === c.ncm ? " ncm-elegida" : ""}`} onClick={() => elegirNcm(c.ncm, c.tarifa)}>
-                          <span className="ncm-cod">{c.ncm}</span>
-                          <span className="ncm-txt">
-                            <b>{c.detalle || c.partida}</b>
-                            {c.detalle && <small>{c.partida}</small>}
-                          </span>
-                          {c.tarifa && <ChipArancel t={c.tarifa} />}
-                        </button>
-                      ))}
-                      <div className="ncm-pie">
-                        Derechos de importación según el {fuenteLegible(ncmRes.candidatos.find((c) => c.tarifa)?.tarifa?.fuente ?? "Arancel Integrado de ARCA")}: son los de mercadería de origen fuera del Mercosur. La tasa de estadística y el IVA se calculan aparte. Al elegir una posición se completa el Arancel; confirmala con tu despachante.
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <NcmBuscador
+                  texto={selected.nombre}
+                  ncmActual={editForm.ncmCode}
+                  buscarAlAbrir={!selected.ncm_code}
+                  onElegir={(ncm, tarifa) => setEditForm({ ...editForm, ncmCode: ncm, ...(tarifa ? { arancelPct: String(tarifa.die) } : {}) })}
+                  mensaje="Arancel completado con el derecho de importación oficial de esta posición:"
+                  nota=" Podés cambiarlo más abajo."
+                />
               </div>
             </div>
             <div className="row">

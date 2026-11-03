@@ -407,15 +407,15 @@ async function escenariosBorrar(id) {
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   const solicitante = requerirSesion(req);
-  // Cron diario de Vercel (Authorization: Bearer CRON_SECRET) o administrador: baja el Arancel Integrado de ARCA y lo guarda.
+  const conApp = !!solicitante && (solicitante.rol === 'admin' || (Array.isArray(solicitante.appsPermitidas) && solicitante.appsPermitidas.includes('importaciones')));
+  // Cron diario de Vercel (Authorization: Bearer CRON_SECRET) o cualquier usuario con acceso a Importaciones: baja el Arancel Integrado de ARCA (datos públicos) y lo guarda.
   if (String((req.query || {}).a || '') === 'ncm-actualizar') {
     const secreto = process.env.CRON_SECRET;
     const viaCron = !!secreto && (req.headers['authorization'] || '') === 'Bearer ' + secreto;
-    if (!viaCron && !(solicitante && solicitante.rol === 'admin')) { res.status(403).json({ ok: false, error: 'No autorizado.' }); return; }
+    if (!viaCron && !conApp) { res.status(403).json({ ok: false, error: solicitante ? 'Tu usuario no tiene acceso a Importaciones.' : 'No hay una sesión válida: iniciá sesión de nuevo en el panel.' }); return; }
     try { res.status(200).json(await ncmActualizarTarifas()); } catch (e) { res.status(502).json({ ok: false, error: msgErr(e) }); }
     return;
   }
-  const conApp = !!solicitante && (solicitante.rol === 'admin' || (Array.isArray(solicitante.appsPermitidas) && solicitante.appsPermitidas.includes('importaciones')));
   if (!conApp) { res.status(403).json({ ok: false, error: 'No autorizado.' }); return; }
 
   const q = req.query || {};

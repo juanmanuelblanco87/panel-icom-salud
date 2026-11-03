@@ -48,9 +48,12 @@ for (const linea of lineas) {
   }
   // Renglón sin código: o es continuación de la descripción anterior (no empieza con guion) o un nivel intermedio sin código ("- Los demás:"), que se ignora.
   if (/^-/.test(linea.trim())) { ultimo = null; continue; }
+  // Encabezados de capítulo/sección y sus notas: terminan la posición anterior (si no, el último código de cada capítulo se llevaba las notas del siguiente).
+  if (/^(Capítulo|Sección|Notas?\b)/.test(linea.trim())) { ultimo = null; continue; }
   if (ultimo && /^[A-Za-zÁÉÍÓÚÑáéíóúñ(«]/.test(linea.trim())) {
     const extra = limpiar(sinColumnas(linea));
-    if (extra.length > 1) es.set(ultimo, `${es.get(ultimo) || ""} ${extra}`.trim());
+    const actual = es.get(ultimo) || "";
+    if (extra.length > 1 && actual.length < 1500) es.set(ultimo, `${actual} ${extra}`.trim());
   }
 }
 
