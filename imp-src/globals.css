@@ -453,3 +453,41 @@ html[data-tema="nuevo"] .admin-table th { white-space: nowrap; }
   html[data-tema="nuevo"] .kpi-row, html[data-tema="nuevo"] .stack-row { gap: 0; }
   html[data-tema="nuevo"] .panel { margin-bottom: 14px; }
 }
+
+/* ── Calculador de Importación: pasos numerados, datos agrupados y resultado destacado (auditoría de Roberto, 03/11/2026) ── */
+.barra-herramientas { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; margin: 0 0 14px; }
+.barra-tit { font-size: 13px; color: var(--muted); max-width: 640px; }
+.barra-acciones { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.paso-tit { display: flex; align-items: center; gap: 10px; font-size: 16px; margin: 0 0 4px; }
+.paso-n { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.paso-desc { color: var(--muted); font-size: 12.5px; margin-bottom: 12px; }
+.datos-grid { margin-top: 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.dato-grupo { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--bg); }
+.dato-grupo-tit { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+.dato { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 0; font-size: 13px; }
+.dato + .dato { border-top: 1px solid var(--border); }
+.dato-nom { color: var(--muted); }
+.dato-val { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.dato-val small { font-weight: 400; color: var(--muted); font-size: 11.5px; }
+button.enlace-btn { border: 0 !important; background: transparent !important; padding: 4px 6px !important; min-height: 36px; font-size: 13px; font-weight: 700; color: var(--accent) !important; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.leyenda-ia { margin-top: 10px; font-size: 11.5px; color: var(--muted); display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; }
+.dot-ia { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+html button.btn-primario { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+html button.btn-primario:hover { filter: brightness(0.9); }
+.res-franja { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; padding: 8px 0 14px; }
+.res-etq { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.res-grande { font-size: 34px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.res-sub { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.canal-notas { color: var(--muted); font-size: 12px; margin: 0 0 12px; display: grid; gap: 2px; }
+.canal-res { display: flex; gap: 12px 32px; flex-wrap: wrap; margin: 0 0 8px; }
+.res-valor { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.res-valor.pos { color: #0F7A5A; }
+.res-valor.neg { color: #B3261E; }
+details.desglose { border-top: 1px solid var(--border); padding-top: 4px; }
+details.desglose > summary, details.panel-plegable > summary { cursor: pointer; list-style: none; }
+details.desglose > summary { font-size: 13px; font-weight: 600; color: var(--accent); padding: 8px 0; min-height: 36px; display: flex; align-items: center; }
+details.desglose > summary::-webkit-details-marker, details.panel-plegable > summary::-webkit-details-marker { display: none; }
+details.desglose > summary::before, details.panel-plegable > summary::before { content: "▸"; display: inline-block; width: 16px; color: var(--accent); }
+details.desglose[open] > summary::before, details.panel-plegable[open] > summary::before { content: "▾"; }
+details.panel-plegable > summary { margin: 0; }
+@media (max-width: 900px) { .datos-grid { grid-template-columns: 1fr; } .res-grande { font-size: 30px; } }

@@ -98,6 +98,25 @@ Respondé SOLO con un JSON valido, sin backticks, sin markdown y sin texto antes
   return { pct: numOrNull(parsed.arancel_pct, false), confianza: parseConfianza(parsed.confianza), razonamiento: String(parsed.razonamiento == null ? '' : parsed.razonamiento) };
 }
 
+// Posición arancelaria NCM (Nomenclatura Común del Mercosur, 8 dígitos con puntos: 0000.00.00) de un tipo de producto. -> { ncm, confianza, razonamiento }
+function normalizarNcm(v) {
+  const d = String(v == null ? '' : v).replace(/\D/g, '');
+  return d.length === 8 ? d.slice(0, 4) + '.' + d.slice(4, 6) + '.' + d.slice(6) : null;
+}
+async function estimarNcm(nombreProducto) {
+  const prompt = `Sos un despachante de aduana argentino especializado en clasificación arancelaria.
+
+¿Cuál es la posición arancelaria NCM (Nomenclatura Común del Mercosur, 8 dígitos) con la que se despacha en Argentina el siguiente tipo de producto?
+- Producto: ${nombreProducto}
+
+Buscá la clasificación en fuentes oficiales o de despachantes (AFIP/ARCA, Nomenclador de la Aduana, Mercosur) o en despachos de productos equivalentes. Si hay varias posiciones posibles según la variante, elegí la más habitual para una importación COMERCIAL de este producto y aclarala en el razonamiento.
+
+Respondé SOLO con un JSON valido, sin backticks, sin markdown y sin texto antes o despues, con este formato exacto:
+{"ncm": "string con 8 digitos y puntos, ej 9404.90.00, o null si no pudiste determinarla", "confianza": "alta"|"media"|"baja", "razonamiento": "explicacion breve en 1-2 oraciones: en que te basaste y si hay otras posiciones posibles"}`;
+  const parsed = extractJson(await callOpenAI(prompt));
+  return { ncm: normalizarNcm(parsed.ncm), confianza: parseConfianza(parsed.confianza), razonamiento: String(parsed.razonamiento == null ? '' : parsed.razonamiento) };
+}
+
 // Alícuota de IVA aplicable en Argentina para la venta de un tipo de producto (general 21%; reducida 10,5% en una lista de bienes). -> { pct, confianza, razonamiento }
 async function estimarIva(nombreProducto) {
   const prompt = `Sos un contador argentino especializado en impuestos.
@@ -175,4 +194,4 @@ Respondé SOLO con un JSON valido, sin backticks, sin markdown y sin texto antes
   return { pvpArsConIva: numOrNull(parsed.pvp_ars_con_iva, true), confianza: parseConfianza(parsed.confianza), razonamiento: String(parsed.razonamiento == null ? '' : parsed.razonamiento) };
 }
 
-module.exports = { CalcAiError, estimarArancel, estimarIva, estimarCbm, estimarPesoKg, estimarFleteMaritimo, estimarPvpMercado };
+module.exports = { CalcAiError, normalizarNcm, estimarNcm, estimarArancel, estimarIva, estimarCbm, estimarPesoKg, estimarFleteMaritimo, estimarPvpMercado };

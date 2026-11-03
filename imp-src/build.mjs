@@ -22,6 +22,9 @@ const css = readFileSync(r("globals.css"), "utf8")
   .replace(/--accent:\s*#1a3d70/g, "--accent: #007067")
   .replace(/--header-bg:\s*#1a3d70/g, "--header-bg: #007067");
 
+// Avisos corporativos del panel (design/avisos.html): reemplazan alert/confirm/prompt nativos ("xxx.vercel.app dice"). Mismo bloque y mismas marcas que scripts/sync_avisos.py.
+const avisos = ["<!--icom-avisos:start-->", readFileSync(r("../design/avisos.html"), "utf8").trim(), "<!--icom-avisos:end-->"].join("\n");
+
 mkdirSync(r("gen"), { recursive: true });
 for (const p of PANTALLAS) {
   const entrada = r(`gen/pantalla-${p.salida.replace(/\.html$/, "")}.jsx`);
@@ -55,6 +58,7 @@ for (const p of PANTALLAS) {
 <style>
 ${css}
 </style>
+${avisos}
 </head>
 <body>
 <div id="root"></div>

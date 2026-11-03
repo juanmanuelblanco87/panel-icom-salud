@@ -579,7 +579,7 @@ function ModelImageModal({
       setEditing(false);
       onOverrideSaved();
     } catch {
-      alert("No se pudo guardar la correccion. Proba de nuevo.");
+      alert("No se pudo guardar la correccion. Probá de nuevo.");
     } finally {
       setSaving(false);
     }
@@ -871,10 +871,10 @@ export default function Home() {
   // nunca vuelven a pasar por procesarItem, asi que sin esto nunca
   // completarian el PVP). Confirma antes de borrar porque el proximo
   // tamizado va a volver a gastar una llamada a OpenAI por modelo.
-  const resetSieveLog = () => {
+  const resetSieveLog = async () => {
     if (!slug || resetting || sieving) return;
-    const ok = window.confirm(
-      "Esto borra el registro de tamizado de esta categoria: el proximo click en \"Tamizar categoria\" va a volver a procesar TODOS los modelos (gastando OpenAI de nuevo por cada uno) en vez de solo los pendientes. No borra segmentos, categorias ni PVP ya guardados. ¿Continuar?"
+    const ok = await (window as any).icomConfirmar(
+      "Esto borra el registro de tamizado de esta categoria: el proximo click en \"Tamizar categoria\" va a volver a procesar TODOS los modelos (gastando OpenAI de nuevo por cada uno) en vez de solo los pendientes. No borra segmentos, categorias ni PVP ya guardados. ¿Continuar?", { peligro: true, aceptar: "Continuar" }
     );
     if (!ok) return;
     setResetting(true);
@@ -885,7 +885,7 @@ export default function Home() {
         setSieveSecondsPerItem(null);
         reloadSieveStatus();
       })
-      .catch(() => alert("No se pudo limpiar el tamizado. Proba de nuevo."))
+      .catch(() => alert("No se pudo limpiar el tamizado. Probá de nuevo."))
       .finally(() => setResetting(false));
   };
 
@@ -919,7 +919,7 @@ export default function Home() {
         if ((d.pvp_actualizado ?? 0) > 0) reloadModelPvp();
         reloadSieveStatus();
       })
-      .catch(() => setSieveResult({ error: "No se pudo correr el tamizador. Proba de nuevo." } as any))
+      .catch(() => setSieveResult({ error: "No se pudo correr el tamizador. Probá de nuevo." } as any))
       .finally(() => setSieving(false));
   };
 
@@ -1059,7 +1059,7 @@ export default function Home() {
         setPvpSieveResult(acumulado);
       }
     } catch {
-      setPvpSieveResult({ ...acumulado, error: "No se pudo completar el PVP. Proba de nuevo." } as any);
+      setPvpSieveResult({ ...acumulado, error: "No se pudo completar el PVP. Probá de nuevo." } as any);
     } finally {
       setPvpSieving(false);
     }

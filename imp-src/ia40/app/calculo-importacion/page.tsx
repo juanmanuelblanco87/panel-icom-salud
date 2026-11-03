@@ -135,6 +135,8 @@ interface RunResult {
     meli: CalcCanal;
     distribucion: CalcCanal;
   };
+  /** FOB con el que se calculó este resultado (el casillero puede haber cambiado después sin recalcular). */
+  fobUsdCalculado?: number;
   error?: string;
 }
 
@@ -180,13 +182,15 @@ function ConfianzaDot({ confianza, razonamiento }: { confianza: string | null; r
   if (!confianza) return null;
   return (
     <span
-      title={razonamiento ? `Confianza IA: ${confianza}. ${razonamiento}` : `Confianza IA: ${confianza}`}
+      title={razonamiento ? `Estimado por IA, confianza ${confianza}. ${razonamiento}` : `Estimado por IA, confianza ${confianza}`}
+      aria-label={`Estimado por IA, confianza ${confianza}`}
+      role="img"
       style={{
-        width: 7,
-        height: 7,
+        width: 10,
+        height: 10,
         borderRadius: "50%",
         display: "inline-block",
-        marginLeft: 5,
+        marginLeft: 6,
         background: CONFIANZA_COLOR[confianza] ?? "#999999",
       }}
     />
@@ -205,9 +209,10 @@ export default function CalculoImportacionPage() {
   const [creandoError, setCreandoError] = useState<string | null>(null);
 
   const [showEditar, setShowEditar] = useState(false);
-  const [refrescando, setRefrescando] = useState<string | null>(null); // 'arancel' | 'iva' | 'cbm' | 'pvp' | 'peso' | null
+  const [refrescando, setRefrescando] = useState<string | null>(null); // 'ncm' | 'arancel' | 'iva' | 'cbm' | 'pvp' | 'peso' | null
   const [guardandoEdit, setGuardandoEdit] = useState(false);
   const [editForm, setEditForm] = useState<{
+    ncmCode: string;
     arancelPct: string;
     ivaPct: string;
     traderPct: string;
@@ -279,7 +284,7 @@ export default function CalculoImportacionPage() {
           // recalcula solo para que nunca queden numeros desactualizados.
           if (resultado && !resultado.error && fobUsd) calcularRef.current();
         })
-        .catch(() => alert("No se pudo guardar el CBM. Proba de nuevo."))
+        .catch(() => alert("No se pudo guardar el CBM. Probá de nuevo."))
         .finally(() => setGuardandoCbm(false));
     }, 700);
   };
@@ -371,11 +376,15 @@ export default function CalculoImportacionPage() {
 
   useEffect(() => reloadEscenarios(), []);
 
-  const guardarEscenario = () => {
+  // Los avisos son los del panel (icomPedir / icomConfirmar, design/avisos.html), no los carteles nativos del navegador.
+  const guardarEscenario = async () => {
     if (!resultado || guardandoEscenario) return;
-    const usuario = window.prompt("¿Quién guarda este escenario? (para poder filtrarlo después)");
+    // El usuario sale de la sesión del panel; sólo se pregunta si por algún motivo no está.
+    let usuario = "";
+    try { usuario = String(JSON.parse(sessionStorage.getItem("icom_sesion_2026") || "{}").nombre || ""); } catch { /* sin sesión legible */ }
+    if (!usuario.trim()) usuario = await (window as any).icomPedir("¿Quién guarda este escenario? (para poder filtrarlo después)", { titulo: "Guardar escenario", aceptar: "Continuar" });
     if (!usuario || !usuario.trim()) return;
-    const nombreEscenario = window.prompt(
+    const nombreEscenario = await (window as any).icomPedir(
       `Nombre del escenario para "${resultado.productType.nombre}"\n(ej. Con 10k de Shipping - escenario competitivo)`
     );
     if (!nombreEscenario || !nombreEscenario.trim()) return;
@@ -388,7 +397,7 @@ export default function CalculoImportacionPage() {
         nombreEscenario: nombreEscenario.trim(),
         productTypeId: resultado.productType.id,
         nombreProducto: resultado.productType.nombre,
-        fobUsd: Number(fobUsd),
+        fobUsd: resultado.fobUsdCalculado ?? Number(fobUsd),
         pvpFuente: resultado.pvpFuente,
         envioFuente: resultado.envioFuente,
         supuestos: resultado.supuestos,
@@ -404,16 +413,27 @@ export default function CalculoImportacionPage() {
         }
         reloadEscenarios(filtroUsuarioEscenarios || undefined);
       })
-      .catch(() => alert("No se pudo guardar el escenario. Proba de nuevo."))
+      .catch(() => alert("No se pudo guardar el escenario. Probá de nuevo."))
       .finally(() => setGuardandoEscenario(false));
   };
 
-  const borrarEscenario = (id: number) => {
-    const ok = window.confirm("¿Borrar este escenario guardado? Esta acción no se puede deshacer.");
+  // Vuelve a cargar los datos de un escenario guardado (producto, FOB y precio de venta) para recalcularlo con los supuestos de hoy.
+  const abrirEscenario = (esc: Escenario) => {
+    const id = esc.productType?.id;
+    if (id) setSelectedId(Number(id));
+    setFobUsd(String(esc.fobUsd));
+    setPvpManual(esc.pvpFuente === "manual" && esc.pvpMeliArsConIva != null ? String(esc.pvpMeliArsConIva) : "");
+    setResultado(null);
+    setRunError(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const borrarEscenario = async (id: number) => {
+    const ok = await (window as any).icomConfirmar("¿Borrar este escenario guardado? Esta acción no se puede deshacer.");
     if (!ok) return;
     fetch(`/api/calc/scenarios/${id}`, { method: "DELETE" })
       .then(() => reloadEscenarios(filtroUsuarioEscenarios || undefined))
-      .catch(() => alert("No se pudo borrar. Proba de nuevo."));
+      .catch(() => alert("No se pudo borrar. Probá de nuevo."));
   };
 
   const filtrarEscenariosPorUsuario = (usuario: string) => {
@@ -458,13 +478,14 @@ export default function CalculoImportacionPage() {
         reloadProductTypes();
         if (d.productType) setSelectedId(d.productType.id);
       })
-      .catch(() => setCreandoError("No se pudo crear el tipo de producto. Proba de nuevo."))
+      .catch(() => setCreandoError("No se pudo crear el tipo de producto. Probá de nuevo."))
       .finally(() => setCreando(false));
   };
 
   const abrirEditar = () => {
     if (!selected) return;
     setEditForm({
+      ncmCode: selected.ncm_code ?? "",
       arancelPct: fmtPctInput(selected.arancel_pct),
       ivaPct: fmtPctInput(selected.iva_pct),
       traderPct: fmtPctInput(selected.trader_pct),
@@ -475,7 +496,7 @@ export default function CalculoImportacionPage() {
     setShowEditar(true);
   };
 
-  const recalcularCampo = (field: "arancel" | "iva" | "cbm" | "pvp" | "peso") => {
+  const recalcularCampo = (field: "ncm" | "arancel" | "iva" | "cbm" | "pvp" | "peso") => {
     if (!selected || refrescando) return;
     setRefrescando(field);
     fetch(`/api/calc/product-types/${selected.id}/refresh?field=${field}`, { method: "POST" })
@@ -486,6 +507,7 @@ export default function CalculoImportacionPage() {
           if (editForm) {
             const updated: ProductType = d.productType;
             setEditForm({
+              ncmCode: updated.ncm_code ?? "",
               arancelPct: fmtPctInput(updated.arancel_pct),
               ivaPct: fmtPctInput(updated.iva_pct),
               traderPct: fmtPctInput(updated.trader_pct),
@@ -498,7 +520,7 @@ export default function CalculoImportacionPage() {
           alert(`No se pudo recalcular: ${d.error}`);
         }
       })
-      .catch(() => alert("No se pudo recalcular. Proba de nuevo."))
+      .catch(() => alert("No se pudo recalcular. Probá de nuevo."))
       .finally(() => setRefrescando(null));
   };
 
@@ -509,6 +531,7 @@ export default function CalculoImportacionPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        ncmCode: editForm.ncmCode.trim() || null,
         arancelPct: Number(editForm.arancelPct) / 100,
         ivaPct: Number(editForm.ivaPct) / 100,
         traderPct: Number(editForm.traderPct) / 100,
@@ -524,13 +547,13 @@ export default function CalculoImportacionPage() {
           setShowEditar(false);
         }
       })
-      .catch(() => alert("No se pudo guardar. Proba de nuevo."))
+      .catch(() => alert("No se pudo guardar. Probá de nuevo."))
       .finally(() => setGuardandoEdit(false));
   };
 
-  const borrarTipoProducto = () => {
+  const borrarTipoProducto = async () => {
     if (!selected) return;
-    const ok = window.confirm(`¿Borrar el tipo de producto "${selected.nombre}"? Esta acción no se puede deshacer.`);
+    const ok = await (window as any).icomConfirmar(`¿Borrar el tipo de producto "${selected.nombre}"? Esta acción no se puede deshacer.`);
     if (!ok) return;
     fetch(`/api/calc/product-types/${selected.id}`, { method: "DELETE" })
       .then(() => {
@@ -538,7 +561,7 @@ export default function CalculoImportacionPage() {
         setResultado(null);
         reloadProductTypes();
       })
-      .catch(() => alert("No se pudo borrar. Proba de nuevo."));
+      .catch(() => alert("No se pudo borrar. Probá de nuevo."));
   };
 
   const calcular = () => {
@@ -566,12 +589,12 @@ export default function CalculoImportacionPage() {
           setRunError(d.error);
           return;
         }
-        setResultado(d);
+        setResultado({ ...d, fobUsdCalculado: fob });
         if (d.productType) {
           setProductTypes((prev) => prev.map((p) => (p.id === d.productType.id ? d.productType : p)));
         }
       })
-      .catch(() => setRunError("No se pudo calcular. Proba de nuevo."))
+      .catch(() => setRunError("No se pudo calcular. Probá de nuevo."))
       .finally(() => setCalculando(false));
   };
   calcularRef.current = calcular;
@@ -643,7 +666,7 @@ export default function CalculoImportacionPage() {
           setShowSupuestos(false);
         }
       })
-      .catch(() => alert("No se pudo guardar. Proba de nuevo."))
+      .catch(() => alert("No se pudo guardar. Probá de nuevo."))
       .finally(() => setGuardandoSupuestos(false));
   };
 
@@ -662,7 +685,7 @@ export default function CalculoImportacionPage() {
           setSupuestosForm({ ...supuestosForm, fleteMaritimoUsd: String(d.fleteMaritimoUsd) });
         }
       })
-      .catch(() => alert("No se pudo recalcular el flete. Proba de nuevo."))
+      .catch(() => alert("No se pudo recalcular el flete. Probá de nuevo."))
       .finally(() => setRefrescandoFlete(false));
   };
   const recalcularTipoCambio = () => {
@@ -680,7 +703,7 @@ export default function CalculoImportacionPage() {
           setSupuestosForm({ ...supuestosForm, tipoCambioArs: String(d.tipoCambioArs) });
         }
       })
-      .catch(() => alert("No se pudo actualizar el tipo de cambio. Proba de nuevo."))
+      .catch(() => alert("No se pudo actualizar el tipo de cambio. Probá de nuevo."))
       .finally(() => setRefrescandoTipoCambio(false));
   };
 
@@ -697,31 +720,32 @@ export default function CalculoImportacionPage() {
         }
       />
       <div className="container">
-        <div className="panel">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-            <h1 style={{ fontSize: 15, margin: 0 }}>Tipo de producto</h1>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              {meliConectado === false && (
-                <button onClick={() => (window.location.href = "/api/calc/meli-oauth/authorize")} style={{ fontSize: 12 }}>
-                  <Ic n="link" e="🔗" /> Conectar cuenta de Mercado Libre
-                </button>
-              )}
-              {meliConectado === true && (
-                <span style={{ fontSize: 11.5, color: "var(--muted)" }}><Ic n="dot" e="🟢" /> Mercado Libre conectado</span>
-              )}
-              <button onClick={abrirSupuestos} disabled={!supuestos} style={{ fontSize: 12 }}>
-                <Ic n="sliders" e="⚙️" /> Supuestos generales
+        <div className="barra-herramientas">
+          <div className="barra-tit">Calculá cuánto cuesta traer un producto y cuánto ganás al venderlo.</div>
+          <div className="barra-acciones">
+            {meliConectado === false && (
+              <button onClick={() => (window.location.href = "/api/calc/meli-oauth/authorize")} style={{ fontSize: 12 }}>
+                <Ic n="link" e="🔗" /> Conectar cuenta de Mercado Libre
               </button>
-            </div>
+            )}
+            {meliConectado === true && (
+              <span style={{ fontSize: 11.5, color: "var(--muted)" }}><Ic n="dot" e="🟢" /> Mercado Libre conectado</span>
+            )}
+            <button onClick={abrirSupuestos} disabled={!supuestos} style={{ fontSize: 12 }}>
+              <Ic n="sliders" e="⚙️" /> Supuestos generales
+            </button>
           </div>
-          {meliOauthMsg && (
-            <div style={{ fontSize: 12, color: meliOauthMsg.startsWith("✓") ? "#2fa84f" : "#d93a3a", marginBottom: 8 }}>
-              {meliOauthMsg}
-            </div>
-          )}
-          <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 12 }}>
-            Catálogo abierto: creá cualquier tipo de producto que necesites (no está atado a las categorías del
-            dashboard). Arancel, IVA y CBM se estiman con IA la primera vez y quedan guardados.
+        </div>
+        {meliOauthMsg && (
+          <div style={{ fontSize: 12, color: meliOauthMsg.startsWith("✓") ? "#0F7A5A" : "#B3261E", marginBottom: 8 }}>
+            {meliOauthMsg}
+          </div>
+        )}
+
+        <div className="panel">
+          <h1 className="paso-tit"><span className="paso-n">1</span> Producto</h1>
+          <div className="paso-desc">
+            Elegí qué vas a importar o creá un tipo de producto nuevo. Los impuestos y el volumen los estima la IA la primera vez; podés corregirlos con Editar.
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -734,6 +758,7 @@ export default function CalculoImportacionPage() {
               }}
               style={{ minWidth: 240 }}
               disabled={loadingTypes}
+              aria-label="Tipo de producto"
             >
               <option value="">{loadingTypes ? "Cargando..." : "Elegí un tipo de producto"}</option>
               {productTypes.map((p) => (
@@ -757,6 +782,12 @@ export default function CalculoImportacionPage() {
             )}
           </div>
 
+          {!selected && !loadingTypes && !showNuevo && (
+            <div className="paso-desc" style={{ marginTop: 12, marginBottom: 0 }}>
+              {productTypes.length ? "Elegí un producto para empezar." : "Todavía no hay productos cargados (o no se pudieron cargar). Creá uno con «+ Nuevo tipo de producto» o recargá la pantalla."}
+            </div>
+          )}
+
           {showNuevo && (
             <div
               style={{
@@ -778,7 +809,7 @@ export default function CalculoImportacionPage() {
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 160 }}>
-                  <label>NCM (opcional)</label>
+                  <label>NCM (opcional: si lo dejás vacío lo busca la IA)</label>
                   <input type="text" value={nuevoNcm} onChange={(e) => setNuevoNcm(e.target.value)} placeholder="8713.10.00" />
                 </div>
               </div>
@@ -800,118 +831,158 @@ export default function CalculoImportacionPage() {
           )}
 
           {selected && (
-            <div style={{ marginTop: 14, display: "flex", gap: "10px 22px", flexWrap: "wrap", alignItems: "center", fontSize: 13 }}>
-              <div>
-                <span style={{ color: "var(--muted)" }}>Arancel: </span>
-                <strong>{selected.arancel_pct != null ? fmtPct(selected.arancel_pct) : "—"}</strong>
-                <ConfianzaDot confianza={selected.arancel_confianza} razonamiento={selected.arancel_razonamiento} />
-              </div>
-              <div>
-                <span style={{ color: "var(--muted)" }}>IVA: </span>
-                <strong>{selected.iva_pct != null ? fmtPct(selected.iva_pct) : "—"}</strong>
-                <ConfianzaDot confianza={selected.iva_confianza} razonamiento={selected.iva_razonamiento} />
-              </div>
-              <div>
-                <span style={{ color: "var(--muted)" }}>CBM: </span>
-                <strong>{selected.cbm_m3 != null ? `${selected.cbm_m3} m³` : "—"}</strong>
-                <ConfianzaDot confianza={selected.cbm_confianza} razonamiento={selected.cbm_razonamiento} />
-              </div>
-              <div>
-                <span style={{ color: "var(--muted)" }}>Trader: </span>
-                <strong>{fmtPct(selected.trader_pct)}</strong>
-              </div>
-              <div>
-                <span style={{ color: "var(--muted)" }}>Tamaño envío: </span>
-                <strong>
-                  {selected.tamano_envio === "chico" ? "Chico" : selected.tamano_envio === "grande" ? "Grande" : "Mediano"}
-                </strong>
-                {" "}
-                <span style={{ color: "var(--muted)", fontSize: 11.5 }}>
-                  (según CBM{selected.envio_meli_api_status === "found" ? " — última consulta API: OK" : ""})
-                </span>
-              </div>
-              {supuestos && (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ color: "var(--muted)" }}>Unidades por 40HC: </span>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={unidades40hc}
-                    readOnly
-                    onClick={abrirCaja}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirCaja(); } }}
-                    title="Tocá para cargar las medidas de la caja (ancho, largo y profundidad) y recalcular cuántas entran en el 40HC"
-                    style={{ width: 90, padding: "3px 6px", fontWeight: 700, cursor: "pointer" }}
-                  />
-                  <button type="button" onClick={abrirCaja} title="Medidas de la caja" aria-label="Medidas de la caja" style={{ padding: "3px 8px" }}>
-                    <Ic n="sliders" e="📐" />
-                  </button>
-                  {guardandoCbm && <Spinner />}
-                  {selected.cbm_m3 != null && selected.cbm_m3 > 0 && (
-                    <span style={{ whiteSpace: "nowrap" }}>
-                      <span style={{ color: "var(--muted)" }}>· 20FT: </span>
-                      <strong>{Math.floor(supuestos.capacidad20ftM3 / selected.cbm_m3)} un</strong>
+            <>
+              <div className="datos-grid">
+                <div className="dato-grupo">
+                  <div className="dato-grupo-tit">Impuestos</div>
+                  <div className="dato" title="Posición arancelaria (Nomenclatura Común del Mercosur). Se puede corregir en Editar.">
+                    <span className="dato-nom">NCM</span>
+                    {selected.ncm_code ? (
+                      <span className="dato-val" style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{selected.ncm_code}</span>
+                    ) : (
+                      <span className="dato-val"><button type="button" className="enlace-btn" onClick={abrirEditar}>Sin cargar · Cargar</button></span>
+                    )}
+                  </div>
+                  <div className="dato" title="Derecho de importación que se paga sobre el valor CIF.">
+                    <span className="dato-nom">Arancel de importación</span>
+                    <span className="dato-val">
+                      {selected.arancel_pct != null ? fmtPct(selected.arancel_pct) : "—"}
+                      <ConfianzaDot confianza={selected.arancel_confianza} razonamiento={selected.arancel_razonamiento} />
                     </span>
-                  )}
+                  </div>
+                  <div className="dato" title="Alícuota de IVA con la que se vende el producto.">
+                    <span className="dato-nom">IVA</span>
+                    <span className="dato-val">
+                      {selected.iva_pct != null ? fmtPct(selected.iva_pct) : "—"}
+                      <ConfianzaDot confianza={selected.iva_confianza} razonamiento={selected.iva_razonamiento} />
+                    </span>
+                  </div>
                 </div>
-              )}
-              <div>
-                <span style={{ color: "var(--muted)" }}>Peso facturable: </span>
-                <strong>{selected.peso_kg != null ? `${selected.peso_kg} kg` : "—"}</strong>
-                <ConfianzaDot confianza={selected.peso_confianza} razonamiento={selected.peso_razonamiento} />
+
+                <div className="dato-grupo">
+                  <div className="dato-grupo-tit">Carga</div>
+                  <div className="dato" title="Volumen de la caja de UNA unidad (CBM, metros cúbicos).">
+                    <span className="dato-nom">Volumen por unidad</span>
+                    <span className="dato-val">
+                      {selected.cbm_m3 != null ? `${selected.cbm_m3} m³` : "—"}
+                      <ConfianzaDot confianza={selected.cbm_confianza} razonamiento={selected.cbm_razonamiento} />
+                    </span>
+                  </div>
+                  {supuestos && (
+                    <div className="dato" title="Cuántas unidades entran en un contenedor 40' high cube. Tocá para calcularlo con las medidas de la caja.">
+                      <span className="dato-nom">Unidades por contenedor 40HC</span>
+                      <span className="dato-val">
+                        <button type="button" className="enlace-btn" onClick={abrirCaja} aria-label="Cargar las medidas de la caja para recalcular las unidades por contenedor">
+                          {unidades40hc ? Number(unidades40hc).toLocaleString("es-AR") : "—"} ✎
+                        </button>
+                        {guardandoCbm && <Spinner />}
+                      </span>
+                    </div>
+                  )}
+                  {supuestos && selected.cbm_m3 != null && selected.cbm_m3 > 0 && (
+                    <div className="dato" title="Unidades que entran en un contenedor de 20 pies.">
+                      <span className="dato-nom">Unidades por contenedor 20FT</span>
+                      <span className="dato-val">{Math.floor(supuestos.capacidad20ftM3 / selected.cbm_m3).toLocaleString("es-AR")}</span>
+                    </div>
+                  )}
+                  <div className="dato" title="Peso de UNA unidad ya embalada; lo usa Mercado Libre para calcular el envío.">
+                    <span className="dato-nom">Peso por unidad (para el envío de MeLi)</span>
+                    <span className="dato-val">
+                      {selected.peso_kg != null ? `${selected.peso_kg} kg` : "—"}
+                      <ConfianzaDot confianza={selected.peso_confianza} razonamiento={selected.peso_razonamiento} />
+                    </span>
+                  </div>
+                  <div className="dato" title="Se define según el volumen de la caja.">
+                    <span className="dato-nom">Tamaño de envío (MeLi)</span>
+                    <span className="dato-val">
+                      {selected.tamano_envio === "chico" ? "Chico" : selected.tamano_envio === "grande" ? "Grande" : "Mediano"}
+                      {selected.envio_meli_api_status === "found" && <small> · API OK</small>}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="dato-grupo">
+                  <div className="dato-grupo-tit">Comercial</div>
+                  <div className="dato" title="Porcentaje que se paga al trader (intermediario de la compra) sobre el FOB.">
+                    <span className="dato-nom">Comisión del trader</span>
+                    <span className="dato-val">{fmtPct(selected.trader_pct)}</span>
+                  </div>
+                  <div className="dato" title="Precio de venta en Mercado Libre estimado por la IA. Se usa si no cargás uno propio en el paso 2.">
+                    <span className="dato-nom">Precio de venta estimado (IA)</span>
+                    <span className="dato-val">
+                      {selected.pvp_ars_estimado != null ? `$${fmtNumber(selected.pvp_ars_estimado)}` : "—"}
+                      <ConfianzaDot confianza={selected.pvp_confianza} razonamiento={selected.pvp_razonamiento} />
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span style={{ color: "var(--muted)" }}>PVP mercado (IA): </span>
-                <strong>{selected.pvp_ars_estimado != null ? `$${fmtNumber(selected.pvp_ars_estimado)}` : "—"}</strong>
-                <ConfianzaDot confianza={selected.pvp_confianza} razonamiento={selected.pvp_razonamiento} />
+              <div className="leyenda-ia">
+                <span>Puntos = confianza de la estimación por IA:</span>
+                <span><span className="dot-ia" style={{ background: CONFIANZA_COLOR.alta }} />alta</span>
+                <span><span className="dot-ia" style={{ background: CONFIANZA_COLOR.media }} />media</span>
+                <span><span className="dot-ia" style={{ background: CONFIANZA_COLOR.baja }} />baja</span>
+                <span>(tocá o pasá el mouse por el punto para ver en qué se basó)</span>
               </div>
-            </div>
+            </>
           )}
         </div>
 
         {selected && (
           <div className="panel">
-            <h1 style={{ fontSize: 15, marginTop: 0, marginBottom: 12 }}>Calcular</h1>
+            <h1 className="paso-tit"><span className="paso-n">2</span> Datos de compra</h1>
+            <div className="paso-desc">Cargá el precio de compra de UNA unidad. El precio de venta es opcional.</div>
             <div className="row">
               <div style={{ flex: 1, minWidth: 160 }}>
-                <label>FOB (USD)</label>
+                <label htmlFor="calc-fob">FOB por unidad (USD)</label>
                 <input
+                  id="calc-fob"
                   type="number"
                   value={fobUsd}
                   onChange={(e) => setFobUsd(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
                   placeholder="ej. 24.00"
                 />
               </div>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <label>PVP MeLi (ARS con IVA) — opcional</label>
+                <label htmlFor="calc-pvp">Precio de venta en MeLi (con IVA) — opcional</label>
                 <input
+                  id="calc-pvp"
                   type="number"
                   value={pvpManual}
                   onChange={(e) => setPvpManual(e.target.value)}
-                  placeholder="dejar vacío para estimar con IA"
+                  onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
+                  placeholder={selected.pvp_ars_estimado != null ? `vacío = $${fmtNumber(selected.pvp_ars_estimado)} (estimado por IA)` : "vacío = lo estima la IA"}
                 />
               </div>
-              <div style={{ display: "flex", alignItems: "flex-end" }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
                 <button
+                  className="btn-primario"
                   onClick={calcular}
                   disabled={calculando || !fobUsd}
                   style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
                 >
-                  {calculando && <Spinner />}
+                  {calculando && <Spinner light />}
                   {calculando ? "Calculando..." : "Calcular"}
                 </button>
+                {!fobUsd && !calculando && <span style={{ fontSize: 12, color: "var(--muted)", alignSelf: "center" }}>Cargá el FOB para calcular.</span>}
               </div>
             </div>
-            {runError && <div style={{ color: "#d93a3a", fontSize: 13, marginTop: 10 }}>{runError}</div>}
+            {runError && <div style={{ color: "#B3261E", fontSize: 13, marginTop: 10 }}>{runError}</div>}
           </div>
         )}
 
         {resultado && !resultado.error && (
           <>
             <div className="panel">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-                <h1 style={{ fontSize: 15, margin: 0 }}>Costo Nacionalizado</h1>
+              <h1 className="paso-tit"><span className="paso-n">3</span> Resultado</h1>
+              <div className="res-franja">
+                <div>
+                  <div className="res-etq">Costo nacionalizado por unidad</div>
+                  <div className="res-grande">${fmtNumber(resultado.resultado.costoNacionalizado.costoNacionalizadoArs)}</div>
+                  <div className="res-sub">
+                    US$ {fmtUsd(resultado.resultado.costoNacionalizado.costoNacionalizadoUsd)} · tipo de cambio ${fmtNumber(resultado.supuestos.tipoCambioArs)} · FOB US$ {fmtUsd(resultado.fobUsdCalculado ?? Number(fobUsd))}
+                  </div>
+                </div>
                 <button
                   onClick={guardarEscenario}
                   disabled={guardandoEscenario}
@@ -921,21 +992,14 @@ export default function CalculoImportacionPage() {
                   <Ic n="save" e="💾" /> Guardar escenario
                 </button>
               </div>
-              <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 10 }}>
-                PVP de MeLi usado en este cálculo: ${fmtNumber(resultado.resultado.meli.pvpConIva)}{" "}
-                {resultado.pvpFuente === "manual" && "(cargado a mano)"}
-                {resultado.pvpFuente === "cache" && "(estimado por IA, ya cacheado)"}
-                {resultado.pvpFuente === "ia" && "(recién estimado por IA)"}
-              </div>
-              <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 10 }}>
-                Costo de envío usado: {resultado.envioFuente === "api" ? "dato real de la API de Mercado Libre ✓" : "tabla fija (editable en Supuestos generales)"}
-              </div>
+              <details className="desglose">
+                <summary>Ver desglose del costo</summary>
               <div className="table-scroll">
               <table className="admin-table" style={{ fontSize: 13 }}>
                 <tbody>
                   <tr>
                     <td>FOB</td>
-                    <td style={{ textAlign: "right" }}>US$ {fmtUsd(Number(fobUsd))}</td>
+                    <td style={{ textAlign: "right" }}>US$ {fmtUsd(resultado.fobUsdCalculado ?? Number(fobUsd))}</td>
                   </tr>
                   <tr>
                     <td>+ Trader ({fmtPct(resultado.productType.trader_pct)})</td>
@@ -946,8 +1010,8 @@ export default function CalculoImportacionPage() {
                     <td style={{ textAlign: "right" }}>US$ {fmtUsd(resultado.resultado.costoNacionalizado.seguroUsd)}</td>
                   </tr>
                   <tr>
-                    <td>
-                      <strong>CIF</strong>
+                    <td title="Valor de la mercadería puesta en puerto argentino; sobre esto se calcula el arancel.">
+                      <strong>CIF (FOB + trader + seguro)</strong>
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <strong>US$ {fmtUsd(resultado.resultado.costoNacionalizado.cifUsd)}</strong>
@@ -958,13 +1022,13 @@ export default function CalculoImportacionPage() {
                     <td style={{ textAlign: "right" }}>US$ {fmtUsd(resultado.resultado.costoNacionalizado.arancelUsd)}</td>
                   </tr>
                   <tr>
-                    <td>+ Tasa estadística</td>
+                    <td>+ Tasa de estadística</td>
                     <td style={{ textAlign: "right" }}>
                       US$ {fmtUsd(resultado.resultado.costoNacionalizado.tasaEstadisticaUsd)}
                     </td>
                   </tr>
                   <tr>
-                    <td>+ Ley 25413</td>
+                    <td>+ Impuesto al cheque (Ley 25413)</td>
                     <td style={{ textAlign: "right" }}>US$ {fmtUsd(resultado.resultado.costoNacionalizado.ley25413Usd)}</td>
                   </tr>
                   <tr>
@@ -978,21 +1042,29 @@ export default function CalculoImportacionPage() {
                     <td style={{ textAlign: "right" }}>
                       <strong>US$ {fmtUsd(resultado.resultado.costoNacionalizado.costoNacionalizadoUsd)}</strong>
                       <span style={{ margin: "0 8px" }}>—</span>
-                      <strong style={{ fontSize: 24, color: "#1f9d47" }}>
-                        ${fmtNumber(resultado.resultado.costoNacionalizado.costoNacionalizadoArs)}
-                      </strong>
+                      <strong>${fmtNumber(resultado.resultado.costoNacionalizado.costoNacionalizadoArs)}</strong>
                     </td>
                   </tr>
                 </tbody>
               </table>
               </div>
+              </details>
             </div>
 
             <div className="stack-row">
               <div className="panel">
-                <h1 style={{ fontSize: 15, marginTop: 0, marginBottom: 12 }}>Vendiendo por MeLi</h1>
-                {/* mismo alto que la nota de la tarjeta de al lado, así las dos tablas arrancan a la misma altura (se oculta cuando se apilan en celular) */}
-                <div className="nota-espejo" aria-hidden="true" style={{ fontSize: 12, marginBottom: 10, visibility: "hidden" }}>.</div>
+                <h1 className="paso-tit" style={{ fontSize: 15 }}>Vendiendo por MeLi</h1>
+                <div className="canal-notas">
+                  <div>
+                    Precio de venta usado: ${fmtNumber(resultado.resultado.meli.pvpConIva)}{" "}
+                    {resultado.pvpFuente === "manual" && "(cargado a mano)"}
+                    {resultado.pvpFuente === "cache" && "(estimado por IA, ya guardado)"}
+                    {resultado.pvpFuente === "ia" && "(recién estimado por IA)"}
+                  </div>
+                  <div>
+                    Costo de envío usado: {resultado.envioFuente === "api" ? "dato real de la API de Mercado Libre ✓" : "tabla fija (editable en Supuestos generales)"}
+                  </div>
+                </div>
                 <CanalTable
                   canal={resultado.resultado.meli}
                   showMeliDetalle
@@ -1000,9 +1072,9 @@ export default function CalculoImportacionPage() {
                 />
               </div>
               <div className="panel">
-                <h1 style={{ fontSize: 15, marginTop: 0, marginBottom: 12 }}>Vendiendo a Distribución</h1>
-                <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 10 }}>
-                  PVP = PVP MeLi × (1 − {fmtPct(resultado.supuestos.descuentoDistribucionPct)})
+                <h1 className="paso-tit" style={{ fontSize: 15 }}>Vendiendo a Distribución</h1>
+                <div className="canal-notas">
+                  <div>Precio de venta = precio en MeLi × (1 − {fmtPct(resultado.supuestos.descuentoDistribucionPct)})</div>
                 </div>
                 <CanalTable
                   canal={resultado.resultado.distribucion}
@@ -1014,9 +1086,9 @@ export default function CalculoImportacionPage() {
           </>
         )}
 
-        <div className="panel">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-            <h1 style={{ fontSize: 15, margin: 0 }}>Historial de escenarios</h1>
+        <details className="panel panel-plegable">
+          <summary className="paso-tit">Historial de escenarios guardados ({escenarios.length})</summary>
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap", gap: 8, margin: "10px 0" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <label style={{ fontSize: 12, color: "var(--muted)" }}>Usuario:</label>
               <select
@@ -1068,7 +1140,10 @@ export default function CalculoImportacionPage() {
                     <td>{esc.envioFuente === "api" ? "API" : "tabla fija"}</td>
                     <td style={{ textAlign: "right" }}>{esc.margenMeliPct != null ? fmtPct(esc.margenMeliPct) : "—"}</td>
                     <td style={{ textAlign: "right" }}>{esc.margenDistribucionPct != null ? fmtPct(esc.margenDistribucionPct) : "—"}</td>
-                    <td style={{ textAlign: "right" }}>
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <button onClick={() => abrirEscenario(esc)} style={{ fontSize: 11.5, marginRight: 6 }} title="Carga el producto, el FOB y el precio de este escenario para volver a calcularlo">
+                        Abrir
+                      </button>
                       <button onClick={() => borrarEscenario(esc.id)} style={{ fontSize: 11.5 }}>
                         Borrar
                       </button>
@@ -1079,7 +1154,7 @@ export default function CalculoImportacionPage() {
             </table>
             </div>
           )}
-        </div>
+        </details>
       </div>
 
       {showEditar && selected && editForm && (
@@ -1098,15 +1173,37 @@ export default function CalculoImportacionPage() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Editar ${selected.nombre}`}
             style={{
               background: "#fff",
               borderRadius: 10,
               padding: 20,
               maxWidth: 480,
               width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
             }}
           >
             <h1 style={{ fontSize: 16, marginTop: 0 }}>Editar "{selected.nombre}"</h1>
+            <div className="row">
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <label>NCM (posición arancelaria)</label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    type="text"
+                    value={editForm.ncmCode}
+                    onChange={(e) => setEditForm({ ...editForm, ncmCode: e.target.value })}
+                    placeholder="0000.00.00"
+                    style={inputStyle}
+                  />
+                  <button onClick={() => recalcularCampo("ncm")} disabled={refrescando === "ncm"} title="Buscar con IA">
+                    {refrescando === "ncm" ? <Spinner /> : <Ic n="refresh" e="🔄" />}
+                  </button>
+                </div>
+              </div>
+            </div>
             <div className="row">
               <div style={{ flex: 1, minWidth: 140 }}>
                 <label>Arancel %</label>
@@ -1278,7 +1375,7 @@ export default function CalculoImportacionPage() {
               <Campo label="IIBB %" value={supuestosForm.iibbPct} onChange={(v) => setSupuestosForm({ ...supuestosForm, iibbPct: v })} />
             </div>
             <div className="row" style={{ marginTop: 10 }}>
-              <Campo label="PADS %" value={supuestosForm.padsPct} onChange={(v) => setSupuestosForm({ ...supuestosForm, padsPct: v })} />
+              <Campo label="Publicidad en MeLi (PADS) %" value={supuestosForm.padsPct} onChange={(v) => setSupuestosForm({ ...supuestosForm, padsPct: v })} />
               <Campo label="Tasa estadística %" value={supuestosForm.tasaEstadisticaPct} onChange={(v) => setSupuestosForm({ ...supuestosForm, tasaEstadisticaPct: v })} />
               <Campo label="Tope Tasa Estadística (USD)" value={supuestosForm.tasaEstadisticaTopeUsd} onChange={(v) => setSupuestosForm({ ...supuestosForm, tasaEstadisticaTopeUsd: v })} />
             </div>
@@ -1446,7 +1543,22 @@ function CanalTable({
   showMeliDetalle: boolean;
   costoNacionalizadoArs: number;
 }) {
+  const gana = canal.margenArs >= 0;
   return (
+    <>
+    <div className="canal-res">
+      <div>
+        <div className="res-etq">{gana ? "Ganás por unidad" : "Perdés por unidad"}</div>
+        <div className={`res-valor ${gana ? "pos" : "neg"}`}>{gana ? "" : "−"}${fmtNumber(Math.abs(canal.margenArs))}</div>
+      </div>
+      <div title={`Sobre el precio de venta con IVA: ${fmtPct(canal.margenPctSobreConIva)}`}>
+        <div className="res-etq">Margen</div>
+        <div className={`res-valor ${gana ? "pos" : "neg"}`}>{fmtPct(canal.margenPctSobreNeto)}</div>
+        <div className="res-sub" style={{ marginTop: 0 }}>sobre el precio neto de IVA</div>
+      </div>
+    </div>
+    <details className="desglose">
+    <summary>Ver detalle</summary>
     <div className="table-scroll">
     <table className="admin-table" style={{ fontSize: 13 }}>
       <tbody>
@@ -1469,7 +1581,7 @@ function CanalTable({
               <td style={{ textAlign: "right" }}>${fmtNumber(canal.envioNetoArs)}</td>
             </tr>
             <tr>
-              <td>(−) PADS</td>
+              <td title="PADS = Paid Search de Mercado Libre: inversión en publicidad dentro de la plataforma.">(−) Publicidad en MeLi (PADS)</td>
               <td style={{ textAlign: "right" }}>${fmtNumber(canal.padsArs)}</td>
             </tr>
             {canal.feeBajoTicketArs > 0 && (
@@ -1481,7 +1593,7 @@ function CanalTable({
           </>
         )}
         <tr>
-          <td>(−) IIBB</td>
+          <td>(−) Ingresos Brutos (IIBB)</td>
           <td style={{ textAlign: "right" }}>${fmtNumber(canal.iibbArs)}</td>
         </tr>
         <tr>
@@ -1507,5 +1619,7 @@ function CanalTable({
       </tbody>
     </table>
     </div>
+    </details>
+    </>
   );
 }

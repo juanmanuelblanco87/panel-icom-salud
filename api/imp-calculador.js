@@ -76,7 +76,9 @@ async function tiposListar() {
 async function tiposCrear(body) {
   const nombre = String((body && body.nombre) || '').trim();
   if (!nombre) return { status: 400, data: { error: "Falta 'nombre'" } };
-  const ncmCode = body.ncmCode ? String(body.ncmCode).trim() : null;
+  let ncmCode = body.ncmCode ? (ai.normalizarNcm(body.ncmCode) || String(body.ncmCode).trim()) : null;
+  // Sin NCM cargado: se pide a la IA (best-effort) ANTES de estimar el arancel, que la usa como referencia. Si falla, el tipo se crea igual sin NCM.
+  if (!ncmCode) { try { ncmCode = (await ai.estimarNcm(nombre)).ncm; } catch (err) { ncmCode = null; } }
   const inserted = await query(`insert into calc_product_types (nombre, ncm_code) values ($1, $2) on conflict (nombre) do nothing returning *`, [nombre, ncmCode]);
   if (inserted.length === 0) return { status: 409, data: { error: `Ya existe un tipo de producto llamado "${nombre}"` } };
   const id = inserted[0].id;
@@ -98,7 +100,7 @@ async function tiposEditar(id, body) {
   const cur = existing[0];
   const b = body || {};
   const nombre = b.nombre !== undefined ? String(b.nombre).trim() : cur.nombre;
-  const ncmCode = b.ncmCode !== undefined ? (b.ncmCode ? String(b.ncmCode).trim() : null) : cur.ncm_code;
+  const ncmCode = b.ncmCode !== undefined ? (b.ncmCode ? (ai.normalizarNcm(b.ncmCode) || String(b.ncmCode).trim()) : null) : cur.ncm_code;
   const traderPct = b.traderPct !== undefined ? Number(b.traderPct) : Number(cur.trader_pct);
   const tamanoEnvio = esTamano(b.tamanoEnvio) ? b.tamanoEnvio : (cur.tamano_envio || 'mediano');
   const arancelPct = b.arancelPct !== undefined ? Number(b.arancelPct) : Number(cur.arancel_pct == null ? 0 : cur.arancel_pct);
@@ -132,12 +134,22 @@ async function tiposBorrar(id) {
   return { data: { eliminado: true } };
 }
 
-const CAMPOS = ['arancel', 'iva', 'cbm', 'pvp', 'peso'];
+const CAMPOS = ['ncm', 'arancel', 'iva', 'cbm', 'pvp', 'peso'];
 async function tiposRefrescar(id, field) {
   if (!CAMPOS.includes(field)) return { status: 400, data: { error: `field debe ser uno de: ${CAMPOS.join(', ')}` } };
   const rows = await query('select * from calc_product_types where id=$1', [id]);
   if (rows.length === 0) return { status: 404, data: { error: 'Tipo de producto no encontrado' } };
   const p = rows[0];
+  // El NCM no tiene columnas de estado/confianza: se guarda sólo el código (la IA sugiere; el usuario lo corrige a mano en Editar).
+  if (field === 'ncm') {
+    try {
+      const r = await ai.estimarNcm(p.nombre);
+      if (!r.ncm) return { data: { error: 'La IA no pudo determinar la posición NCM -- cargala a mano.' } };
+      await query('update calc_product_types set ncm_code=$1, updated_at=now() where id=$2', [r.ncm, id]);
+    } catch (err) { return { data: { error: msgErr(err) } }; }
+    const nuevo = await query('select * from calc_product_types where id=$1', [id]);
+    return { data: { productType: tipoToNumbers(nuevo[0]) } };
+  }
   try {
     if (field === 'arancel') await guardarArancel(id, await ai.estimarArancel(p.nombre, p.ncm_code));
     else if (field === 'iva') await guardarIva(id, await ai.estimarIva(p.nombre));
