@@ -48,35 +48,36 @@ async function alcance(token, desde, hasta, t0) {
   const porUnidad = {};
   const instituciones = {}; // código -> { n, vendedoresFactura:{} , unidad }
   let completo = true;
-  for (const [tipo, unidad] of Object.entries(TIPOS_INSTITUCIONALES)) {
-    const u = porUnidad[unidad] || (porUnidad[unidad] = { facturas: 0, siVacio: 0, siVacioConInstitucion: 0, siVacioSinInstitucion: 0, siConValor: 0 });
-    for (let p = 0; p < 2; p++) {
-      if (Date.now() - t0 > 40000) { completo = false; break; }
-      const params = { Status: '1', Invalid: '0', OperationType: tipo, TransDate__gte: desde, __limit__: '500', __offset__: String(p * 500) };
-      if (hasta) params.TransDate__lte = hasta;
-      const page = await pedir(token, 'Invoice', params);
-      const filas = page.data || [];
-      for (const x of filas) {
-        u.facturas++;
-        if (!vacio(x.SalesManInstitution)) { u.siConValor++; continue; }
-        u.siVacio++;
-        if (vacio(x.Institution)) { u.siVacioSinInstitucion++; continue; }
-        u.siVacioConInstitucion++;
-        const k = String(x.Institution).trim();
-        const e = instituciones[k] || (instituciones[k] = { n: 0, nombre: x.InstitutionName || null, unidad, vendedoresFactura: {} });
-        e.n++;
-        const sm = vacio(x.SalesMan) ? '(vacío)' : String(x.SalesMan).trim();
-        e.vendedoresFactura[sm] = (e.vendedoresFactura[sm] || 0) + 1;
-      }
-      if (filas.length < 500) break;
-      if (p === 1) completo = false; // hay más de 1000 de este tipo en el período
+  // Oppen contesta 422 si se filtra Invoice por OperationType: se pagina el período completo (como el Dashboard) y se clasifica acá.
+  for (let p = 0; p < 24; p++) {
+    if (Date.now() - t0 > 75000) { completo = false; break; }
+    const params = { Status: '1', Invalid: '0', TransDate__gte: desde, __limit__: '500', __offset__: String(p * 500) };
+    if (hasta) params.TransDate__lte = hasta;
+    const page = await pedir(token, 'Invoice', params);
+    const filas = page.data || [];
+    for (const x of filas) {
+      const unidad = TIPOS_INSTITUCIONALES[String(x.OperationType || '').trim().toUpperCase()];
+      if (!unidad) continue;
+      const u = porUnidad[unidad] || (porUnidad[unidad] = { facturas: 0, siVacio: 0, siVacioConInstitucion: 0, siVacioSinInstitucion: 0, siConValor: 0 });
+      u.facturas++;
+      if (!vacio(x.SalesManInstitution)) { u.siConValor++; continue; }
+      u.siVacio++;
+      if (vacio(x.Institution)) { u.siVacioSinInstitucion++; continue; }
+      u.siVacioConInstitucion++;
+      const k = String(x.Institution).trim();
+      const e = instituciones[k] || (instituciones[k] = { n: 0, nombre: x.InstitutionName || null, unidad, vendedoresFactura: {} });
+      e.n++;
+      const sm = vacio(x.SalesMan) ? '(vacío)' : String(x.SalesMan).trim();
+      e.vendedoresFactura[sm] = (e.vendedoresFactura[sm] || 0) + 1;
     }
+    if (filas.length < 500) break;
+    if (p === 23) completo = false;
   }
   const top = Object.entries(instituciones).sort((a, b) => b[1].n - a[1].n).slice(0, 30);
   const detalle = [];
   let completables = 0, sinVendedorEnFicha = 0;
   for (const [cod, e] of top) {
-    if (Date.now() - t0 > 52000) { completo = false; break; }
+    if (Date.now() - t0 > 110000) { completo = false; break; }
     const r = await pedir(token, 'Customer', { Code: cod, __limit__: '1', __offset__: '0' });
     const ficha = ((r.data || [])[0]) || {};
     const vendFicha = vacio(ficha.SalesMan) ? null : String(ficha.SalesMan).trim();

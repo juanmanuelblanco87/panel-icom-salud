@@ -86,6 +86,9 @@
     "api/ov-sincronizar.js": {
       "maxDuration": 180
     },
+    "api/diag-vendedor-institucion.js": {
+      "maxDuration": 150
+    },
     "api/google-*.js": {
       "maxDuration": 30
     },
