@@ -132,6 +132,10 @@
       "schedule": "0 12 * * *"
     },
     {
+      "path": "/api/talento-recordatorio-pendientes",
+      "schedule": "10 12 * * *"
+    },
+    {
       "path": "/api/alquileres-snapshot",
       "schedule": "0 13 1 * *"
     },

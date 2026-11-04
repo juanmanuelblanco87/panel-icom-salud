@@ -1693,6 +1693,10 @@ async function accionSolicitarCancelacionVacaciones(payload, solicitante) {
   const actualizada = Object.assign({}, solicitud, {
     estado: 'cancelacion_pendiente',
     comentarioCancelacion: comentario ? String(comentario).trim() : '',
+    // 04/11/2026 (recordatorio a los 5 días sin resolver): `fechaSolicitud` es la de las vacaciones ORIGINALES, así que para contar cuánto lleva esperando
+    // ESTE pedido de cancelación hace falta su propia fecha; el contador de recordatorios arranca de cero (api/talento-recordatorio-pendientes.js).
+    fechaPedidoCancelacion: new Date().toISOString(),
+    recordatorioPendiente: null,
     notificacionEmail: { enviado: false, motivo: null },
   });
   try {

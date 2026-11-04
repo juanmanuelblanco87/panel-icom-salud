@@ -218,10 +218,11 @@ const MOTIVOS_LICENCIA_LABEL_EMAIL = {
 // la app, donde el aprobador resuelve desde la pestaña Novedades
 // (mismo criterio que "nuevo pedido pendiente" en icom-b2b: la
 // notificación es informativa, la acción real vive en el panel).
-function emailNuevaSolicitudLicencia({ persona, solicitud }) {
+function emailNuevaSolicitudLicencia({ persona, solicitud, recordatorio }) {
   const motivoLabel = MOTIVOS_LICENCIA_LABEL_EMAIL[solicitud.motivo] || solicitud.motivo;
   const titulo = 'Nueva novedad para aprobar';
   const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:#005a52">' + titulo + '</p>'
+    + bannerRecordatorio(recordatorio)
     + '<p style="margin:0 0 4px"><b>' + escapeHtml(persona.nombre) + '</b> informó una novedad:</p>'
     + '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:10px 0 18px;font-size:14px">'
     + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Motivo</td><td style="padding:2px 0;font-weight:bold">' + escapeHtml(motivoLabel) + '</td></tr>'
@@ -232,7 +233,22 @@ function emailNuevaSolicitudLicencia({ persona, solicitud }) {
     + '</table>'
     + (solicitud.comentario ? '<p style="margin:0 0 18px;padding:10px 14px;background:#f8faf8;border-left:3px solid #cfd8d0;border-radius:4px;color:#3a453c">' + escapeHtml(solicitud.comentario) + '</p>' : '')
     + '<div style="margin:22px 0 8px;text-align:center">' + botonAccion({ href: APP_BASE_URL, color: COLOR_APROBAR, texto: 'Revisar en Gestión de Talento' }) + '</div>';
-  return { subject: titulo + ' — ' + persona.nombre, html: wrapEmailHtml(cuerpo) };
+  return { subject: asuntoRecordatorio(recordatorio) + titulo + ' — ' + persona.nombre, html: wrapEmailHtml(cuerpo) };
+}
+
+// 04/11/2026 ("pasado un plazo de 5 días desde que se carga una novedad o vacaciones, y esto queda pendiente de aprobación, se dispare un mail o
+// mensaje de whatsapp al responsable como recordatorio hasta que se apruebe o rechace"): el recordatorio reutiliza los mismos emails de "nueva
+// solicitud" (con sus botones de un click en Vacaciones) y sólo agrega este aviso arriba + "Recordatorio:" en el asunto. `recordatorio` =
+// { dias, cadaDias } (null/undefined = el email normal, sin cambios). Lo manda api/talento-recordatorio-pendientes.js.
+function bannerRecordatorio(recordatorio) {
+  if (!recordatorio) return '';
+  const cuanto = recordatorio.dias === 1 ? '1 día' : (recordatorio.dias + ' días');
+  return '<p style="margin:0 0 14px;padding:10px 14px;background:#fff7f0;border-left:3px solid #e0a878;border-radius:4px;color:#6b4a2c">'
+    + 'Esta solicitud lleva <b>' + cuanto + '</b> sin resolverse. Te lo vamos a recordar cada ' + (recordatorio.cadaDias === 1 ? 'día' : (recordatorio.cadaDias + ' días'))
+    + ' hasta que la apruebes o la rechaces.</p>';
+}
+function asuntoRecordatorio(recordatorio) {
+  return recordatorio ? 'Recordatorio: ' : '';
 }
 
 // 09/09/2026 ("escalamiento automático si nadie responde"): igual de
@@ -290,7 +306,7 @@ function emailSolicitudLicenciaResuelta({ persona, solicitud }) {
 // según el estado real de la solicitud en ese momento (ver
 // accionAprobarSolicitudVacaciones/accionRechazarSolicitudVacaciones)
 // -- acá sólo cambia el texto para que el email tenga sentido.
-function emailNuevaSolicitud({ persona, solicitud, aprobador, tipo }) {
+function emailNuevaSolicitud({ persona, solicitud, aprobador, tipo, recordatorio }) {
   const esCancelacion = tipo === 'cancelacion';
   const base = { solicitudId: solicitud.id, rol: aprobador.rol, personaId: aprobador.personaId || null, nombre: aprobador.nombre };
   const urlAprobar = APP_BASE_URL + '/api/talento-accion-email?token=' + firmarAccionEmail(Object.assign({}, base, { accion: 'aprobar' }));
@@ -298,6 +314,7 @@ function emailNuevaSolicitud({ persona, solicitud, aprobador, tipo }) {
   const titulo = esCancelacion ? 'Pedido de cancelación de vacaciones' : 'Nueva solicitud de vacaciones';
   const verbo = esCancelacion ? 'pidió CANCELAR sus vacaciones ya aprobadas:' : 'pidió vacaciones:';
   const cuerpo = '<p style="margin:0 0 14px;font-size:16px;font-weight:bold;color:#005a52">' + titulo + '</p>'
+    + bannerRecordatorio(recordatorio)
     + '<p style="margin:0 0 4px"><b>' + escapeHtml(persona.nombre) + '</b> ' + verbo + '</p>'
     + '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:10px 0 18px;font-size:14px">'
     + '<tr><td style="padding:2px 10px 2px 0;color:#5b6b5e">Desde</td><td style="padding:2px 0;font-weight:bold">' + formatearFecha(solicitud.fechaInicio) + '</td></tr>'
@@ -310,7 +327,7 @@ function emailNuevaSolicitud({ persona, solicitud, aprobador, tipo }) {
     + botonAccion({ href: urlRechazar, color: COLOR_RECHAZAR, texto: esCancelacion ? '✕ Mantener aprobada' : '✕ Rechazar' })
     + '</div>'
     + '<p style="margin:16px 0 0;font-size:12px;color:#8b968d">El botón te lleva a una pantalla de confirmación antes de ejecutar la acción -- también podés hacerlo desde Gestión de Talento (pestaña Vacaciones).</p>';
-  return { subject: titulo + ' — ' + persona.nombre, html: wrapEmailHtml(cuerpo) };
+  return { subject: asuntoRecordatorio(recordatorio) + titulo + ' — ' + persona.nombre, html: wrapEmailHtml(cuerpo) };
 }
 
 // 01/09/2026 ("una vez aprobada el usuario puede solicitar cancelar"):
