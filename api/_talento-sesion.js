@@ -14,10 +14,15 @@ async function armarSesion(registro) {
   // es su PROPIO token dentro de appsPermitidas (ver calcularAppsPermitidas en talento-guardar.js). `rol==='admin'` (RR.HH.)
   // nunca pasa por acá -- el shell lo trata aparte como "todas las apps".
   let appsPermitidas = ['gestion_talento', 'correo']; // default seguro si no hay Persona vinculada (ej. cuentas admin sin ficha)
+  // 04/11/2026 ("muchas veces el avatar queda con las iniciales y tiene imagen cargada"): el menú lateral dibuja el avatar con la foto de la
+  // sesión, pero el login nunca la traía -- sólo aparecía después de abrir "Mi Cuenta". Ahora viaja en la respuesta (NO dentro del token firmado:
+  // pesa unos KB). Con Persona vinculada es la de la ficha; sin ella (admin/gerente), la del propio registro de usuario.
+  let foto = registro.foto || '';
   if (registro.personaId) {
     const persona = await leerPersona(registro.personaId);
     if (persona) {
       personaNombre = persona.nombre;
+      foto = persona.foto || '';
       appsPermitidas = Array.isArray(persona.appsPermitidas) ? persona.appsPermitidas : ['gestion_talento', 'correo'];
       // 15/10/2026: fichas anteriores a la app Correo y Calendario reciben el acceso solas; recién cuando RR.HH. guarda Apps a mano (appsV2) se respeta lo que tildó.
       if (!persona.appsV2 && !appsPermitidas.includes('correo')) appsPermitidas = appsPermitidas.concat('correo');
@@ -29,7 +34,7 @@ async function armarSesion(registro) {
     usuario: registro.usuario, rol: registro.rol, personaId: registro.personaId,
     unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, appsPermitidas,
   });
-  return { rol: registro.rol, personaId: registro.personaId, unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, appsPermitidas, token };
+  return { rol: registro.rol, personaId: registro.personaId, unidadNegocio: registro.unidadNegocio || null, nombre: personaNombre, appsPermitidas, foto, token };
 }
 
 module.exports = { armarSesion };

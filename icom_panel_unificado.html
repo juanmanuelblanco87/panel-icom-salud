@@ -2852,12 +2852,13 @@ async function reloginGeneral(){
     if(sesion && usuarioDeToken(j.token) === usuarioDeToken(sesion.token)){
       sesion.token = j.token;
       sessionStorage.setItem(SESION_KEY, JSON.stringify(sesion));
+      aplicarFotoSesion(j.foto);
       propagarTokenAApps(j.token);
       sesionUltimoIntento = Date.now();
       document.getElementById('reloginPass').value = '';
       document.getElementById('reloginOverlay').style.display = 'none';
     } else {
-      sessionStorage.setItem(SESION_KEY, JSON.stringify({ rol: j.rol, personaId: j.personaId, unidadNegocio: j.unidadNegocio || null, nombre: j.nombre, appsPermitidas: j.appsPermitidas || ['gestion_talento'], token: j.token }));
+      sessionStorage.setItem(SESION_KEY, JSON.stringify({ rol: j.rol, personaId: j.personaId, unidadNegocio: j.unidadNegocio || null, nombre: j.nombre, appsPermitidas: j.appsPermitidas || ['gestion_talento'], foto: j.foto || '', token: j.token }));
       location.reload();
     }
   }catch(e){
@@ -2872,6 +2873,14 @@ function chequearVencimientoSesion(){ if(sesion && sesionExpiraEn() <= 0) mostra
    empuja con propagarTokenAApps(). */
 const SESION_TTL_S = 12 * 3600; // = TTL_SESION_SEGUNDOS de api/_talento-auth.js
 let sesionRenovando = false, sesionUltimoIntento = 0;
+// 04/11/2026: guarda la foto de perfil en la sesión y redibuja el avatar del menú lateral si cambió (o si la sesión guardada no la tenía).
+function aplicarFotoSesion(foto){
+  if(!sesion || typeof foto !== 'string') return;
+  if(('foto' in sesion) && (sesion.foto || '') === foto) return;
+  sesion.foto = foto;
+  try{ sessionStorage.setItem(SESION_KEY, JSON.stringify(sesion)); }catch(e){}
+  try{ renderSbSesionInfo(); }catch(e){}
+}
 function propagarTokenAApps(token){
   document.querySelectorAll('iframe').forEach(f => {
     try{
@@ -2894,6 +2903,7 @@ async function renovarSesion(){
         sesion.appsPermitidas = j.appsPermitidas; cambioApps = true;
       }
       sessionStorage.setItem(SESION_KEY, JSON.stringify(sesion));
+      aplicarFotoSesion(j.foto); // si cambió la foto (o la sesión es de antes de este cambio y no la tenía), se redibuja el avatar del menú
       propagarTokenAApps(j.token);
       if(cambioApps){ try{ aplicarVisibilidadApps(); aplicarVisibilidadPnl(); }catch(e){} }
     }
@@ -4648,6 +4658,7 @@ async function attemptLogin(){
     sesion = {
       rol: j.rol, personaId: j.personaId, unidadNegocio: j.unidadNegocio || null, nombre: j.nombre,
       appsPermitidas: j.appsPermitidas || ['gestion_talento'],
+      foto: j.foto || '', // 04/11/2026: el avatar del menú lateral sale de acá (antes la foto sólo aparecía tras abrir "Mi Cuenta")
       token: j.token,
     };
     sessionStorage.setItem(SESION_KEY, JSON.stringify(sesion));
@@ -14856,6 +14867,8 @@ function doLogout(){
         sesion.appsPermitidas = ['gestion_talento'];
       }
       showShell();
+      // 04/11/2026: una sesión guardada de antes de que el login trajera la foto no la tiene -- se pide ahora en vez de esperar la próxima renovación.
+      if(sesion && !('foto' in sesion)) renovarSesion();
       }
     }
     if(!sesion && sessionStorage.getItem('icom_sesion_vencida') === '1'){
