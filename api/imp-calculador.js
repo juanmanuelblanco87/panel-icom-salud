@@ -181,6 +181,13 @@ async function tiposEditar(id, body) {
   if (existing.length === 0) return { status: 404, data: { error: 'Tipo de producto no encontrado' } };
   const cur = existing[0];
   const b = body || {};
+  // Los números que llegan tienen que ser razonables: un texto, un vacío o un negativo no se guardan (antes terminaban como NaN o 0 en la base).
+  const fraccionOk = (v) => Number.isFinite(Number(v)) && v !== '' && v !== null && Number(v) >= 0 && Number(v) <= 1;
+  if (b.arancelPct !== undefined && !fraccionOk(b.arancelPct)) return { status: 400, data: { error: 'El arancel tiene que estar entre 0 % y 100 %.' } };
+  if (b.ivaPct !== undefined && !fraccionOk(b.ivaPct)) return { status: 400, data: { error: 'El IVA tiene que estar entre 0 % y 100 %.' } };
+  if (b.traderPct !== undefined && !fraccionOk(b.traderPct)) return { status: 400, data: { error: 'El trader tiene que estar entre 0 % y 100 %.' } };
+  if (b.cbmM3 !== undefined && !(Number.isFinite(Number(b.cbmM3)) && b.cbmM3 !== '' && b.cbmM3 !== null && Number(b.cbmM3) > 0 && Number(b.cbmM3) <= 1000)) return { status: 400, data: { error: 'El volumen (CBM) tiene que ser mayor a 0 m³ y hasta 1000.' } };
+  if (b.pesoKg !== undefined && !(Number.isFinite(Number(b.pesoKg)) && b.pesoKg !== '' && b.pesoKg !== null && Number(b.pesoKg) > 0)) return { status: 400, data: { error: 'El peso tiene que ser mayor a 0 kg.' } };
   const nombre = b.nombre !== undefined ? String(b.nombre).trim() : cur.nombre;
   const ncmCode = b.ncmCode !== undefined ? (b.ncmCode ? (ai.normalizarNcm(b.ncmCode) || String(b.ncmCode).trim()) : null) : cur.ncm_code;
   const traderPct = b.traderPct !== undefined ? Number(b.traderPct) : Number(cur.trader_pct);

@@ -260,14 +260,15 @@ const MAX_NCM_VISIBLES = 3;
 // si no, tiene su propia caja de texto (modal Editar). onElegir recibe la posición y su tarifa para que quien lo usa complete el NCM (y el arancel).
 // Elegir NCM es opcional: con onSinNcm aparece «Seguir sin NCM» (la IA lo completa al crear). Los resultados sólo se muestran si corresponden al texto actual.
 // `disparar` (contador) pide una búsqueda desde afuera, p. ej. al salir del campo nombre. «Ya cargado antes» sólo aparece con el mismo nombre (mostrarPrevios).
-function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, disparar, mostrarPrevios = true, onElegir, onSinNcm, mensaje, nota }: {
+function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, disparar, mostrarPrevios = true, onElegir, onUsarArancel, onSinNcm, mensaje, nota }: {
   texto: string;
   controlado?: boolean;
   ncmActual: string;
   buscarAlAbrir?: boolean;
   disparar?: number;
   mostrarPrevios?: boolean;
-  onElegir: (ncm: string, tarifa?: NcmTarifa | null) => void;
+  onElegir: (ncm: string, tarifa?: NcmTarifa | null) => boolean | void; // false = no se aplicó el arancel de la posición (ya había uno escrito)
+  onUsarArancel?: (tarifa: NcmTarifa) => void;
   onSinNcm?: () => void;
   mensaje: string;
   nota: string;
@@ -278,7 +279,7 @@ function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, disparar, mo
   const [error, setError] = useState<string | null>(null);
   const [verMas, setVerMas] = useState(false);
   const [sinNcm, setSinNcm] = useState(false);
-  const [aplicado, setAplicado] = useState<{ ncm: string; tarifa: NcmTarifa } | null>(null); // última posición elegida, para avisar qué arancel quedó
+  const [aplicado, setAplicado] = useState<{ ncm: string; tarifa: NcmTarifa; pendiente?: boolean } | null>(null); // última posición elegida, para avisar qué arancel quedó
   const consulta = (controlado ? texto : q).trim();
   // Resultados de una búsqueda anterior no se muestran si el texto cambió.
   const vigente = res && normTexto(res.q) === normTexto(consulta) ? res : null;
@@ -309,8 +310,8 @@ function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, disparar, mo
   useEffect(() => { setError(null); setAplicado(null); setSinNcm(false); }, [consulta]);
 
   const elegir = (ncm: string, tarifa?: NcmTarifa | null) => {
-    onElegir(ncm, tarifa);
-    setAplicado(tarifa ? { ncm, tarifa } : null);
+    const aplico = onElegir(ncm, tarifa);
+    setAplicado(tarifa ? { ncm, tarifa, pendiente: aplico === false } : null);
     setSinNcm(false);
   };
   const seguirSinNcm = () => {
@@ -327,7 +328,15 @@ function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, disparar, mo
 
   return (
     <div className="ncm-panel">
-      {aplicado && ncmActual === aplicado.ncm && (
+      {aplicado && ncmActual === aplicado.ncm && aplicado.pendiente && (
+        <div className="ncm-aviso" role="status">
+          El arancel oficial de esta posición es <b>{fmtDerecho(aplicado.tarifa.die)}</b>. No lo cambié porque ya escribiste otro.{" "}
+          {onUsarArancel && (
+            <button type="button" className="enlace-btn" onClick={() => { onUsarArancel(aplicado.tarifa); setAplicado({ ...aplicado, pendiente: false }); }}>Usar este arancel</button>
+          )}
+        </div>
+      )}
+      {aplicado && ncmActual === aplicado.ncm && !aplicado.pendiente && (
         <div className="ncm-aviso" role="status">
           {mensaje} <b>{fmtDerecho(aplicado.tarifa.die)}</b>
           {aplicado.tarifa.dieMax != null && <> (según el SIM puede llegar a {fmtDerecho(aplicado.tarifa.dieMax)})</>}
@@ -424,6 +433,20 @@ export default function CalculoImportacionPage() {
   const [showEditar, setShowEditar] = useState(false);
   const [refrescando, setRefrescando] = useState<string | null>(null); // 'ncm' | 'arancel' | 'iva' | 'cbm' | 'pvp' | 'peso' | null
   const [guardandoEdit, setGuardandoEdit] = useState(false);
+  const [editError, setEditError] = useState<{ campo: string; msg: string } | null>(null); // campo = id del input con el problema, o "general"
+  const [editAviso, setEditAviso] = useState<string | null>(null); // «Arancel recalculado y guardado»
+  const [confirmarDescartar, setConfirmarDescartar] = useState(false); // pregunta antes de tirar cambios sin guardar
+  const editDialogRef = useRef<HTMLDivElement | null>(null);
+  const editAbridorRef = useRef<HTMLElement | null>(null);
+  const editTeclaRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  const editSesionRef = useRef(0); // sube cada vez que se abre o se cierra el modal: una respuesta tardía de la IA no debe tocar otro formulario
+  const editTocoRef = useRef(false); // el servidor cambió algo (recalcular con IA, deshacer, guardar) mientras el modal estaba abierto: el resultado en pantalla quedó viejo
+  const editFocoPrevioRef = useRef<HTMLElement | null>(null);
+  const selectedIdRef = useRef<number | null>(null);
+  const recalcSiResultadoRef = useRef<() => void>(() => {});
+  const [editDeshacer, setEditDeshacer] = useState<{ campo: string; cuerpo: Record<string, unknown> } | null>(null);
+  const [editNotaNcm, setEditNotaNcm] = useState(" Podés cambiarlo más abajo.");
+  const [confirmandoCbm, setConfirmandoCbm] = useState(false);
   const [editForm, setEditForm] = useState<{
     ncmCode: string;
     arancelPct: string;
@@ -677,74 +700,283 @@ export default function CalculoImportacionPage() {
       .finally(() => setCreando(false));
   };
 
+  const formDesdeTipo = (p: ProductType) => ({
+    ncmCode: p.ncm_code ?? "",
+    arancelPct: fmtPctInput(p.arancel_pct),
+    ivaPct: fmtPctInput(p.iva_pct),
+    traderPct: fmtPctInput(p.trader_pct),
+    tamanoEnvio: (p.tamano_envio ?? "mediano") as TamanoEnvio,
+    cbmM3: p.cbm_m3 != null ? String(p.cbm_m3) : "",
+    pesoKg: p.peso_kg != null ? String(p.peso_kg) : "",
+  });
+  // Lo que cambió respecto de lo guardado (sólo eso viaja al servidor: lo que no se toca conserva su origen, IA o manual).
+  // Los números se comparan como números: «12.6» y «12.60» es lo mismo.
+  const editBase = selected ? formDesdeTipo(selected) : null;
+  const CAMPOS_NUM = ["arancelPct", "ivaPct", "traderPct", "cbmM3", "pesoKg"];
+  const editCambios = editForm && editBase
+    ? (Object.keys(editForm) as (keyof typeof editForm)[]).filter((k) => {
+        const a = editForm[k], b = editBase[k];
+        return CAMPOS_NUM.includes(k) && a.trim() !== "" && b !== "" ? Number(a) !== Number(b) : a !== b;
+      })
+    : [];
+  const editSucio = editCambios.length > 0;
+  selectedIdRef.current = selectedId;
+  recalcSiResultadoRef.current = () => {
+    if (resultado && !resultado.error && (fobUsd || resultado.fobMaximo)) calcularRef.current(true);
+  };
+  const limpiarAvisos = () => { setEditError(null); setEditAviso(null); setEditDeshacer(null); };
+  const fmtAntes = (campo: string, v: string) =>
+    campo === "arancel" || campo === "iva" ? `${Number(v).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`
+    : campo === "peso" ? `${Number(v).toLocaleString("es-AR")} kg`
+    : campo === "cbm" ? `${Number(v).toLocaleString("es-AR", { maximumFractionDigits: 6 })} m³`
+    : `$${fmtNumber(Number(v))}`;
+
   const abrirEditar = () => {
     if (!selected) return;
-    setEditForm({
-      ncmCode: selected.ncm_code ?? "",
-      arancelPct: fmtPctInput(selected.arancel_pct),
-      ivaPct: fmtPctInput(selected.iva_pct),
-      traderPct: fmtPctInput(selected.trader_pct),
-      tamanoEnvio: selected.tamano_envio ?? "mediano",
-      cbmM3: selected.cbm_m3 != null ? String(selected.cbm_m3) : "",
-      pesoKg: selected.peso_kg != null ? String(selected.peso_kg) : "",
-    });
+    editAbridorRef.current = document.activeElement as HTMLElement | null;
+    editSesionRef.current += 1;
+    editTocoRef.current = false;
+    setEditForm(formDesdeTipo(selected));
+    limpiarAvisos();
+    setEditNotaNcm(" Podés cambiarlo más abajo.");
+    setConfirmandoCbm(false);
+    setConfirmarDescartar(false);
     setShowEditar(true);
   };
 
+  const cerrarEditar = () => {
+    editSesionRef.current += 1;
+    setShowEditar(false);
+    limpiarAvisos();
+    setConfirmandoCbm(false);
+    setConfirmarDescartar(false);
+    // Si el servidor cambió datos con el modal abierto y hay un resultado en pantalla, ya no corresponde: se recalcula en silencio.
+    if (editTocoRef.current) {
+      editTocoRef.current = false;
+      recalcSiResultadoRef.current();
+    }
+    const vuelta = editAbridorRef.current;
+    setTimeout(() => vuelta?.focus?.(), 0);
+  };
+  // Escape, clic afuera y «Cancelar»: si hay cambios sin guardar, primero pregunta.
+  const pedirCerrarEditar = () => {
+    if (guardandoEdit) return;
+    if (editSucio) {
+      editFocoPrevioRef.current = document.activeElement as HTMLElement | null;
+      setConfirmarDescartar(true);
+    } else cerrarEditar();
+  };
+  const seguirEditando = () => {
+    setConfirmarDescartar(false);
+    setTimeout(() => {
+      const p = editFocoPrevioRef.current;
+      if (p && editDialogRef.current?.contains(p) && document.contains(p)) p.focus();
+      else editDialogRef.current?.focus();
+    }, 0);
+  };
+  const enfocarEdit = (id: string) => setTimeout(() => document.getElementById(id)?.focus(), 50);
+
+  const NOMBRE_CAMPO: Record<string, string> = { ncm: "el NCM", arancel: "el arancel", iva: "el IVA", cbm: "el volumen", pvp: "el PVP de mercado", peso: "el peso" };
   const recalcularCampo = (field: "ncm" | "arancel" | "iva" | "cbm" | "pvp" | "peso") => {
     if (!selected || refrescando) return;
+    const antes = editBase;
+    const previoPvp = selected.pvp_ars_estimado;
+    const teniaMedidas = selected.alto_cm != null;
+    const medidasTxt = teniaMedidas ? `${selected.alto_cm} × ${selected.ancho_cm} × ${selected.prof_cm} cm` : "";
+    const sesion = editSesionRef.current;
     setRefrescando(field);
+    limpiarAvisos();
+    setConfirmarDescartar(false);
+    setConfirmandoCbm(false);
     fetch(`/api/calc/product-types/${selected.id}/refresh?field=${field}`, { method: "POST" })
       .then((r) => r.json())
       .then((d) => {
+        const vigente = editSesionRef.current === sesion; // false si mientras tanto se cerró el modal (o se abrió otro)
         if (d.productType) {
-          setProductTypes((prev) => prev.map((p) => (p.id === d.productType.id ? d.productType : p)));
-          if (editForm) {
-            const updated: ProductType = d.productType;
-            setEditForm({
-              ncmCode: updated.ncm_code ?? "",
-              arancelPct: fmtPctInput(updated.arancel_pct),
-              ivaPct: fmtPctInput(updated.iva_pct),
-              traderPct: fmtPctInput(updated.trader_pct),
-              tamanoEnvio: updated.tamano_envio ?? "mediano",
-              cbmM3: updated.cbm_m3 != null ? String(updated.cbm_m3) : "",
-              pesoKg: updated.peso_kg != null ? String(updated.peso_kg) : "",
-            });
+          const updated: ProductType = d.productType;
+          setProductTypes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+          if (!vigente) {
+            // El servidor ya guardó el valor: el formulario de ahora (otro producto, o cerrado) no se toca, pero el resultado en pantalla se actualiza.
+            if (selectedIdRef.current === updated.id) recalcSiResultadoRef.current();
+            return;
           }
-        } else if (d.error) {
-          alert(`No se pudo recalcular: ${d.error}`);
+          editTocoRef.current = true;
+          // Sólo se pisa el campo recalculado (que el servidor ya guardó): lo demás que se escribió en el formulario queda como está.
+          const nuevo = formDesdeTipo(updated);
+          setEditForm((prev) => {
+            if (!prev) return prev;
+            if (field === "arancel") return { ...prev, arancelPct: nuevo.arancelPct };
+            if (field === "iva") return { ...prev, ivaPct: nuevo.ivaPct };
+            if (field === "peso") return { ...prev, pesoKg: nuevo.pesoKg };
+            if (field === "cbm") return { ...prev, cbmM3: nuevo.cbmM3, ...(antes && prev.tamanoEnvio === antes.tamanoEnvio ? { tamanoEnvio: nuevo.tamanoEnvio } : {}) };
+            return prev;
+          });
+          // El 🔄 guarda al instante: el aviso dice cuál era el valor anterior y, cuando se puede, deja volver a él.
+          const valAntes = field === "arancel" ? antes?.arancelPct : field === "iva" ? antes?.ivaPct : field === "peso" ? antes?.pesoKg : field === "cbm" ? antes?.cbmM3 : previoPvp != null ? String(previoPvp) : "";
+          let texto = `Recalculado con IA y guardado: ${NOMBRE_CAMPO[field]}.`;
+          let cuerpo: Record<string, unknown> | null = null;
+          if (valAntes) texto += ` Antes: ${fmtAntes(field, valAntes)}.`;
+          if (field === "cbm" && teniaMedidas) texto += ` Se descartaron las medidas del paso 2 (${medidasTxt}).`;
+          else if (valAntes) {
+            if (field === "arancel") cuerpo = { arancelPct: Number(valAntes) / 100 };
+            else if (field === "iva") cuerpo = { ivaPct: Number(valAntes) / 100 };
+            else if (field === "peso") cuerpo = { pesoKg: Number(valAntes) };
+            else if (field === "cbm") cuerpo = { cbmM3: Number(valAntes), ...(antes ? { tamanoEnvio: antes.tamanoEnvio } : {}) };
+            else if (field === "pvp") cuerpo = { pvpArsEstimado: Number(valAntes) };
+          }
+          setEditAviso(texto);
+          setEditDeshacer(cuerpo ? { campo: field, cuerpo } : null);
+        } else if (vigente) {
+          setEditError({ campo: "general", msg: `No se pudo recalcular ${NOMBRE_CAMPO[field]}: ${d.error || "el servidor no devolvió datos"}. Lo que escribiste sigue acá.` });
         }
       })
-      .catch(() => alert("No se pudo recalcular. Probá de nuevo."))
-      .finally(() => setRefrescando(null));
+      .catch(() => {
+        if (editSesionRef.current === sesion) setEditError({ campo: "general", msg: `No se pudo recalcular ${NOMBRE_CAMPO[field]} (sin respuesta del servidor). Lo que escribiste sigue acá: probá de nuevo.` });
+      })
+      .finally(() => {
+        setRefrescando(null);
+        if (editSesionRef.current === sesion) enfocarEdit(`edit-ia-${field}`); // el botón se deshabilita mientras trabaja: el foco vuelve a él
+      });
+  };
+
+  // Vuelve al valor que tenía el campo antes del último 🔄 (que ya se había guardado).
+  const deshacerRecalculo = () => {
+    if (!selected || !editDeshacer || guardandoEdit || refrescando) return;
+    const { campo, cuerpo } = editDeshacer;
+    const sesion = editSesionRef.current;
+    setGuardandoEdit(true);
+    setEditDeshacer(null);
+    setEditAviso(null);
+    fetch(`/api/calc/product-types/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) })
+      .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => null) }))
+      .then(({ ok, d }) => {
+        if (ok && d && d.productType) {
+          const updated: ProductType = d.productType;
+          setProductTypes((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+          if (editSesionRef.current !== sesion) { if (selectedIdRef.current === updated.id) recalcSiResultadoRef.current(); return; }
+          editTocoRef.current = true;
+          const nuevo = formDesdeTipo(updated);
+          setEditForm((prev) => {
+            if (!prev) return prev;
+            if (campo === "arancel") return { ...prev, arancelPct: nuevo.arancelPct };
+            if (campo === "iva") return { ...prev, ivaPct: nuevo.ivaPct };
+            if (campo === "peso") return { ...prev, pesoKg: nuevo.pesoKg };
+            if (campo === "cbm") return { ...prev, cbmM3: nuevo.cbmM3, tamanoEnvio: nuevo.tamanoEnvio };
+            return prev;
+          });
+          setEditAviso(`Se volvió al valor anterior: ${NOMBRE_CAMPO[campo]}.`);
+        } else if (editSesionRef.current === sesion) {
+          setEditError({ campo: "general", msg: `No se pudo volver al valor anterior: ${(d && d.error) || "el servidor no respondió bien"}.` });
+        }
+      })
+      .catch(() => {
+        if (editSesionRef.current === sesion) setEditError({ campo: "general", msg: "No se pudo volver al valor anterior (sin respuesta del servidor). Probá de nuevo." });
+      })
+      .finally(() => setGuardandoEdit(false));
+  };
+
+  // Elegir una fila del buscador de NCM: completa el arancel de la posición salvo que ya se haya escrito uno distinto (ahí lo ofrece, sin pisarlo).
+  const elegirNcmEdit = (ncm: string, tarifa?: NcmTarifa | null): boolean => {
+    if (!editForm) return true;
+    if (!tarifa) { setEditForm({ ...editForm, ncmCode: ncm }); return true; }
+    if (editCambios.includes("arancelPct")) { setEditForm({ ...editForm, ncmCode: ncm }); return false; }
+    const nuevo = tarifa.die.toFixed(2);
+    const antes = editForm.arancelPct;
+    setEditNotaNcm(antes !== "" && Number(antes) !== Number(nuevo) ? ` Antes: ${fmtAntes("arancel", antes)}. Podés cambiarlo más abajo.` : " Podés cambiarlo más abajo.");
+    setEditForm({ ...editForm, ncmCode: ncm, arancelPct: nuevo });
+    return true;
+  };
+  const usarArancelNcm = (tarifa: NcmTarifa) => setEditForm((prev) => (prev ? { ...prev, arancelPct: tarifa.die.toFixed(2) } : prev));
+
+  const validarEdit = (): { campo: string; msg: string } | null => {
+    if (!editForm) return null;
+    const pct = (v: string) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
+    // Sólo se validan los campos que se tocaron: un dato que ya venía sin cargar no impide guardar otro.
+    const tocado = (k: keyof typeof editForm) => editCambios.includes(k);
+    if (tocado("arancelPct") && !pct(editForm.arancelPct)) return { campo: "edit-arancel", msg: "El arancel tiene que ser un número entre 0 y 100." };
+    if (tocado("ivaPct") && !pct(editForm.ivaPct)) return { campo: "edit-iva", msg: "El IVA tiene que ser un número entre 0 y 100." };
+    if (tocado("cbmM3") && !(editForm.cbmM3.trim() !== "" && Number.isFinite(Number(editForm.cbmM3)) && Number(editForm.cbmM3) > 0 && Number(editForm.cbmM3) <= 1000))
+      return { campo: "edit-cbm", msg: "El volumen (CBM) tiene que ser mayor a 0 m³ y hasta 1000." };
+    if (tocado("traderPct") && !pct(editForm.traderPct)) return { campo: "edit-trader", msg: "El trader tiene que ser un número entre 0 y 100." };
+    if (tocado("pesoKg") && !(editForm.pesoKg.trim() !== "" && Number.isFinite(Number(editForm.pesoKg)) && Number(editForm.pesoKg) > 0))
+      return { campo: "edit-peso", msg: editForm.pesoKg.trim() === "" ? "El peso no puede quedar vacío: escribí un valor o recalculalo con IA." : "El peso tiene que ser mayor a 0 kg." };
+    return null;
   };
 
   const guardarEdit = () => {
-    if (!selected || !editForm || guardandoEdit) return;
+    if (!selected || !editForm || guardandoEdit || refrescando) return;
+    setConfirmarDescartar(false);
+    limpiarAvisos();
+    const problema = validarEdit();
+    if (problema) {
+      setEditError(problema);
+      enfocarEdit(problema.campo);
+      return;
+    }
+    if (!editSucio) { cerrarEditar(); return; } // nada que guardar
+    const cuerpo: Record<string, unknown> = {};
+    if (editCambios.includes("ncmCode")) cuerpo.ncmCode = editForm.ncmCode.trim() || null;
+    if (editCambios.includes("arancelPct")) cuerpo.arancelPct = Number(editForm.arancelPct) / 100;
+    if (editCambios.includes("ivaPct")) cuerpo.ivaPct = Number(editForm.ivaPct) / 100;
+    if (editCambios.includes("traderPct")) cuerpo.traderPct = Number(editForm.traderPct) / 100;
+    if (editCambios.includes("tamanoEnvio")) cuerpo.tamanoEnvio = editForm.tamanoEnvio;
+    if (editCambios.includes("cbmM3")) cuerpo.cbmM3 = Number(editForm.cbmM3);
+    if (editCambios.includes("pesoKg")) cuerpo.pesoKg = Number(editForm.pesoKg);
     setGuardandoEdit(true);
     fetch(`/api/calc/product-types/${selected.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ncmCode: editForm.ncmCode.trim() || null,
-        arancelPct: Number(editForm.arancelPct) / 100,
-        ivaPct: Number(editForm.ivaPct) / 100,
-        traderPct: Number(editForm.traderPct) / 100,
-        tamanoEnvio: editForm.tamanoEnvio,
-        cbmM3: Number(editForm.cbmM3),
-        pesoKg: editForm.pesoKg ? Number(editForm.pesoKg) : undefined,
-      }),
+      body: JSON.stringify(cuerpo),
     })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.productType) {
+      .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => null) }))
+      .then(({ ok, d }) => {
+        if (ok && d && d.productType) {
           setProductTypes((prev) => prev.map((p) => (p.id === d.productType.id ? d.productType : p)));
-          setShowEditar(false);
+          editTocoRef.current = true;
+          cerrarEditar(); // recalcula el resultado en pantalla, si lo hay
+        } else {
+          setEditError({ campo: "general", msg: `No se pudo guardar: ${(d && d.error) || "el servidor no respondió bien"}. Lo que escribiste sigue acá: probá de nuevo.` });
         }
       })
-      .catch(() => alert("No se pudo guardar. Probá de nuevo."))
+      .catch(() => setEditError({ campo: "general", msg: "No se pudo guardar (sin respuesta del servidor). Lo que escribiste sigue acá: probá de nuevo." }))
       .finally(() => setGuardandoEdit(false));
   };
+
+  // Props comunes de los botones 🔄 (IA): guardan al instante, y el aviso lo dice.
+  const propsIa = (field: "arancel" | "iva" | "cbm" | "pvp" | "peso", nombre: string, bloqueo?: string) => ({
+    type: "button" as const,
+    id: `edit-ia-${field}`,
+    onClick: () => recalcularCampo(field),
+    disabled: refrescando !== null || guardandoEdit || !!bloqueo,
+    title: bloqueo || "Recalcular con IA (se guarda al instante)",
+    "aria-label": bloqueo ? `Recalcular ${nombre} con IA: ${bloqueo}` : `Recalcular ${nombre} con IA (se guarda al instante)`,
+  });
+
+  // Teclado del modal (Escape y Tab atrapado). Escucha en el documento para seguir funcionando aunque el foco caiga al <body>.
+  editTeclaRef.current = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (confirmarDescartar) seguirEditando();
+      else if (confirmandoCbm) setConfirmandoCbm(false);
+      else pedirCerrarEditar();
+      return;
+    }
+    if (e.key !== "Tab" || !editDialogRef.current) return;
+    const foco = Array.from(editDialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')).filter((el) => el.offsetParent !== null);
+    if (!foco.length) return;
+    const actual = document.activeElement as HTMLElement | null;
+    const dentro = !!actual && editDialogRef.current.contains(actual);
+    if (!dentro) { e.preventDefault(); foco[0].focus(); return; }
+    if (e.shiftKey && (actual === foco[0] || actual === editDialogRef.current)) { e.preventDefault(); foco[foco.length - 1].focus(); }
+    else if (!e.shiftKey && actual === foco[foco.length - 1]) { e.preventDefault(); foco[0].focus(); }
+  };
+  useEffect(() => {
+    if (!showEditar) return;
+    const h = (e: KeyboardEvent) => editTeclaRef.current(e);
+    document.addEventListener("keydown", h);
+    setTimeout(() => editDialogRef.current?.focus(), 0);
+    return () => document.removeEventListener("keydown", h);
+  }, [showEditar]);
 
   const borrarTipoProducto = async () => {
     if (!selected) return;
@@ -1676,7 +1908,7 @@ export default function CalculoImportacionPage() {
 
       {showEditar && selected && editForm && (
         <div
-          onClick={() => setShowEditar(false)}
+          onClick={(e) => { if (e.target === e.currentTarget) pedirCerrarEditar(); }}
           style={{
             position: "fixed",
             inset: 0,
@@ -1689,11 +1921,15 @@ export default function CalculoImportacionPage() {
           }}
         >
           <div
+            ref={editDialogRef}
+            className="edit-dialog"
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={`Editar ${selected.nombre}`}
+            aria-labelledby="edit-titulo"
             style={{
+              outline: "none",
               background: "#fff",
               borderRadius: 10,
               padding: 20,
@@ -1703,12 +1939,13 @@ export default function CalculoImportacionPage() {
               overflowY: "auto",
             }}
           >
-            <h1 style={{ fontSize: 16, marginTop: 0 }}>Editar "{selected.nombre}"</h1>
+            <h2 id="edit-titulo" style={{ fontSize: 16, marginTop: 0 }}>Editar "{selected.nombre}"</h2>
             <div className="row">
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>NCM (posición arancelaria)</label>
+                <label htmlFor="edit-ncm">NCM (posición arancelaria)</label>
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
+                    id="edit-ncm"
                     type="text"
                     value={editForm.ncmCode}
                     onChange={(e) => setEditForm({ ...editForm, ncmCode: e.target.value })}
@@ -1721,37 +1958,53 @@ export default function CalculoImportacionPage() {
                   mostrarPrevios={false}
                   ncmActual={editForm.ncmCode}
                   buscarAlAbrir={!selected.ncm_code}
-                  onElegir={(ncm, tarifa) => setEditForm({ ...editForm, ncmCode: ncm, ...(tarifa ? { arancelPct: String(tarifa.die) } : {}) })}
+                  onElegir={elegirNcmEdit}
+                  onUsarArancel={usarArancelNcm}
                   mensaje="Arancel completado con el derecho de importación oficial de esta posición:"
-                  nota=" Podés cambiarlo más abajo."
+                  nota={editNotaNcm}
                 />
               </div>
             </div>
             <div className="row">
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>Arancel %</label>
+                <label htmlFor="edit-arancel">Arancel %</label>
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
+                    id="edit-arancel"
                     type="number"
+                    inputMode="decimal"
+                    step="any"
                     value={editForm.arancelPct}
-                    onChange={(e) => setEditForm({ ...editForm, arancelPct: e.target.value })}
+                    onChange={(e) => { setEditForm({ ...editForm, arancelPct: e.target.value }); limpiarAvisos(); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") guardarEdit(); }}
+                    aria-invalid={editError?.campo === "edit-arancel" ? true : undefined}
+                    aria-describedby={editError?.campo === "edit-arancel" ? "edit-error" : undefined}
                     style={inputStyle}
                   />
-                  <button onClick={() => recalcularCampo("arancel")} disabled={refrescando === "arancel"} title="Recalcular con IA">
+                  <button {...propsIa("arancel", "el arancel", editCambios.includes("ncmCode") ? "guardá el NCM primero" : undefined)}>
                     {refrescando === "arancel" ? <Spinner /> : <Ic n="refresh" e="🔄" />}
                   </button>
                 </div>
+                {editCambios.includes("ncmCode") && (
+                  <div style={{ fontSize: 11, color: "#555", marginTop: 4, lineHeight: 1.35 }}>Para recalcular el arancel con IA, guardá antes el NCM nuevo.</div>
+                )}
               </div>
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>IVA %</label>
+                <label htmlFor="edit-iva">IVA %</label>
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
+                    id="edit-iva"
                     type="number"
+                    inputMode="decimal"
+                    step="any"
                     value={editForm.ivaPct}
-                    onChange={(e) => setEditForm({ ...editForm, ivaPct: e.target.value })}
+                    onChange={(e) => { setEditForm({ ...editForm, ivaPct: e.target.value }); limpiarAvisos(); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") guardarEdit(); }}
+                    aria-invalid={editError?.campo === "edit-iva" ? true : undefined}
+                    aria-describedby={editError?.campo === "edit-iva" ? "edit-error" : undefined}
                     style={inputStyle}
                   />
-                  <button onClick={() => recalcularCampo("iva")} disabled={refrescando === "iva"} title="Recalcular con IA">
+                  <button {...propsIa("iva", "el IVA")}>
                     {refrescando === "iva" ? <Spinner /> : <Ic n="refresh" e="🔄" />}
                   </button>
                 </div>
@@ -1759,18 +2012,33 @@ export default function CalculoImportacionPage() {
             </div>
             <div className="row" style={{ marginTop: 10 }}>
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>CBM (m³)</label>
+                <label htmlFor="edit-cbm">CBM (m³)</label>
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
+                    id="edit-cbm"
                     type="number"
+                    inputMode="decimal"
+                    step="any"
                     value={editForm.cbmM3}
-                    onChange={(e) => setEditForm({ ...editForm, cbmM3: e.target.value })}
+                    onChange={(e) => { setEditForm({ ...editForm, cbmM3: e.target.value }); limpiarAvisos(); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") guardarEdit(); }}
+                    aria-invalid={editError?.campo === "edit-cbm" ? true : undefined}
+                    aria-describedby={editError?.campo === "edit-cbm" ? "edit-error" : undefined}
                     style={inputStyle}
                   />
-                  <button onClick={() => recalcularCampo("cbm")} disabled={refrescando === "cbm"} title="Recalcular con IA">
+                  <button {...propsIa("cbm", "el volumen")} onClick={() => (selected.alto_cm != null && !confirmandoCbm ? setConfirmandoCbm(true) : recalcularCampo("cbm"))}>
                     {refrescando === "cbm" ? <Spinner /> : <Ic n="refresh" e="🔄" />}
                   </button>
                 </div>
+                {confirmandoCbm && selected.alto_cm != null && (
+                  <div role="alert" className="edit-descartar" style={{ marginTop: 6 }}>
+                    <span>Esto reemplaza el volumen y descarta las medidas del paso 2 ({selected.alto_cm} × {selected.ancho_cm} × {selected.prof_cm} cm).</span>
+                    <span style={{ display: "flex", gap: 8 }}>
+                      <button type="button" autoFocus onClick={() => setConfirmandoCbm(false)}>No</button>
+                      <button type="button" onClick={() => recalcularCampo("cbm")}>Recalcular igual</button>
+                    </span>
+                  </div>
+                )}
                 {selected.alto_cm != null && (
                   <div style={{ fontSize: 11, color: "#666", marginTop: 4, lineHeight: 1.35 }}>
                     Sale de las medidas del paso 2 ({selected.alto_cm} × {selected.ancho_cm} × {selected.prof_cm} cm). Si lo cambiás acá, esas medidas se descartan.
@@ -1778,19 +2046,26 @@ export default function CalculoImportacionPage() {
                 )}
               </div>
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>Trader % (manual)</label>
+                <label htmlFor="edit-trader">Trader % (manual)</label>
                 <input
+                  id="edit-trader"
                   type="number"
+                  inputMode="decimal"
+                  step="any"
                   value={editForm.traderPct}
-                  onChange={(e) => setEditForm({ ...editForm, traderPct: e.target.value })}
+                  onChange={(e) => { setEditForm({ ...editForm, traderPct: e.target.value }); limpiarAvisos(); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") guardarEdit(); }}
+                  aria-invalid={editError?.campo === "edit-trader" ? true : undefined}
+                  aria-describedby={editError?.campo === "edit-trader" ? "edit-error" : undefined}
                   style={inputStyle}
                 />
               </div>
             </div>
             <div className="row" style={{ marginTop: 10 }}>
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>Tamaño de envío (Mercado Envíos)</label>
+                <label htmlFor="edit-tamano">Tamaño de envío (Mercado Envíos)</label>
                 <select
+                  id="edit-tamano"
                   value={editForm.tamanoEnvio}
                   onChange={(e) => setEditForm({ ...editForm, tamanoEnvio: e.target.value as TamanoEnvio })}
                   style={inputStyle}
@@ -1804,12 +2079,12 @@ export default function CalculoImportacionPage() {
                 </div>
               </div>
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>PVP mercado (IA)</label>
+                <span className="edit-etiqueta" id="edit-pvp-etq">PVP mercado (IA)</span>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <span style={{ fontSize: 13 }}>
                     {selected.pvp_ars_estimado != null ? `$${fmtNumber(selected.pvp_ars_estimado)}` : "sin dato"}
                   </span>
-                  <button onClick={() => recalcularCampo("pvp")} disabled={refrescando === "pvp"} title="Recalcular con IA">
+                  <button {...propsIa("pvp", "el PVP de mercado")}>
                     {refrescando === "pvp" ? <Spinner /> : <Ic n="refresh" e="🔄" />}
                   </button>
                 </div>
@@ -1817,21 +2092,27 @@ export default function CalculoImportacionPage() {
             </div>
             <div className="row" style={{ marginTop: 10 }}>
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>Peso facturable (kg, para API Mercado Libre)</label>
+                <label htmlFor="edit-peso">Peso facturable (kg, para API Mercado Libre)</label>
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
+                    id="edit-peso"
                     type="number"
+                    inputMode="decimal"
+                    step="any"
                     value={editForm.pesoKg}
-                    onChange={(e) => setEditForm({ ...editForm, pesoKg: e.target.value })}
+                    onChange={(e) => { setEditForm({ ...editForm, pesoKg: e.target.value }); limpiarAvisos(); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") guardarEdit(); }}
+                    aria-invalid={editError?.campo === "edit-peso" ? true : undefined}
+                    aria-describedby={editError?.campo === "edit-peso" ? "edit-error" : undefined}
                     style={inputStyle}
                   />
-                  <button onClick={() => recalcularCampo("peso")} disabled={refrescando === "peso"} title="Recalcular con IA">
+                  <button {...propsIa("peso", "el peso")}>
                     {refrescando === "peso" ? <Spinner /> : <Ic n="refresh" e="🔄" />}
                   </button>
                 </div>
               </div>
               <div style={{ flex: 1, minWidth: 140 }}>
-                <label>Categoría Mercado Libre (auto)</label>
+                <span className="edit-etiqueta">Categoría Mercado Libre (auto)</span>
                 <div style={{ fontSize: 13, minHeight: 40, display: "flex", alignItems: "center" }}>
                   {selected.ml_category_nombre ? `${selected.ml_category_nombre} (${selected.ml_category_id})` : "se detecta al calcular"}
                 </div>
@@ -1844,11 +2125,27 @@ export default function CalculoImportacionPage() {
                 <div style={{ marginTop: 4, wordBreak: "break-all" }}>{selected.envio_meli_api_razonamiento.slice(0, 3000)}</div>
               )}
             </div>
+            <div role="status" aria-live="polite" className="edit-aviso">
+              {refrescando ? `Recalculando ${NOMBRE_CAMPO[refrescando]} con IA…` : editAviso || ""}
+              {!refrescando && editAviso && editDeshacer && (
+                <>{" "}<button type="button" className="enlace-btn" onClick={deshacerRecalculo} disabled={guardandoEdit}>Deshacer</button></>
+              )}
+            </div>
+            {editError && <div id="edit-error" role="alert" className="pregunta-error">{editError.msg}</div>}
+            {confirmarDescartar && (
+              <div role="alert" className="edit-descartar">
+                <span>Tenés cambios sin guardar. ¿Los descartás?</span>
+                <span style={{ display: "flex", gap: 8 }}>
+                  <button type="button" autoFocus onClick={seguirEditando}>Seguir editando</button>
+                  <button type="button" onClick={cerrarEditar}>Descartar cambios</button>
+                </span>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-              <button onClick={() => setShowEditar(false)} disabled={guardandoEdit}>
+              <button type="button" onClick={pedirCerrarEditar} disabled={guardandoEdit}>
                 Cancelar
               </button>
-              <button onClick={guardarEdit} disabled={guardandoEdit}>
+              <button type="button" className="btn-primario" onClick={guardarEdit} disabled={guardandoEdit || refrescando !== null}>
                 {guardandoEdit ? "Guardando..." : "Guardar"}
               </button>
             </div>
