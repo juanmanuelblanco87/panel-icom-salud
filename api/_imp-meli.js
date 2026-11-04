@@ -3,7 +3,7 @@
 // Costo real de envío / categoría de Mercado Libre para el Calculador de Importación -- traslado (30/10/2026) de lib/meliApi.ts de ia40-dashboard.
 // Diferencia con el original: ia40 usaba el OAuth de usuario (tabla meli_oauth); acá se reusa el token de APLICACIÓN que ya usa el panel (_meli-api.js,
 // client_credentials), así no hay que autorizar nada a mano ni guardar refresh_tokens. Misma configuración fija de Cobus: Full (fulfillment) + Clásica (gold_special).
-// No tenemos largo/ancho/alto reales -> se aproxima con un cubo equivalente al CBM (m3) para el parámetro `dimensions` ("LxWxH,pesoGramos").
+// Parámetro `dimensions` ("AltoxAnchoxProf,pesoGramos"): con las medidas reales de la caja (paso Tamaño) se usan tal cual; si no las hay, se aproxima con un cubo equivalente al CBM (m3).
 // consultarCostosMeli NUNCA tira excepción: si algo falla devuelve envioArs:null + error para que el que llama caiga a la tabla fija de calc_supuestos.
 const { meliGet } = require('./_meli-api');
 
@@ -36,13 +36,20 @@ function extraerCostoEnvio(data) {
   return null;
 }
 
-async function consultarCostosMeli({ price, cbmM3, billableWeightKg }) {
+// dimsCm = { alto, ancho, prof } de la caja unitaria cargada en el paso Tamaño; si no hay, se usa el cubo equivalente al CBM.
+async function consultarCostosMeli({ price, cbmM3, billableWeightKg, dimsCm }) {
   try {
     const sellerId = String(process.env.MELI_SELLER_ID || '').replace(/\s+/g, '');
     if (!sellerId) throw new Error('Falta MELI_SELLER_ID en las variables de entorno de Vercel.');
-    const ladoCm = Math.max(1, Math.round(Math.cbrt(cbmM3 * 1_000_000)));
     const pesoG = Math.max(1, Math.round(billableWeightKg * 1000));
-    const dimensions = `${ladoCm}x${ladoCm}x${ladoCm},${pesoG}`;
+    const cm = (v) => Math.max(1, Math.round(v));
+    let dimensions;
+    if (dimsCm && dimsCm.alto > 0 && dimsCm.ancho > 0 && dimsCm.prof > 0) {
+      dimensions = `${cm(dimsCm.alto)}x${cm(dimsCm.ancho)}x${cm(dimsCm.prof)},${pesoG}`;
+    } else {
+      const ladoCm = cm(Math.cbrt(cbmM3 * 1_000_000));
+      dimensions = `${ladoCm}x${ladoCm}x${ladoCm},${pesoG}`;
+    }
     const data = await meliGet(`/users/${sellerId}/shipping_options/free`, {
       dimensions, item_price: price, listing_type_id: LISTING_TYPE_ID, mode: 'me2', condition: 'new', logistic_type: LOGISTIC_TYPE, verbose: true,
     });

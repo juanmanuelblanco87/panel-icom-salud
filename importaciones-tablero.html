@@ -520,6 +520,40 @@ button.ncm-previo { background: #f1f8f6 !important; }
 .ncm-grupo-tit { font-size: 11px; line-height: 1.35; color: #666; padding: 2px 2px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ncm-grupo-tit b { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-right: 4px; }
 
+/* Alta de producto: objetivos táctiles de 44 px en el celular */
+@media (max-width: 600px) {
+  .ncm-panel button:not(.ncm-fila), .ncm-panel button.enlace-btn { min-height: 44px; }
+}
+
+/* Paso 3 · Precios: una pregunta a la vez */
+.modo-opciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+button.modo-op { display: flex !important; flex-direction: column; align-items: flex-start; gap: 4px; height: auto !important; min-height: 64px; padding: 12px 14px !important; text-align: left; border: 1px solid var(--border) !important; border-radius: 8px; background: #fff !important; color: var(--text) !important; font-weight: 400; cursor: pointer; }
+button.modo-op b { font-size: 14px; }
+button.modo-op small { font-size: 12px; color: #666; line-height: 1.35; }
+button.modo-op:hover { border-color: var(--accent) !important; }
+button.modo-op:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.resp-linea { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0 8px; font-size: 13px; color: var(--muted); }
+.resp-linea b { color: var(--text); }
+.pregunta { margin-top: 4px; }
+.pregunta-fila { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.pregunta-fila input { flex: 1; min-width: 160px; }
+.pregunta-error { color: var(--danger, #c0422a); font-size: 13px; margin-top: 8px; }
+.pregunta-ayuda { font-size: 11px; color: #666; margin-top: 4px; line-height: 1.35; }
+@media (max-width: 600px) {
+  button.modo-op, .pregunta-fila button { min-height: 44px; }
+}
+
+/* Alta, Tamaño y Precios en el celular: campos de 44 px y 16 px (evita el zoom automático de iOS al enfocar) */
+@media (max-width: 640px) {
+  #tam-alto, #tam-ancho, #tam-prof, #tam-peso, #nuevo-nombre, #nuevo-ncm, .pregunta input, .ncm-panel input { min-height: 44px; font-size: 16px; }
+  button.btn-tam { min-height: 44px; }
+}
+
+/* Pasos 2 y 3 en el celular: enlaces y botones de acción de 44 px */
+@media (max-width: 640px) {
+  .resp-linea button.enlace-btn, .pregunta button.enlace-btn, .ncm-aviso button.enlace-btn, .pregunta button.btn-primario, .pregunta-fila button { min-height: 44px; min-width: 44px; }
+}
+
 </style>
 <!--icom-avisos:start-->
 <style id="icomAvisosCss">

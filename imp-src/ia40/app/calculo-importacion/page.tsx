@@ -21,7 +21,6 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import AppHeader from "@/components/AppHeader";
 import { fmtNumber } from "@/components/EvolutionChart";
-import { tamanoEnvioPorCbm } from "@/lib/importCalc";
 import { Ic } from "@/components/Ic";
 
 function fmtUsd(n: number): string {
@@ -54,6 +53,9 @@ interface ProductType {
   cbm_confianza: string | null;
   cbm_razonamiento: string | null;
   cbm_status: string;
+  alto_cm: number | null; // medidas de la caja unitaria (paso Tamaño)
+  ancho_cm: number | null;
+  prof_cm: number | null;
   pvp_ars_estimado: number | null;
   pvp_confianza: string | null;
   pvp_razonamiento: string | null;
@@ -131,6 +133,8 @@ interface RunResult {
   pvpFuente: "manual" | "cache" | "ia" | "objetivo";
   /** Presente cuando el precio se calculó al revés a partir de un margen objetivo (sobre la venta neta de IVA). */
   gmObjetivo?: { pct: number; base: string; precio: number };
+  /** Presente en el modo «¿A cuánto puedo comprarlo?»: FOB máximo por unidad para el precio y el margen pedidos. */
+  fobMaximo?: { fobUsd: number; pvp: number; margenPct: number };
   envioFuente: "api" | "tabla_fija";
   resultado: {
     costoNacionalizado: CalcCostoNacionalizado;
@@ -248,41 +252,78 @@ function ChipArancel({ t }: { t: NcmTarifa }) {
   );
 }
 
+// Para comparar nombres sin importar mayúsculas, tildes ni espacios repetidos.
+const normTexto = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+const MAX_NCM_VISIBLES = 3;
+
 // Buscador de NCM sobre la lista oficial (sin IA), con el arancel de cada posición. Con `controlado` busca por el texto que le pasan (formulario "Nuevo": el nombre del producto);
 // si no, tiene su propia caja de texto (modal Editar). onElegir recibe la posición y su tarifa para que quien lo usa complete el NCM (y el arancel).
-function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, onElegir, mensaje, nota }: {
+// Elegir NCM es opcional: con onSinNcm aparece «Seguir sin NCM» (la IA lo completa al crear). Los resultados sólo se muestran si corresponden al texto actual.
+// `disparar` (contador) pide una búsqueda desde afuera, p. ej. al salir del campo nombre. «Ya cargado antes» sólo aparece con el mismo nombre (mostrarPrevios).
+function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, disparar, mostrarPrevios = true, onElegir, onSinNcm, mensaje, nota }: {
   texto: string;
   controlado?: boolean;
   ncmActual: string;
   buscarAlAbrir?: boolean;
+  disparar?: number;
+  mostrarPrevios?: boolean;
   onElegir: (ncm: string, tarifa?: NcmTarifa | null) => void;
+  onSinNcm?: () => void;
   mensaje: string;
   nota: string;
 }) {
   const [q, setQ] = useState(texto);
   const [buscando, setBuscando] = useState(false);
-  const [res, setRes] = useState<{ candidatos: NcmCandidato[]; similares: NcmSimilar[] } | null>(null);
+  const [res, setRes] = useState<{ q: string; candidatos: NcmCandidato[]; similares: NcmSimilar[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [verMas, setVerMas] = useState(false);
+  const [sinNcm, setSinNcm] = useState(false);
   const [aplicado, setAplicado] = useState<{ ncm: string; tarifa: NcmTarifa } | null>(null); // última posición elegida, para avisar qué arancel quedó
   const consulta = (controlado ? texto : q).trim();
+  // Resultados de una búsqueda anterior no se muestran si el texto cambió.
+  const vigente = res && normTexto(res.q) === normTexto(consulta) ? res : null;
 
   const buscar = () => {
-    if (!consulta || buscando) return;
+    if (buscando) return;
+    if (!consulta) {
+      setError("Escribí primero el nombre del producto.");
+      return;
+    }
+    const pedida = consulta;
     setBuscando(true);
-    fetch(`/api/calc/ncm?q=${encodeURIComponent(consulta)}`)
+    setError(null);
+    setVerMas(false);
+    setSinNcm(false);
+    fetch(`/api/calc/ncm?q=${encodeURIComponent(pedida)}`)
       .then((r) => r.json())
       .then((d) => {
-        if (d.candidatos) setRes({ candidatos: d.candidatos, similares: d.similares ?? [] });
-        else alert(d.error || "No se pudo buscar el NCM. Probá de nuevo.");
+        if (d.candidatos) setRes({ q: pedida, candidatos: d.candidatos, similares: d.similares ?? [] });
+        else setError(d.error || "No se pudo buscar el NCM. Probá de nuevo.");
       })
-      .catch(() => alert("No se pudo buscar el NCM. Probá de nuevo."))
+      .catch(() => setError("No se pudo buscar el NCM. Probá de nuevo."))
       .finally(() => setBuscando(false));
   };
   useEffect(() => { if (buscarAlAbrir) buscar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (disparar && consulta && !vigente) buscar(); }, [disparar]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Al cambiar el texto, los avisos de la elección anterior ya no corresponden.
+  useEffect(() => { setError(null); setAplicado(null); setSinNcm(false); }, [consulta]);
 
   const elegir = (ncm: string, tarifa?: NcmTarifa | null) => {
     onElegir(ncm, tarifa);
     setAplicado(tarifa ? { ncm, tarifa } : null);
+    setSinNcm(false);
   };
+  const seguirSinNcm = () => {
+    setRes(null);
+    setAplicado(null);
+    setSinNcm(true);
+    onSinNcm?.();
+  };
+
+  const previos = mostrarPrevios && vigente ? vigente.similares.filter((s) => normTexto(s.nombre) === normTexto(consulta)) : [];
+  const candidatos = vigente ? (verMas ? vigente.candidatos : vigente.candidatos.slice(0, MAX_NCM_VISIBLES)) : [];
+  const ocultos = vigente ? vigente.candidatos.length - candidatos.length : 0;
+  const fecha = vigente ? fechaFuente(vigente.candidatos.find((c) => c.tarifa)?.tarifa?.fuente) : "";
 
   return (
     <div className="ncm-panel">
@@ -293,20 +334,23 @@ function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, onElegir, me
           .{nota}
         </div>
       )}
+      {sinNcm && !ncmActual && (
+        <div className="ncm-aviso" role="status">Sin NCM: lo completa la IA al crear el producto. Después lo podés corregir con Editar.</div>
+      )}
       {controlado ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <button type="button" onClick={buscar} disabled={buscando || !consulta}>
-            {buscando ? <Spinner /> : "Buscar NCM"}
+          <button type="button" onClick={buscar} disabled={buscando}>
+            {buscando ? <Spinner /> : "Sugerir NCM"}
           </button>
-          <span style={{ fontSize: 12, color: "#666" }}>
-            {consulta ? `Busca en la lista oficial de la NCM según «${consulta}».` : "Escribí el nombre del producto para buscar su NCM."}
-          </span>
+          {onSinNcm && <button type="button" className="enlace-btn" onClick={seguirSinNcm}>Seguir sin NCM</button>}
+          {!(sinNcm && !ncmActual) && <span style={{ fontSize: 12, color: "#666" }}>Opcional: sin NCM, lo completa la IA.</span>}
         </div>
       ) : (
         <>
-          <label>Buscar en la lista oficial de la NCM</label>
+          <label htmlFor="ncm-buscar-texto">Buscar en la lista oficial de la NCM</label>
           <div style={{ display: "flex", gap: 6 }}>
             <input
+              id="ncm-buscar-texto"
               type="text"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -320,23 +364,26 @@ function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, onElegir, me
           </div>
         </>
       )}
-      {res && (
-        <div className="ncm-lista" role="list">
-          {res.similares.map((s) => (
-            <button type="button" key={`s${s.ncm}${s.nombre}`} role="listitem" className="ncm-fila ncm-previo" onClick={() => elegir(s.ncm, s.tarifa)}>
+      {error && <div className="ncm-vacio" role="alert" style={{ color: "var(--danger, #c0422a)" }}>{error}</div>}
+      {vigente && (
+        <div className="ncm-lista">
+          {previos.map((s) => (
+            <button type="button" key={`s${s.ncm}${s.nombre}`} className={`ncm-fila ncm-previo${ncmActual === s.ncm ? " ncm-elegida" : ""}`} onClick={() => elegir(s.ncm, s.tarifa)}>
               <span className="ncm-cod">{s.ncm}</span>
-              <span className="ncm-txt"><b>Ya usado en «{s.nombre}»</b><small>Elegido antes para un producto parecido</small></span>
+              <span className="ncm-txt"><b>Ya cargado antes: «{s.nombre}»</b><small>Verificá que sea el mismo producto.</small></span>
               {s.tarifa && <ChipArancel t={s.tarifa} />}
             </button>
           ))}
-          {res.candidatos.length === 0 && <div className="ncm-vacio">No hay coincidencias. Probá con otras palabras (ej. el nombre técnico del producto).</div>}
-          {agruparPorPartida(res.candidatos).map((g) => (
+          {vigente.candidatos.length === 0 && (
+            <div className="ncm-vacio">No encontramos ese producto en la lista oficial. Probá con otro nombre{onSinNcm ? " o seguí sin NCM." : "."}</div>
+          )}
+          {agruparPorPartida(candidatos).map((g) => (
             <div key={g.partida4} className="ncm-grupo" role="group" aria-label={`Partida ${g.codigo}`}>
               {g.items.some((c) => c.detalle) && (
                 <div className="ncm-grupo-tit"><b>{g.codigo}</b> {g.titulo}</div>
               )}
               {g.items.map((c) => (
-                <button type="button" key={c.ncm} role="listitem" className={`ncm-fila${ncmActual === c.ncm ? " ncm-elegida" : ""}`} onClick={() => elegir(c.ncm, c.tarifa)}>
+                <button type="button" key={c.ncm} className={`ncm-fila${ncmActual === c.ncm ? " ncm-elegida" : ""}`} onClick={() => elegir(c.ncm, c.tarifa)}>
                   <span className="ncm-cod">{c.ncm}</span>
                   <span className="ncm-txt"><b>{c.detalle || c.partida}</b></span>
                   {c.tarifa && <ChipArancel t={c.tarifa} />}
@@ -344,9 +391,16 @@ function NcmBuscador({ texto, controlado, ncmActual, buscarAlAbrir, onElegir, me
               ))}
             </div>
           ))}
-          <div className="ncm-pie">
-            Derechos de importación del Arancel Integrado de ARCA{fechaFuente(res.candidatos.find((c) => c.tarifa)?.tarifa?.fuente) ? ` (al ${fechaFuente(res.candidatos.find((c) => c.tarifa)?.tarifa?.fuente)})` : ""}: son los de mercadería de origen fuera del Mercosur. La tasa de estadística y el IVA se calculan aparte. Confirmá la posición con tu despachante.
-          </div>
+          {ocultos > 0 && (
+            <div>
+              <button type="button" className="enlace-btn" onClick={() => setVerMas(true)}>Ver {ocultos} {ocultos === 1 ? "opción más" : "opciones más"}</button>
+            </div>
+          )}
+          {vigente.candidatos.length > 0 && (
+            <div className="ncm-pie">
+              Arancel Integrado de ARCA{fecha ? ` (al ${fecha})` : ""}: derecho de importación de origen fuera del Mercosur. La tasa de estadística y el IVA van aparte. Confirmá con tu despachante.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -363,6 +417,9 @@ export default function CalculoImportacionPage() {
   const [nuevoNcm, setNuevoNcm] = useState("");
   const [creando, setCreando] = useState(false);
   const [creandoError, setCreandoError] = useState<string | null>(null);
+  const [nuevoNcmElegido, setNuevoNcmElegido] = useState(false); // true si el NCM vino de una fila del buscador (se descarta si cambia el nombre); false si lo escribió a mano
+  const [nuevoBuscar, setNuevoBuscar] = useState(0); // contador: pide al buscador de NCM que busque por el nombre (al salir del campo o con Enter)
+  const botonCrearRef = useRef<HTMLButtonElement | null>(null);
 
   const [showEditar, setShowEditar] = useState(false);
   const [refrescando, setRefrescando] = useState<string | null>(null); // 'ncm' | 'arancel' | 'iva' | 'cbm' | 'pvp' | 'peso' | null
@@ -382,6 +439,12 @@ export default function CalculoImportacionPage() {
   // Modo "margen objetivo": en vez de cargar el precio de venta, se carga el margen que se quiere y el servidor calcula el precio que lo logra.
   const [modoGm, setModoGm] = useState(false);
   const [gmObjetivo, setGmObjetivo] = useState("");
+  // Paso 3 · Precios, una pregunta a la vez. Modo «ganancia»: FOB -> precio de venta (o margen objetivo) -> resultado. Modo «compra»: precio de venta -> margen -> FOB máximo.
+  const [modoPrecios, setModoPrecios] = useState<"ganancia" | "compra" | null>(null);
+  const [fobOk, setFobOk] = useState(false); // ganancia: ya respondió «¿a cuánto lo comprás?»
+  const [pvpCompra, setPvpCompra] = useState(""); // compra: precio de venta con IVA
+  const [pvpCompraOk, setPvpCompraOk] = useState(false);
+  const [gmCompra, setGmCompra] = useState(""); // compra: margen buscado (%)
   const [calculando, setCalculando] = useState(false);
   const [resultado, setResultado] = useState<RunResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
@@ -400,93 +463,60 @@ export default function CalculoImportacionPage() {
   const [filtroUsuarioEscenarios, setFiltroUsuarioEscenarios] = useState("");
   const [guardandoEscenario, setGuardandoEscenario] = useState(false);
 
-  // Unidades por 40HC (18/09/2026, "deja un lugar para colocar las unidades
-  // por 40HC, si las modifico me recalcula automaticamente el CBM"): campo
-  // editable; el CBM del tipo de producto se deriva como capacidad del 40HC
-  // / unidades y se guarda (con debounce) por el mismo PATCH que ya usa el
-  // modal de Editar.
-  const [unidades40hc, setUnidades40hc] = useState("");
-  const [guardandoCbm, setGuardandoCbm] = useState(false);
-  const cbmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const calcularRef = useRef<() => void>(() => {});
+  const calcularRef = useRef<(silencioso?: boolean) => void>(() => {});
+  const irAlResultado = useRef(false); // tras «Ver el cálculo completo con este FOB», se baja al panel Resultado cuando llega
 
   const selected = productTypes.find((p) => p.id === selectedId) ?? null;
 
+  // Paso 2 · Tamaño: medidas de la caja de UNA unidad (alto, ancho y profundidad en cm) y peso aproximado. El volumen, el tamaño de envío de Mercado Libre
+  // y las unidades por contenedor salen de estas medidas; el servidor las guarda en el tipo de producto (reemplazan al volumen estimado por la IA).
+  const [tamForm, setTamForm] = useState({ alto: "", ancho: "", prof: "", peso: "" });
+  const [guardandoTam, setGuardandoTam] = useState(false);
+  const [tamError, setTamError] = useState<string | null>(null);
+  const [tamGuardado, setTamGuardado] = useState(false);
+  const [tamRecalculado, setTamRecalculado] = useState(false); // al guardar había un resultado en pantalla y se recalculó
+  const numTam = (v: string) => Number(String(v).replace(",", "."));
   useEffect(() => {
-    if (!selected || selected.cbm_m3 == null || selected.cbm_m3 <= 0 || !supuestos) {
-      setUnidades40hc("");
-      return;
-    }
-    const deCbm = Math.round(supuestos.capacidadCbmContenedor / selected.cbm_m3);
-    setUnidades40hc((prev) => (Number(prev) === deCbm ? prev : String(deCbm)));
-  }, [selected?.id, selected?.cbm_m3, supuestos?.capacidadCbmContenedor]);
-
-  const cambiarUnidades40hc = (valor: string) => {
-    setUnidades40hc(valor);
-    if (cbmTimer.current) clearTimeout(cbmTimer.current);
-    const unidades = Math.round(Number(valor));
-    if (!selected || !supuestos || !Number.isFinite(unidades) || unidades <= 0) return;
-    const productId = selected.id;
-    const nuevoCbm = Math.round((supuestos.capacidadCbmContenedor / unidades) * 1e6) / 1e6;
-    cbmTimer.current = setTimeout(() => {
-      setGuardandoCbm(true);
-      fetch(`/api/calc/product-types/${productId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cbmM3: nuevoCbm, tamanoEnvio: tamanoEnvioPorCbm(nuevoCbm) }),
+    setTamForm({
+      alto: selected?.alto_cm != null ? String(selected.alto_cm) : "",
+      ancho: selected?.ancho_cm != null ? String(selected.ancho_cm) : "",
+      prof: selected?.prof_cm != null ? String(selected.prof_cm) : "",
+      peso: selected?.peso_kg != null ? String(selected.peso_kg) : "",
+    });
+  }, [selected?.id, selected?.alto_cm, selected?.ancho_cm, selected?.prof_cm, selected?.peso_kg]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Los avisos ("Medidas guardadas", errores) valen para el producto que se estaba editando.
+  useEffect(() => { setTamError(null); setTamGuardado(false); }, [selected?.id]);
+  const medidaOk = (v: string) => numTam(v) > 0 && numTam(v) <= 1000;
+  const tamMedidasOk = medidaOk(tamForm.alto) && medidaOk(tamForm.ancho) && medidaOk(tamForm.prof);
+  const tamTocado = [tamForm.alto, tamForm.ancho, tamForm.prof].some((v) => v.trim() !== ""); // escribió algo en las medidas
+  const tamPesoOk = tamForm.peso.trim() === "" || numTam(tamForm.peso) > 0;
+  // Volumen en vivo con lo que se está escribiendo (el servidor recalcula lo mismo al guardar).
+  const tamVolumen = tamMedidasOk ? (numTam(tamForm.alto) * numTam(tamForm.ancho) * numTam(tamForm.prof)) / 1e6 : null;
+  const pesoCambio = !!selected && tamForm.peso.trim() !== "" && numTam(tamForm.peso) !== (selected.peso_kg ?? NaN);
+  const tamCambios = !!selected && (
+    (tamTocado && (numTam(tamForm.alto) !== (selected.alto_cm ?? NaN) || numTam(tamForm.ancho) !== (selected.ancho_cm ?? NaN) || numTam(tamForm.prof) !== (selected.prof_cm ?? NaN))) || pesoCambio
+  );
+  const tamAvisoMedidas = tamTocado && !tamMedidasOk ? "Cada medida (alto, ancho y profundidad) tiene que ser mayor a 0 y hasta 1000 cm." : null;
+  const guardarTamano = () => {
+    if (!selected || !tamMedidasOk || !tamPesoOk || guardandoTam) return;
+    setGuardandoTam(true);
+    setTamError(null);
+    setTamGuardado(false);
+    fetch(`/api/calc/product-types/${selected.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ altoCm: numTam(tamForm.alto), anchoCm: numTam(tamForm.ancho), profCm: numTam(tamForm.prof), ...(pesoCambio ? { pesoKg: numTam(tamForm.peso) } : {}) }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.productType) { setTamError(d.error || "No se pudieron guardar las medidas. Probá de nuevo."); return; }
+        setProductTypes((prev) => prev.map((p) => (p.id === d.productType.id ? d.productType : p)));
+        setTamGuardado(true);
+        // Si hay un resultado en pantalla, estaba calculado con el volumen anterior: se recalcula para que no queden números desactualizados.
+        if (resultado && !resultado.error && (fobUsd || resultado.fobMaximo)) { setTamRecalculado(true); calcularRef.current(true); } else setTamRecalculado(false);
       })
-        .then((r) => r.json())
-        .then((d) => {
-          if (!d.productType) return;
-          setProductTypes((prev) => prev.map((p) => (p.id === d.productType.id ? d.productType : p)));
-          // Hay un resultado en pantalla calculado con el CBM viejo: se
-          // recalcula solo para que nunca queden numeros desactualizados.
-          if (resultado && !resultado.error && fobUsd) calcularRef.current();
-        })
-        .catch(() => alert("No se pudo guardar el CBM. Probá de nuevo."))
-        .finally(() => setGuardandoCbm(false));
-    }, 700);
-  };
-
-  // Medidas de la caja (30/10/2026, "en unidades por 40HC que permita tocar y se abra un pop-up para colocar los cm de ancho, largo y prof. de
-  // cada caja y con esos datos recalcule la cantidad que entra"): al tocar el campo se abre un pop-up; con las medidas de UNA caja (y cuántas
-  // unidades trae) se calcula cuántas entran en el 40HC y se aplica por el mismo camino que el campo manual (cambiarUnidades40hc: recalcula el CBM
-  // del tipo de producto, lo guarda y vuelve a calcular el resultado en pantalla). Las medidas quedan recordadas por tipo de producto en este navegador.
-  const [showCaja, setShowCaja] = useState(false);
-  const [cajaForm, setCajaForm] = useState({ ancho: "", largo: "", prof: "", porCaja: "1", manual: "" });
-  const claveCaja = (id: string | number) => `calc_caja_${id}`;
-  const abrirCaja = () => {
-    if (!selected) return;
-    let guardado: { ancho?: string; largo?: string; prof?: string; porCaja?: string } = {};
-    try { guardado = JSON.parse(localStorage.getItem(claveCaja(selected.id)) || "{}") || {}; } catch { /* sin recuerdo */ }
-    setCajaForm({ ancho: guardado.ancho || "", largo: guardado.largo || "", prof: guardado.prof || "", porCaja: guardado.porCaja || "1", manual: unidades40hc });
-    setShowCaja(true);
-  };
-  // Cantidad que entra: por la capacidad del 40HC de los supuestos (la misma con la que se reparte el costo del contenedor) y, de referencia, por acomodo
-  // geométrico en un 40HC estándar (12,03 x 2,35 x 2,69 m internos, la mejor de las 6 orientaciones).
-  const cajaCalculo = (() => {
-    const a = Number(cajaForm.ancho), l = Number(cajaForm.largo), p = Number(cajaForm.prof);
-    const n = Math.max(1, Math.floor(Number(cajaForm.porCaja) || 1));
-    if (!supuestos || !(a > 0 && l > 0 && p > 0)) return null;
-    const volM3 = (a * l * p) / 1e6;
-    const cajas = Math.floor(supuestos.capacidadCbmContenedor / volM3);
-    const [C, A, H] = [1203, 235, 269];
-    const orient = [[a, l, p], [a, p, l], [l, a, p], [l, p, a], [p, a, l], [p, l, a]];
-    const acomodo = Math.max(...orient.map(([x, y, z]) => Math.floor(C / x) * Math.floor(A / y) * Math.floor(H / z)));
-    return { volM3, cajas, unidades: cajas * n, n, acomodo, acomodoUnidades: acomodo * n };
-  })();
-  const aplicarCaja = () => {
-    if (!selected) return;
-    let unidades = 0;
-    if (cajaCalculo) {
-      unidades = cajaCalculo.unidades;
-      try { localStorage.setItem(claveCaja(selected.id), JSON.stringify({ ancho: cajaForm.ancho, largo: cajaForm.largo, prof: cajaForm.prof, porCaja: cajaForm.porCaja })); } catch { /* sin recuerdo */ }
-    } else {
-      unidades = Math.round(Number(cajaForm.manual));
-    }
-    if (!Number.isFinite(unidades) || unidades <= 0) { alert("Cargá las tres medidas de la caja (o las unidades a mano)."); return; }
-    cambiarUnidades40hc(String(unidades));
-    setShowCaja(false);
+      .catch(() => setTamError("No se pudieron guardar las medidas. Probá de nuevo."))
+      .finally(() => setGuardandoTam(false));
   };
 
   const reloadProductTypes = () => {
@@ -583,6 +613,8 @@ export default function CalculoImportacionPage() {
     setFobUsd(String(esc.fobUsd));
     setPvpManual((esc.pvpFuente === "manual" || esc.pvpFuente === "objetivo") && esc.pvpMeliArsConIva != null ? String(esc.pvpMeliArsConIva) : "");
     setModoGm(false); // el escenario trae su precio: se usa tal cual
+    setModoPrecios("ganancia");
+    setFobOk(true);
     setResultado(null);
     setRunError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -616,9 +648,12 @@ export default function CalculoImportacionPage() {
     window.history.replaceState({}, "", "/calculo-importacion");
   }, []);
 
+  // Nombre ya cargado (sin importar mayúsculas ni tildes): se avisa junto al campo, antes de buscar NCM, y se ofrece usar el existente.
+  const nombreRepetido = nuevoNombre.trim() ? productTypes.find((p) => normTexto(p.nombre) === normTexto(nuevoNombre)) : undefined;
+
   const crearTipoProducto = () => {
     const nombre = nuevoNombre.trim();
-    if (!nombre || creando) return;
+    if (!nombre || creando || nombreRepetido) return;
     setCreando(true);
     setCreandoError(null);
     fetch("/api/calc/product-types", {
@@ -724,7 +759,38 @@ export default function CalculoImportacionPage() {
       .catch(() => alert("No se pudo borrar. Probá de nuevo."));
   };
 
-  const calcular = () => {
+  // Manda el cálculo al servidor. fobCalculado = FOB con el que se pidió (null cuando lo despeja el servidor: modo «¿A cuánto puedo comprarlo?»).
+  // silencioso = recálculo por un cambio de datos: el resultado anterior queda en pantalla hasta que llegue el nuevo.
+  const enviarRun = (cuerpo: Record<string, unknown>, fobCalculado: number | null, silencioso = false) => {
+    if (!selected) return;
+    setCalculando(true);
+    setRunError(null);
+    if (!silencioso) setResultado(null);
+    fetch("/api/calc/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productTypeId: selected.id, ...cuerpo }),
+    })
+      .then((r) => r.json())
+      .then((d: RunResult) => {
+        if (d.error) {
+          setRunError(d.error);
+          return;
+        }
+        setResultado({ ...d, fobUsdCalculado: d.fobMaximo ? d.fobMaximo.fobUsd : fobCalculado ?? undefined });
+        if (irAlResultado.current) {
+          irAlResultado.current = false;
+          setTimeout(() => document.getElementById("calc-resultado")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+        }
+        if (d.productType) {
+          setProductTypes((prev) => prev.map((p) => (p.id === d.productType.id ? d.productType : p)));
+        }
+      })
+      .catch(() => setRunError("No se pudo calcular. Probá de nuevo."))
+      .finally(() => setCalculando(false));
+  };
+
+  const calcular = (silencioso = false) => {
     if (!selected || calculando) return;
     const fob = Number(fobUsd);
     if (!Number.isFinite(fob) || fob <= 0) {
@@ -736,34 +802,59 @@ export default function CalculoImportacionPage() {
       setRunError("Cargá un margen objetivo entre 0 y 100.");
       return;
     }
-    setCalculando(true);
-    setRunError(null);
-    setResultado(null);
-    fetch("/api/calc/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        productTypeId: selected.id,
-        fobUsd: fob,
-        pvpArsManual: !modoGm && pvpManual.trim() ? Number(pvpManual) : undefined,
-        gmObjetivoPct: modoGm ? gm : undefined,
-      }),
-    })
-      .then((r) => r.json())
-      .then((d: RunResult) => {
-        if (d.error) {
-          setRunError(d.error);
-          return;
-        }
-        setResultado({ ...d, fobUsdCalculado: fob });
-        if (d.productType) {
-          setProductTypes((prev) => prev.map((p) => (p.id === d.productType.id ? d.productType : p)));
-        }
-      })
-      .catch(() => setRunError("No se pudo calcular. Probá de nuevo."))
-      .finally(() => setCalculando(false));
+    enviarRun({ fobUsd: fob, pvpArsManual: !modoGm && pvpManual.trim() ? Number(pvpManual) : undefined, gmObjetivoPct: modoGm ? gm : undefined }, fob, silencioso);
   };
-  calcularRef.current = calcular;
+
+  const calcularCompra = (silencioso = false) => {
+    if (!selected || calculando) return;
+    const pvp = Number(pvpCompra), gm = Number(gmCompra);
+    if (!(pvp > 0)) {
+      setRunError("Cargá el precio de venta (con IVA) mayor a 0.");
+      return;
+    }
+    if (gmCompra.trim() === "" || !Number.isFinite(gm) || gm < 0 || gm >= 100) {
+      setRunError("Cargá un margen entre 0 y 100.");
+      return;
+    }
+    enviarRun({ modo: "fob-maximo", pvpArsConIva: pvp, margenPct: gm }, null, silencioso);
+  };
+
+  // Pasa del FOB máximo al cálculo completo (costo, desglose y canales) con ese FOB y ese precio.
+  const verConEsteFob = () => {
+    const fm = resultado?.fobMaximo;
+    if (!fm) return;
+    setFobUsd(String(fm.fobUsd));
+    setPvpManual(String(fm.pvp));
+    setModoGm(false);
+    setFobOk(true);
+    setModoPrecios("ganancia");
+    irAlResultado.current = true;
+    enviarRun({ fobUsd: fm.fobUsd, pvpArsManual: fm.pvp }, fm.fobUsd);
+  };
+  const seguirFob = () => {
+    if (!(Number(fobUsd) > 0)) {
+      setRunError("Cargá a cuánto lo comprás (FOB en USD, mayor a 0).");
+      return;
+    }
+    setRunError(null);
+    setFobOk(true);
+  };
+  const seguirPvpCompra = () => {
+    if (!(Number(pvpCompra) > 0)) {
+      setRunError("Cargá a qué precio querés venderlo (con IVA, mayor a 0).");
+      return;
+    }
+    setRunError(null);
+    setPvpCompraOk(true);
+  };
+  const elegirModoPrecios = (m: "ganancia" | "compra" | null) => {
+    setModoPrecios(m);
+    setFobOk(false);
+    setPvpCompraOk(false);
+    setResultado(null);
+    setRunError(null);
+  };
+  calcularRef.current = (silencioso) => (modoPrecios === "compra" ? calcularCompra(!!silencioso) : calcular(!!silencioso));
 
   const abrirSupuestos = () => {
     if (!supuestos) return;
@@ -911,7 +1002,7 @@ export default function CalculoImportacionPage() {
         <div className="panel">
           <h1 className="paso-tit"><span className="paso-n">1</span> Producto</h1>
           <div className="paso-desc">
-            Elegí qué vas a importar o creá un tipo de producto nuevo. Con NCM cargado, el arancel sale del archivo oficial de ARCA; el IVA y el volumen los estima la IA la primera vez. Podés corregirlos con Editar.
+            Elegí qué vas a importar o creá un tipo de producto nuevo. NCM, arancel e IVA se pueden corregir después con Editar. El volumen se carga en el paso 2.
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -921,6 +1012,16 @@ export default function CalculoImportacionPage() {
                 setSelectedId(e.target.value ? Number(e.target.value) : null);
                 setResultado(null);
                 setRunError(null);
+                // El paso 3 arranca de nuevo para el producto elegido: modo, respuestas y valores del anterior no corresponden.
+                setModoPrecios(null);
+                setFobOk(false);
+                setPvpCompraOk(false);
+                setFobUsd("");
+                setPvpManual("");
+                setModoGm(false);
+                setGmObjetivo("");
+                setPvpCompra("");
+                setGmCompra("");
               }}
               style={{ minWidth: 240 }}
               disabled={loadingTypes}
@@ -966,32 +1067,65 @@ export default function CalculoImportacionPage() {
             >
               <div className="row">
                 <div style={{ flex: 2, minWidth: 220 }}>
-                  <label>Nombre del tipo de producto</label>
+                  <label htmlFor="nuevo-nombre">Nombre del tipo de producto</label>
                   <input
+                    id="nuevo-nombre"
                     type="text"
                     value={nuevoNombre}
-                    onChange={(e) => setNuevoNombre(e.target.value)}
+                    autoFocus
+                    onChange={(e) => {
+                      setNuevoNombre(e.target.value);
+                      setCreandoError(null);
+                      if (nuevoNcmElegido) { setNuevoNcm(""); setNuevoNcmElegido(false); } // el NCM se había elegido para el nombre anterior
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!nombreRepetido) setNuevoBuscar((n) => n + 1); } }}
+                    onBlur={(e) => { if (!(e.relatedTarget instanceof HTMLButtonElement) && !nombreRepetido) setNuevoBuscar((n) => n + 1); }}
+                    aria-invalid={nombreRepetido ? true : undefined}
                     placeholder='ej. "Silla de Ruedas", "TV 32 pulgadas"'
                   />
+                  {nombreRepetido && (
+                    <div role="alert" aria-live="polite" style={{ color: "var(--danger, #c0422a)", fontSize: 12, marginTop: 6 }}>
+                      Ya existe un tipo de producto llamado «{nombreRepetido.nombre}».{" "}
+                      <button
+                        type="button"
+                        className="enlace-btn"
+                        onClick={() => {
+                          setSelectedId(nombreRepetido.id);
+                          setResultado(null);
+                          setRunError(null);
+                          setNuevoNombre("");
+                          setNuevoNcm("");
+                          setShowNuevo(false);
+                        }}
+                      >
+                        Usar el existente
+                      </button>
+                    </div>
+                  )}
+                  {creandoError && !nombreRepetido && <div role="alert" style={{ color: "var(--danger, #c0422a)", fontSize: 12, marginTop: 6 }}>{creandoError}</div>}
                 </div>
                 <div style={{ flex: 1, minWidth: 160 }}>
-                  <label>NCM (opcional: si lo dejás vacío lo busca en la lista oficial)</label>
-                  <input type="text" value={nuevoNcm} onChange={(e) => setNuevoNcm(e.target.value)} placeholder="0000.00.00" />
+                  <label htmlFor="nuevo-ncm">NCM (opcional)</label>
+                  <input id="nuevo-ncm" type="text" value={nuevoNcm} onChange={(e) => { setNuevoNcm(e.target.value); setNuevoNcmElegido(false); }} placeholder="0000.00.00" />
                 </div>
               </div>
-              <NcmBuscador
-                controlado
-                texto={nuevoNombre}
-                ncmActual={nuevoNcm}
-                onElegir={(ncm) => setNuevoNcm(ncm)}
-                mensaje="Al crear el producto, el arancel se completa con el derecho de importación oficial de esta posición:"
-                nota=" Después lo podés corregir con Editar."
-              />
-              {creandoError && <div style={{ color: "#d93a3a", fontSize: 12, marginTop: 6 }}>{creandoError}</div>}
+              {!nombreRepetido && (
+                <NcmBuscador
+                  controlado
+                  texto={nuevoNombre}
+                  ncmActual={nuevoNcm}
+                  disparar={nuevoBuscar}
+                  onElegir={(ncm) => { setNuevoNcm(ncm); setNuevoNcmElegido(true); }}
+                  onSinNcm={() => { setNuevoNcm(""); setNuevoNcmElegido(false); botonCrearRef.current?.focus(); }}
+                  mensaje="Al crear el producto, el arancel se completa con el derecho de importación oficial de esta posición:"
+                  nota=" Después lo podés corregir con Editar."
+                />
+              )}
               <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
                 <button
+                  ref={botonCrearRef}
                   onClick={crearTipoProducto}
-                  disabled={creando || !nuevoNombre.trim()}
+                  disabled={creando || !nuevoNombre.trim() || !!nombreRepetido}
                   style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
                 >
                   {creando && <Spinner />}
@@ -1034,54 +1168,12 @@ export default function CalculoImportacionPage() {
                 </div>
 
                 <div className="dato-grupo">
-                  <div className="dato-grupo-tit">Carga</div>
-                  <div className="dato" title="Volumen de la caja de UNA unidad (CBM, metros cúbicos).">
-                    <span className="dato-nom">Volumen por unidad</span>
-                    <span className="dato-val">
-                      {selected.cbm_m3 != null ? `${selected.cbm_m3} m³` : "—"}
-                      <ConfianzaDot confianza={selected.cbm_confianza} razonamiento={selected.cbm_razonamiento} />
-                    </span>
-                  </div>
-                  {supuestos && (
-                    <div className="dato" title="Cuántas unidades entran en un contenedor 40' high cube. Tocá para calcularlo con las medidas de la caja.">
-                      <span className="dato-nom">Unidades por contenedor 40HC</span>
-                      <span className="dato-val">
-                        <button type="button" className="enlace-btn" onClick={abrirCaja} aria-label="Cargar las medidas de la caja para recalcular las unidades por contenedor">
-                          {unidades40hc ? Number(unidades40hc).toLocaleString("es-AR") : "—"} ✎
-                        </button>
-                        {guardandoCbm && <Spinner />}
-                      </span>
-                    </div>
-                  )}
-                  {supuestos && selected.cbm_m3 != null && selected.cbm_m3 > 0 && (
-                    <div className="dato" title="Unidades que entran en un contenedor de 20 pies.">
-                      <span className="dato-nom">Unidades por contenedor 20FT</span>
-                      <span className="dato-val">{Math.floor(supuestos.capacidad20ftM3 / selected.cbm_m3).toLocaleString("es-AR")}</span>
-                    </div>
-                  )}
-                  <div className="dato" title="Peso de UNA unidad ya embalada; lo usa Mercado Libre para calcular el envío.">
-                    <span className="dato-nom">Peso por unidad (para el envío de MeLi)</span>
-                    <span className="dato-val">
-                      {selected.peso_kg != null ? `${selected.peso_kg} kg` : "—"}
-                      <ConfianzaDot confianza={selected.peso_confianza} razonamiento={selected.peso_razonamiento} />
-                    </span>
-                  </div>
-                  <div className="dato" title="Se define según el volumen de la caja.">
-                    <span className="dato-nom">Tamaño de envío (MeLi)</span>
-                    <span className="dato-val">
-                      {selected.tamano_envio === "chico" ? "Chico" : selected.tamano_envio === "grande" ? "Grande" : "Mediano"}
-                      {selected.envio_meli_api_status === "found" && <small> · API OK</small>}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="dato-grupo">
                   <div className="dato-grupo-tit">Comercial</div>
                   <div className="dato" title="Porcentaje que se paga al trader (intermediario de la compra) sobre el FOB.">
                     <span className="dato-nom">Comisión del trader</span>
                     <span className="dato-val">{fmtPct(selected.trader_pct)}</span>
                   </div>
-                  <div className="dato" title="Precio de venta en Mercado Libre estimado por la IA. Se usa si no cargás uno propio en el paso 2.">
+                  <div className="dato" title="Precio de venta en Mercado Libre estimado por la IA. Se usa si no cargás uno propio en el paso 3.">
                     <span className="dato-nom">Precio de venta estimado (IA)</span>
                     <span className="dato-val">
                       {selected.pvp_ars_estimado != null ? `$${fmtNumber(selected.pvp_ars_estimado)}` : "—"}
@@ -1103,98 +1195,302 @@ export default function CalculoImportacionPage() {
 
         {selected && (
           <div className="panel">
-            <h1 className="paso-tit"><span className="paso-n">2</span> Datos de compra</h1>
-            <div className="paso-desc">Cargá el precio de compra de UNA unidad. El precio de venta es opcional.</div>
+            <h1 className="paso-tit"><span className="paso-n">2</span> Tamaño</h1>
+            <div className="paso-desc">Medidas de la caja de UNA unidad y su peso aproximado. Con eso se calculan el volumen, el tamaño del paquete en Mercado Libre y cuántas unidades entran en un contenedor.</div>
             <div className="row">
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <label htmlFor="calc-fob">FOB por unidad (USD)</label>
+              {([["alto", "Alto (cm)"], ["ancho", "Ancho (cm)"], ["prof", "Prof. (cm)"]] as const).map(([k, rotulo], i) => (
+                <div key={k} style={{ flex: 1, minWidth: 110 }}>
+                  <label htmlFor={`tam-${k}`}>{rotulo}</label>
+                  <input
+                    id={`tam-${k}`}
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    inputMode="decimal"
+                    value={tamForm[k]}
+                    onChange={(e) => { setTamForm({ ...tamForm, [k]: e.target.value }); setTamGuardado(false); setTamError(null); }}
+                    aria-invalid={tamTocado && !medidaOk(tamForm[k]) ? true : undefined}
+                    max={1000}
+                    onKeyDown={(e) => { if (e.key === "Enter") guardarTamano(); }}
+                    autoFocus={i === 0 && selected.alto_cm == null}
+                  />
+                </div>
+              ))}
+              <div style={{ flex: 1, minWidth: 110 }}>
+                <label htmlFor="tam-peso">Peso aprox. (kg)</label>
                 <input
-                  id="calc-fob"
+                  id="tam-peso"
                   type="number"
-                  value={fobUsd}
-                  onChange={(e) => setFobUsd(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
-                  placeholder="ej. 24.00"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  value={tamForm.peso}
+                  placeholder="opcional"
+                  onChange={(e) => { setTamForm({ ...tamForm, peso: e.target.value }); setTamGuardado(false); setTamError(null); }}
+                  aria-invalid={!tamPesoOk ? true : undefined}
+                  onKeyDown={(e) => { if (e.key === "Enter") guardarTamano(); }}
                 />
               </div>
-              <div style={{ flex: 1, minWidth: 200 }}>
-                {modoGm ? (
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+              <button className="btn-tam" onClick={guardarTamano} disabled={guardandoTam || !tamMedidasOk || !tamPesoOk || !tamCambios} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                {guardandoTam && <Spinner />}
+                {guardandoTam ? "Guardando..." : "Guardar medidas"}
+              </button>
+              <span role="status" style={{ fontSize: 12, color: "var(--ok, #0F7A5A)" }}>{tamGuardado ? (tamRecalculado ? "Medidas guardadas. Resultado recalculado." : "Medidas guardadas.") : ""}</span>
+              {(tamError || tamAvisoMedidas) && <span role="alert" style={{ fontSize: 12, color: "var(--danger, #c0422a)" }}>{tamError || tamAvisoMedidas}</span>}
+              {!tamError && !tamGuardado && !tamCambios && selected.alto_cm == null && selected.cbm_m3 != null && (
+                <span style={{ fontSize: 12, color: "#666" }}>Todavía sin medidas: se usa el volumen estimado por la IA ({selected.cbm_m3.toLocaleString("es-AR")} m³).</span>
+              )}
+            </div>
+            {(tamVolumen != null || selected.cbm_m3 != null) && (() => {
+              const vol = tamVolumen != null ? tamVolumen : (selected.cbm_m3 as number);
+              const porVolumen = vol < 0.05 ? "chico" : vol <= 0.12 ? "mediano" : "grande";
+              // Con cambios sin guardar se muestra el que saldría; si no, el que realmente usa el cálculo (puede haberse fijado en Editar).
+              const envioMostrado = tamVolumen != null && tamCambios ? porVolumen : selected.tamano_envio;
+              const envio = envioMostrado === "chico" ? "Chico" : envioMostrado === "grande" ? "Grande" : "Mediano";
+              return (
+                <div className="datos-grid" style={{ marginTop: 12 }}>
+                  <div className="dato-grupo">
+                    <div className="dato-grupo-tit">{tamVolumen != null && tamCambios ? "Así quedaría" : selected.alto_cm != null ? "Con las medidas guardadas" : "Volumen estimado por la IA"}</div>
+                    <div className="dato" title="Volumen de la caja de UNA unidad (CBM, metros cúbicos): alto × ancho × profundidad.">
+                      <span className="dato-nom">Volumen por unidad</span>
+                      <span className="dato-val">{vol.toLocaleString("es-AR", { maximumFractionDigits: 6 })} m³</span>
+                    </div>
+                    <div className="dato" title="Se define según el volumen de la caja: menos de 0,05 m³ chico, hasta 0,12 m³ mediano, más grande.">
+                      <span className="dato-nom">Tamaño de envío (MeLi)</span>
+                      <span className="dato-val">
+                        {envio}
+                        {selected.envio_meli_api_status === "found" && <small> · API OK</small>}
+                      </span>
+                    </div>
+                    <div className="dato" title="Cuántas unidades entran en un contenedor 40' high cube (capacidad de Supuestos generales).">
+                      <span className="dato-nom">Unidades por contenedor 40HC</span>
+                      <span className="dato-val">{supuestos && vol > 0 ? Math.round(supuestos.capacidadCbmContenedor / vol).toLocaleString("es-AR") : "—"}</span>
+                    </div>
+                    <div className="dato" title="Unidades que entran en un contenedor de 20 pies.">
+                      <span className="dato-nom">Unidades por contenedor 20FT</span>
+                      <span className="dato-val">{supuestos && vol > 0 ? Math.floor(supuestos.capacidad20ftM3 / vol).toLocaleString("es-AR") : "—"}</span>
+                    </div>
+                    <div className="dato" title="Peso de UNA unidad ya embalada; lo usa Mercado Libre para calcular el envío.">
+                      <span className="dato-nom">Peso por unidad</span>
+                      <span className="dato-val">
+                        {selected.peso_kg != null ? `${selected.peso_kg} kg` : "—"}
+                        <ConfianzaDot confianza={selected.peso_confianza} razonamiento={selected.peso_razonamiento} />
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {selected && (
+          <div className="panel">
+            <h1 className="paso-tit"><span className="paso-n">3</span> Precios</h1>
+            {modoPrecios == null ? (
+              <>
+                <div className="paso-desc">¿Qué querés saber? Después respondés de a una pregunta.</div>
+                <div className="modo-opciones">
+                  <button type="button" className="modo-op" onClick={() => elegirModoPrecios("ganancia")}>
+                    <b>¿Cuánto gano si lo compro a…?</b>
+                    <small>Cargás a cuánto lo comprás y a cuánto lo vendés, y ves el margen.</small>
+                  </button>
+                  <button type="button" className="modo-op" onClick={() => elegirModoPrecios("compra")}>
+                    <b>¿A cuánto puedo comprarlo?</b>
+                    <small>Cargás a cuánto querés venderlo y qué margen buscás, y te digo el precio máximo de compra.</small>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="resp-linea">
+                  <span>{modoPrecios === "ganancia" ? "¿Cuánto gano si lo compro a…?" : "¿A cuánto puedo comprarlo?"}</span>
+                  <button type="button" className="enlace-btn" onClick={() => elegirModoPrecios(null)}>Cambiar</button>
+                </div>
+
+                {modoPrecios === "ganancia" && (
                   <>
-                    <label htmlFor="calc-gm">Margen objetivo (%) — calcula el precio de venta</label>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        id="calc-gm"
-                        type="number"
-                        value={gmObjetivo}
-                        onChange={(e) => setGmObjetivo(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
-                        placeholder="ej. 25"
-                        autoFocus
-                        onFocus={(e) => e.target.select()}
-                        onClick={(e) => e.currentTarget.select()}
-                      />
-                      <button type="button" onClick={() => setModoGm(false)} title="Volver a cargar el precio de venta a mano" aria-label="Volver a cargar el precio de venta a mano">✕</button>
-                    </div>
-                    <div style={{ fontSize: 11, color: "#666", marginTop: 4, lineHeight: 1.35 }}>
-                      Sobre la venta neta de IVA (el mismo «Margen» del resultado). El precio sale con IVA, redondeado hacia arriba a 499 o 999.
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <label htmlFor="calc-pvp" style={{ margin: 0 }}>Precio de venta en MeLi (con IVA) — opcional</label>
-                      <button type="button" className="enlace-btn" style={{ fontSize: 12 }} onClick={() => setModoGm(true)} title="Poner el margen que querés y calcular el precio que lo logra" aria-label="Calcular el precio a partir de un margen objetivo">
-                        ✎ Margen objetivo
-                      </button>
-                    </div>
-                    <input
-                      id="calc-pvp"
-                      type="number"
-                      value={pvpManual}
-                      onChange={(e) => setPvpManual(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
-                      placeholder={selected.pvp_ars_estimado != null ? `vacío = $${fmtNumber(selected.pvp_ars_estimado)} (estimado por IA)` : "vacío = lo estima la IA"}
-                    />
+                    {fobOk ? (
+                      <div className="resp-linea">
+                        <span>Compra (FOB por unidad): <b>US$ {fmtUsd(Number(fobUsd))}</b></span>
+                        <button type="button" className="enlace-btn" onClick={() => { setFobOk(false); setResultado(null); setRunError(null); }}>Cambiar</button>
+                      </div>
+                    ) : (
+                      <div className="pregunta">
+                        <label htmlFor="calc-fob">¿A cuánto lo comprás? FOB por unidad (USD)</label>
+                        <div className="pregunta-fila">
+                          <input
+                            id="calc-fob"
+                            onFocus={(e) => e.target.select()}
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            inputMode="decimal"
+                            value={fobUsd}
+                            autoFocus
+                            onChange={(e) => { setFobUsd(e.target.value); setRunError(null); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") seguirFob(); }}
+                            aria-invalid={runError ? true : undefined}
+                            aria-describedby={runError ? "calc-error" : undefined}
+                            placeholder="ej. 24.00"
+                          />
+                          <button type="button" className="btn-primario" onClick={seguirFob}>Seguir</button>
+                        </div>
+                        {runError && <div id="calc-error" role="alert" className="pregunta-error">{runError}</div>}
+                      </div>
+                    )}
+
+                    {fobOk && (
+                      <div className="pregunta">
+                        {modoGm ? (
+                          <>
+                            <label htmlFor="calc-gm">¿Qué margen querés? Margen objetivo (%) — calcula el precio de venta</label>
+                            <div className="pregunta-fila">
+                              <input
+                                id="calc-gm"
+                                type="number"
+                                value={gmObjetivo}
+                                onChange={(e) => { setGmObjetivo(e.target.value); setRunError(null); }}
+                                aria-invalid={runError ? true : undefined}
+                                aria-describedby={runError ? "calc-error" : undefined}
+                                onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
+                                placeholder="ej. 25"
+                                autoFocus
+                                onFocus={(e) => e.target.select()}
+                                onClick={(e) => e.currentTarget.select()}
+                              />
+                              <button type="button" onClick={() => setModoGm(false)} title="Volver a cargar el precio de venta a mano" aria-label="Volver a cargar el precio de venta a mano">✕</button>
+                            </div>
+                            <div className="pregunta-ayuda">
+                              Sobre la venta neta de IVA (el mismo «Margen» del resultado). El precio sale con IVA, redondeado hacia arriba a 499 o 999.
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                              <label htmlFor="calc-pvp" style={{ margin: 0 }}>¿A cuánto lo vendés? Precio en MeLi (con IVA) — opcional</label>
+                              <button type="button" className="enlace-btn" onClick={() => setModoGm(true)} title="Poner el margen que querés y calcular el precio que lo logra" aria-label="Calcular el precio a partir de un margen objetivo">
+                                ✎ Margen objetivo
+                              </button>
+                            </div>
+                            <input
+                              id="calc-pvp"
+                              type="number"
+                              value={pvpManual}
+                              autoFocus={!resultado}
+                              onChange={(e) => setPvpManual(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") calcular(); }}
+                              placeholder={selected.pvp_ars_estimado != null ? `vacío = $${fmtNumber(selected.pvp_ars_estimado)} (estimado por IA)` : "vacío = lo estima la IA"}
+                            />
+                          </>
+                        )}
+                        <div style={{ marginTop: 10 }}>
+                          <button className="btn-primario" onClick={() => calcular()} disabled={calculando} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                            {calculando && <Spinner light />}
+                            {calculando ? "Calculando..." : "Calcular"}
+                          </button>
+                        </div>
+                        {runError && <div id="calc-error" role="alert" className="pregunta-error">{runError}</div>}
+                        {modoGm && resultado && !resultado.error && resultado.gmObjetivo && (
+                          <div className="ncm-aviso" role="status">
+                            Precio de venta calculado: <b>${fmtNumber(resultado.gmObjetivo.precio)}</b> (con IVA, redondeado a 499/999) para un margen mínimo de <b>{resultado.gmObjetivo.pct}%</b> sobre la venta neta; el margen real del canal MeLi figura en el resultado.{" "}
+                            <button
+                              type="button"
+                              className="enlace-btn"
+                              style={{ fontSize: 12 }}
+                              onClick={() => {
+                                setPvpManual(String(resultado.gmObjetivo?.precio ?? ""));
+                                setModoGm(false);
+                              }}
+                            >
+                              Usar como precio de venta
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
-              </div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
-                <button
-                  className="btn-primario"
-                  onClick={calcular}
-                  disabled={calculando || !fobUsd}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
-                >
-                  {calculando && <Spinner light />}
-                  {calculando ? "Calculando..." : "Calcular"}
-                </button>
-                {!fobUsd && !calculando && <span style={{ fontSize: 12, color: "var(--muted)", alignSelf: "center" }}>Cargá el FOB para calcular.</span>}
-              </div>
-            </div>
-            {runError && <div style={{ color: "#B3261E", fontSize: 13, marginTop: 10 }}>{runError}</div>}
-            {modoGm && resultado && !resultado.error && resultado.gmObjetivo && (
-              <div className="ncm-aviso" role="status">
-                Precio de venta calculado: <b>${fmtNumber(resultado.gmObjetivo.precio)}</b> (con IVA, redondeado a 499/999) para un margen mínimo de <b>{resultado.gmObjetivo.pct}%</b> sobre la venta neta; el margen real del canal MeLi figura en el resultado.{" "}
-                <button
-                  type="button"
-                  className="enlace-btn"
-                  style={{ fontSize: 12 }}
-                  onClick={() => {
-                    setPvpManual(String(resultado.gmObjetivo?.precio ?? ""));
-                    setModoGm(false);
-                  }}
-                >
-                  Usar como precio de venta
-                </button>
-              </div>
+
+                {modoPrecios === "compra" && (
+                  <>
+                    {pvpCompraOk ? (
+                      <div className="resp-linea">
+                        <span>Venta en MeLi (con IVA): <b>${fmtNumber(Number(pvpCompra))}</b></span>
+                        <button type="button" className="enlace-btn" onClick={() => { setPvpCompraOk(false); setResultado(null); setRunError(null); }}>Cambiar</button>
+                      </div>
+                    ) : (
+                      <div className="pregunta">
+                        <label htmlFor="compra-pvp">¿A qué precio querés venderlo? Precio en MeLi (con IVA, en $)</label>
+                        <div className="pregunta-fila">
+                          <input
+                            id="compra-pvp"
+                            onFocus={(e) => e.target.select()}
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            value={pvpCompra}
+                            autoFocus
+                            onChange={(e) => { setPvpCompra(e.target.value); setRunError(null); }}
+                            aria-invalid={runError ? true : undefined}
+                            aria-describedby={runError ? "calc-error" : undefined}
+                            onKeyDown={(e) => { if (e.key === "Enter") seguirPvpCompra(); }}
+                            placeholder={selected.pvp_ars_estimado != null ? `ej. ${fmtNumber(selected.pvp_ars_estimado)}` : "ej. 250000"}
+                          />
+                          <button type="button" className="btn-primario" onClick={seguirPvpCompra}>Seguir</button>
+                        </div>
+                        {runError && !pvpCompraOk && <div id="calc-error" role="alert" className="pregunta-error">{runError}</div>}
+                      </div>
+                    )}
+
+                    {pvpCompraOk && (
+                      <div className="pregunta">
+                        <label htmlFor="compra-gm">¿Qué margen querés? (%, sobre la venta neta de IVA)</label>
+                        <div className="pregunta-fila">
+                          <input
+                            id="compra-gm"
+                            onFocus={(e) => e.target.select()}
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            value={gmCompra}
+                            autoFocus
+                            onChange={(e) => { setGmCompra(e.target.value); setRunError(null); }}
+                            aria-invalid={runError ? true : undefined}
+                            aria-describedby={runError ? "calc-error" : undefined}
+                            onKeyDown={(e) => { if (e.key === "Enter") calcularCompra(); }}
+                            placeholder="ej. 25"
+                          />
+                          <button className="btn-primario" onClick={() => calcularCompra()} disabled={calculando || gmCompra.trim() === ""} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                            {calculando && <Spinner light />}
+                            {calculando ? "Calculando..." : "Calcular precio de compra"}
+                          </button>
+                        </div>
+                        {runError && <div id="calc-error" role="alert" className="pregunta-error">{runError}</div>}
+                        {resultado && !resultado.error && resultado.fobMaximo && (
+                          <div className="ncm-aviso" role="status">
+                            Para vender a <b>${fmtNumber(resultado.fobMaximo.pvp)}</b> con <b>{resultado.fobMaximo.margenPct}%</b> de margen, podés pagar hasta{" "}
+                            <b style={{ fontSize: 18 }}>US$ {fmtUsd(resultado.fobMaximo.fobUsd)}</b> por unidad (FOB).{" "}
+                            <button type="button" className="enlace-btn" style={{ fontSize: 12 }} onClick={verConEsteFob}>
+                              Ver el cálculo completo con este FOB
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </div>
         )}
 
         {resultado && !resultado.error && (
           <>
-            <div className="panel">
-              <h1 className="paso-tit"><span className="paso-n">3</span> Resultado</h1>
+            <div className="panel" id="calc-resultado">
+              <h1 className="paso-tit">Resultado</h1>
               <div className="res-franja">
                 <div>
                   <div className="res-etq">Costo nacionalizado por unidad</div>
@@ -1277,7 +1573,7 @@ export default function CalculoImportacionPage() {
                 <div className="canal-notas">
                   <div>
                     Precio de venta usado: ${fmtNumber(resultado.resultado.meli.pvpConIva)}{" "}
-                    {resultado.pvpFuente === "manual" && "(cargado a mano)"}
+                    {resultado.pvpFuente === "manual" && (resultado.fobMaximo ? "(el que pediste)" : "(cargado a mano)")}
                     {resultado.pvpFuente === "cache" && "(estimado por IA, ya guardado)"}
                     {resultado.pvpFuente === "ia" && "(recién estimado por IA)"}
                     {resultado.pvpFuente === "objetivo" && "(calculado para el margen objetivo)"}
@@ -1422,6 +1718,7 @@ export default function CalculoImportacionPage() {
                 </div>
                 <NcmBuscador
                   texto={selected.nombre}
+                  mostrarPrevios={false}
                   ncmActual={editForm.ncmCode}
                   buscarAlAbrir={!selected.ncm_code}
                   onElegir={(ncm, tarifa) => setEditForm({ ...editForm, ncmCode: ncm, ...(tarifa ? { arancelPct: String(tarifa.die) } : {}) })}
@@ -1474,6 +1771,11 @@ export default function CalculoImportacionPage() {
                     {refrescando === "cbm" ? <Spinner /> : <Ic n="refresh" e="🔄" />}
                   </button>
                 </div>
+                {selected.alto_cm != null && (
+                  <div style={{ fontSize: 11, color: "#666", marginTop: 4, lineHeight: 1.35 }}>
+                    Sale de las medidas del paso 2 ({selected.alto_cm} × {selected.ancho_cm} × {selected.prof_cm} cm). Si lo cambiás acá, esas medidas se descartan.
+                  </div>
+                )}
               </div>
               <div style={{ flex: 1, minWidth: 140 }}>
                 <label>Trader % (manual)</label>
@@ -1665,88 +1967,6 @@ export default function CalculoImportacionPage() {
         </div>
       )}
 
-      {showCaja && selected && supuestos && (
-        <div
-          onClick={() => setShowCaja(false)}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="caja-titulo"
-            style={{ background: "#fff", borderRadius: 10, padding: 20, maxWidth: 460, width: "100%", maxHeight: "90vh", overflowY: "auto" }}
-          >
-            <h1 id="caja-titulo" style={{ fontSize: 16, marginTop: 0 }}>Unidades por 40HC · "{selected.nombre}"</h1>
-            <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 0 }}>
-              Cargá las medidas de UNA caja y calculo cuántas entran en el contenedor (capacidad del 40HC: {supuestos.capacidadCbmContenedor} m³, se cambia en Supuestos generales).
-            </p>
-            <div className="row">
-              {([["ancho", "Ancho (cm)"], ["largo", "Largo (cm)"], ["prof", "Profundidad (cm)"]] as const).map(([k, rotulo]) => (
-                <div key={k} style={{ flex: 1, minWidth: 120 }}>
-                  <label>{rotulo}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.1"
-                    inputMode="decimal"
-                    value={cajaForm[k]}
-                    onChange={(e) => setCajaForm({ ...cajaForm, [k]: e.target.value })}
-                    onKeyDown={(e) => { if (e.key === "Enter") aplicarCaja(); }}
-                    autoFocus={k === "ancho"}
-                    style={inputStyle}
-                  />
-                </div>
-              ))}
-              <div style={{ flex: 1, minWidth: 120 }}>
-                <label>Unidades por caja</label>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={cajaForm.porCaja}
-                  onChange={(e) => setCajaForm({ ...cajaForm, porCaja: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === "Enter") aplicarCaja(); }}
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-
-            {cajaCalculo ? (
-              <div style={{ marginTop: 14, padding: 12, background: "#f4f8f7", borderRadius: 8, fontSize: 14, lineHeight: 1.6 }}>
-                <div>Volumen por caja: <strong>{cajaCalculo.volM3.toFixed(4)} m³</strong></div>
-                <div>
-                  Entran <strong>{cajaCalculo.cajas.toLocaleString("es-AR")} cajas</strong> = <strong style={{ fontSize: 18 }}>{cajaCalculo.unidades.toLocaleString("es-AR")} unidades</strong> en el 40HC
-                </div>
-                <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                  Referencia por acomodo en un 40HC estándar (12,03 × 2,35 × 2,69 m, mejor orientación): {cajaCalculo.acomodo.toLocaleString("es-AR")} cajas ({cajaCalculo.acomodoUnidades.toLocaleString("es-AR")} un). Para el costo se usa el cálculo por capacidad del 40HC, la misma con la que se reparte el costo del contenedor.
-                </div>
-                {cajaCalculo.cajas <= 0 && <div style={{ color: "var(--danger, #b3261e)" }}>La caja es más grande que el contenedor: revisá las medidas.</div>}
-              </div>
-            ) : (
-              <div style={{ marginTop: 14 }}>
-                <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 6 }}>…o cargá las unidades por 40HC a mano:</div>
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={cajaForm.manual}
-                  onChange={(e) => setCajaForm({ ...cajaForm, manual: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === "Enter") aplicarCaja(); }}
-                  style={{ ...inputStyle, maxWidth: 180 }}
-                />
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-              <button onClick={() => setShowCaja(false)}>Cancelar</button>
-              <button onClick={aplicarCaja} disabled={cajaCalculo ? cajaCalculo.unidades <= 0 : !(Number(cajaForm.manual) > 0)}>
-                Aplicar y recalcular
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

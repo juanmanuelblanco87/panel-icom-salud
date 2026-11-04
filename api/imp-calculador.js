@@ -62,9 +62,21 @@ function tipoToNumbers(row) {
     peso_kg: row.peso_kg != null ? Number(row.peso_kg) : null,
     envio_meli_api_ars: row.envio_meli_api_ars != null ? Number(row.envio_meli_api_ars) : null,
     cbm_m3: row.cbm_m3 != null ? Number(row.cbm_m3) : null,
+    alto_cm: row.alto_cm != null ? Number(row.alto_cm) : null,
+    ancho_cm: row.ancho_cm != null ? Number(row.ancho_cm) : null,
+    prof_cm: row.prof_cm != null ? Number(row.prof_cm) : null,
     pvp_ars_estimado: row.pvp_ars_estimado != null ? Number(row.pvp_ars_estimado) : null,
   };
 }
+
+// Medidas de la caja unitaria (paso Tamaño): columnas nuevas de calc_product_types, creadas la primera vez que hacen falta.
+let columnasTamanoAseguradas = false;
+async function asegurarColumnasTamano() {
+  if (columnasTamanoAseguradas) return;
+  await query('alter table calc_product_types add column if not exists alto_cm numeric, add column if not exists ancho_cm numeric, add column if not exists prof_cm numeric');
+  columnasTamanoAseguradas = true;
+}
+const dimsDe = (p) => (p.alto_cm > 0 && p.ancho_cm > 0 && p.prof_cm > 0 ? { alto: p.alto_cm, ancho: p.ancho_cm, prof: p.prof_cm } : null);
 
 async function guardarArancel(id, r) {
   await query(`update calc_product_types set arancel_pct=$1, arancel_confianza=$2, arancel_razonamiento=$3, arancel_status='found', arancel_fetched_at=now(), updated_at=now() where id=$4`, [r.pct, r.confianza, r.razonamiento, id]);
@@ -74,11 +86,15 @@ async function guardarIva(id, r) {
 }
 async function guardarCbm(id, r, tamanoSiNulo) {
   const tamano = r.m3 != null ? tamanoEnvioPorCbm(r.m3) : tamanoSiNulo;
-  await query(`update calc_product_types set cbm_m3=$1, cbm_confianza=$2, cbm_razonamiento=$3, cbm_status='found', cbm_fetched_at=now(), tamano_envio=coalesce($4, tamano_envio), updated_at=now() where id=$5`, [r.m3, r.confianza, r.razonamiento, tamano, id]);
+  // Un volumen nuevo (estimado por IA) deja de coincidir con las medidas de la caja guardadas: se descartan para no mandarle a MeLi medidas viejas.
+  try { await asegurarColumnasTamano(); } catch (e) { /* sin columnas: no hay medidas que descartar */ }
+  const limpiaMedidas = columnasTamanoAseguradas ? ', alto_cm=null, ancho_cm=null, prof_cm=null' : '';
+  await query(`update calc_product_types set cbm_m3=$1, cbm_confianza=$2, cbm_razonamiento=$3, cbm_status='found', cbm_fetched_at=now(), tamano_envio=coalesce($4, tamano_envio)${limpiaMedidas}, updated_at=now() where id=$5`, [r.m3, r.confianza, r.razonamiento, tamano, id]);
   return tamano;
 }
 
 async function tiposListar() {
+  try { await asegurarColumnasTamano(); } catch (e) { /* sin permiso para alterar: se listan las columnas que haya */ }
   const rows = await query('select * from calc_product_types order by nombre asc');
   return { productTypes: rows.map(tipoToNumbers) };
 }
@@ -175,9 +191,20 @@ async function tiposEditar(id, body) {
   const ivaPct = b.ivaPct !== undefined ? Number(b.ivaPct) : Number(cur.iva_pct == null ? 0 : cur.iva_pct);
   const ivaStatus = b.ivaPct !== undefined ? 'found' : cur.iva_status;
   const ivaRaz = b.ivaPct !== undefined ? '(editado a mano)' : cur.iva_razonamiento;
-  const cbmM3 = b.cbmM3 !== undefined ? Number(b.cbmM3) : Number(cur.cbm_m3 == null ? 0 : cur.cbm_m3);
-  const cbmStatus = b.cbmM3 !== undefined ? 'found' : cur.cbm_status;
-  const cbmRaz = b.cbmM3 !== undefined ? '(editado a mano)' : cur.cbm_razonamiento;
+  // Medidas de la caja unitaria (cm): el volumen sale de ellas y reemplaza al estimado por IA; el tamaño de envío de MeLi sale del volumen.
+  await asegurarColumnasTamano();
+  const hayMedidas = b.altoCm !== undefined || b.anchoCm !== undefined || b.profCm !== undefined;
+  let altoCm = cur.alto_cm == null ? null : Number(cur.alto_cm), anchoCm = cur.ancho_cm == null ? null : Number(cur.ancho_cm), profCm = cur.prof_cm == null ? null : Number(cur.prof_cm);
+  if (hayMedidas) {
+    altoCm = Number(b.altoCm); anchoCm = Number(b.anchoCm); profCm = Number(b.profCm);
+    if (![altoCm, anchoCm, profCm].every((v) => Number.isFinite(v) && v > 0 && v <= 1000)) return { status: 400, data: { error: 'Cada medida (alto, ancho y profundidad) tiene que ser mayor a 0 y hasta 1000 cm.' } };
+  }
+  const cbmMedidas = hayMedidas ? Math.round(((altoCm * anchoCm * profCm) / 1e6) * 1e6) / 1e6 : null;
+  const cbmM3 = hayMedidas ? cbmMedidas : b.cbmM3 !== undefined ? Number(b.cbmM3) : Number(cur.cbm_m3 == null ? 0 : cur.cbm_m3);
+  // Un volumen cargado a mano distinto del actual deja de coincidir con las medidas guardadas: se descartan.
+  if (!hayMedidas && b.cbmM3 !== undefined && Math.abs(cbmM3 - Number(cur.cbm_m3 == null ? 0 : cur.cbm_m3)) > 1e-9) { altoCm = null; anchoCm = null; profCm = null; }
+  const cbmStatus = b.cbmM3 !== undefined || hayMedidas ? 'found' : cur.cbm_status;
+  const cbmRaz = hayMedidas ? `(medidas de la caja unitaria: ${altoCm} x ${anchoCm} x ${profCm} cm)` : b.cbmM3 !== undefined ? '(editado a mano)' : cur.cbm_razonamiento;
   const pvp = b.pvpArsEstimado !== undefined ? Number(b.pvpArsEstimado) : cur.pvp_ars_estimado;
   const pvpStatus = b.pvpArsEstimado !== undefined ? 'found' : cur.pvp_status;
   const pvpRaz = b.pvpArsEstimado !== undefined ? '(editado a mano)' : cur.pvp_razonamiento;
@@ -188,9 +215,9 @@ async function tiposEditar(id, body) {
     `update calc_product_types set nombre=$1, ncm_code=$2, trader_pct=$3, tamano_envio=$4,
        arancel_pct=$5, arancel_status=$6, arancel_razonamiento=$7, iva_pct=$8, iva_status=$9, iva_razonamiento=$10,
        cbm_m3=$11, cbm_status=$12, cbm_razonamiento=$13, pvp_ars_estimado=$14, pvp_status=$15, pvp_razonamiento=$16,
-       peso_kg=$17, peso_status=$18, peso_razonamiento=$19, updated_at=now()
-     where id=$20 returning *`,
-    [nombre, ncmCode, traderPct, tamanoEnvio, arancelPct, arancelStatus, arancelRaz, ivaPct, ivaStatus, ivaRaz, cbmM3, cbmStatus, cbmRaz, pvp, pvpStatus, pvpRaz, pesoKg, pesoStatus, pesoRaz, id]);
+       peso_kg=$17, peso_status=$18, peso_razonamiento=$19, alto_cm=$20, ancho_cm=$21, prof_cm=$22, updated_at=now()
+     where id=$23 returning *`,
+    [nombre, ncmCode, traderPct, hayMedidas ? tamanoEnvioPorCbm(cbmMedidas) : tamanoEnvio, arancelPct, arancelStatus, arancelRaz, ivaPct, ivaStatus, ivaRaz, cbmM3, cbmStatus, cbmRaz, pvp, pvpStatus, pvpRaz, pesoKg, pesoStatus, pesoRaz, altoCm, anchoCm, profCm, id]);
   return { data: { productType: tipoToNumbers(updated[0]) } };
 }
 
@@ -289,8 +316,15 @@ async function correr(body) {
   const pvpArsManual = body && body.pvpArsManual !== undefined && body.pvpArsManual !== null && body.pvpArsManual !== '' ? Number(body.pvpArsManual) : null;
   // Margen objetivo (en %, sobre la venta neta de IVA): si viene, el PVP de MeLi se calcula al revés para lograrlo (y no se usa el manual ni el estimado por IA).
   const gmObjetivoPct = body && body.gmObjetivoPct !== undefined && body.gmObjetivoPct !== null && body.gmObjetivoPct !== '' ? Number(body.gmObjetivoPct) : null;
+  // «A cuánto puedo comprarlo»: con un precio de venta (con IVA) y un margen sobre la venta neta, se despeja el FOB máximo por unidad.
+  const esFobMaximo = !!body && body.modo === 'fob-maximo';
+  const pvpObjetivoArs = esFobMaximo ? Number(body.pvpArsConIva) : null;
+  const margenFobMaximoPct = esFobMaximo ? Number(body.margenPct) : null;
   if (!Number.isFinite(productTypeId)) return { status: 400, data: { error: "Falta 'productTypeId'" } };
-  if (!Number.isFinite(fobUsd) || fobUsd <= 0) return { status: 400, data: { error: "'fobUsd' invalido" } };
+  if (esFobMaximo) {
+    if (!(pvpObjetivoArs > 0)) return { status: 400, data: { error: 'Cargá el precio de venta (con IVA) mayor a 0.' } };
+    if (!(margenFobMaximoPct >= 0 && margenFobMaximoPct < 100)) return { status: 400, data: { error: 'El margen tiene que ser un porcentaje entre 0 y 100.' } };
+  } else if (!Number.isFinite(fobUsd) || fobUsd <= 0) return { status: 400, data: { error: "'fobUsd' invalido" } };
   if (gmObjetivoPct != null && !(gmObjetivoPct >= 0 && gmObjetivoPct < 100)) return { status: 400, data: { error: 'El margen objetivo tiene que ser un porcentaje entre 0 y 100.' } };
 
   const supuestos = supuestosToCalc(await getOrCreateSupuestos());
@@ -319,7 +353,9 @@ async function correr(body) {
     ? calcularImportacion({ fobUsd, pvpMeliArsConIva: 1, supuestos, producto: productoParaCalculo(producto, null) }).costoNacionalizado.costoNacionalizadoArs
     : null;
   const errorMargenInalcanzable = (r) => ({ data: { error: `No se puede lograr un margen de ${gmObjetivoPct}%: con la comisión de MeLi, IIBB y PADS actuales, el máximo posible es ${(r.margenMaximo * 100).toFixed(1)}% sobre la venta neta. Probá con un margen menor.` } });
-  if (gmObjetivoPct != null) {
+  if (esFobMaximo) {
+    pvpMeliArsConIva = pvpObjetivoArs; pvpFuente = 'manual'; // el precio pedido se usa tal cual y no se guarda como precio del tipo de producto
+  } else if (gmObjetivoPct != null) {
     const r0 = precioParaMargenNeto({ margenNeto: gmObjetivoPct / 100, supuestos, producto: productoParaCalculo(producto, null), costoNacionalizadoArs, envioArsNetoApi: null });
     if (r0.error) return errorMargenInalcanzable(r0);
     pvpMeliArsConIva = r0.precio; pvpFuente = 'objetivo'; // ya viene redondeado a 499/999
@@ -358,7 +394,7 @@ async function correr(body) {
     }
     if (pesoKg != null && producto.cbm_m3 != null) {
       pesoParaEnvio = pesoKg;
-      const r = await consultarCostosMeli({ price: pvpMeliArsConIva, cbmM3: producto.cbm_m3, billableWeightKg: pesoKg });
+      const r = await consultarCostosMeli({ price: pvpMeliArsConIva, cbmM3: producto.cbm_m3, billableWeightKg: pesoKg, dimsCm: dimsDe(producto) });
       if (r.envioArs != null) {
         envioArsNetoApi = r.envioArs; envioFuente = 'api';
         await query(`update calc_product_types set envio_meli_api_ars=$1, envio_meli_api_status='found', envio_meli_api_razonamiento=$2, envio_meli_api_fetched_at=now(), updated_at=now() where id=$3`, [r.envioArs, r.rawTexto, productTypeId]);
@@ -377,11 +413,31 @@ async function correr(body) {
       pvpMeliArsConIva = r.precio;
       if (envioFuente !== 'api' || pesoParaEnvio == null || producto.cbm_m3 == null || pvpMeliArsConIva < supuestos.umbralBajoValorArs) break;
       let nuevoEnvio = null;
-      try { nuevoEnvio = (await consultarCostosMeli({ price: pvpMeliArsConIva, cbmM3: producto.cbm_m3, billableWeightKg: pesoParaEnvio })).envioArs; } catch (e) { /* best-effort */ }
+      try { nuevoEnvio = (await consultarCostosMeli({ price: pvpMeliArsConIva, cbmM3: producto.cbm_m3, billableWeightKg: pesoParaEnvio, dimsCm: dimsDe(producto) })).envioArs; } catch (e) { /* best-effort */ }
       if (nuevoEnvio == null || Math.abs(nuevoEnvio - envioArsNetoApi) <= 0.5) break;
       envioArsNetoApi = nuevoEnvio;
     }
     gmObjetivo = { pct: gmObjetivoPct, base: 'neto', precio: pvpMeliArsConIva };
+  }
+
+  if (esFobMaximo) {
+    // El costo de envío depende sólo del precio (ya fijo) y el margen baja a medida que sube el FOB: se busca por bisección el mayor FOB que mantiene el margen pedido.
+    const prod = productoParaCalculo(producto, envioArsNetoApi);
+    const margenCon = (f) => calcularImportacion({ fobUsd: f, pvpMeliArsConIva, supuestos, producto: prod }).meli.margenPctSobreNeto;
+    const objetivo = margenFobMaximoPct / 100;
+    let lo = 0.01, hi = 1;
+    const margenMaximo = margenCon(lo);
+    if (margenMaximo < objetivo) {
+      const precioTxt = `$${Math.round(pvpMeliArsConIva).toLocaleString('es-AR')}`;
+      return { data: { error: margenMaximo <= 0
+        ? `Con un precio de venta de ${precioTxt} no se gana nada: la comisión, el envío y los impuestos de Mercado Libre se comen todo el precio, aunque la mercadería saliera gratis. Probá con un precio mayor.`
+        : `Con un precio de venta de ${precioTxt} no se llega a un margen de ${margenFobMaximoPct}%: ni comprándolo casi gratis pasa de ${(margenMaximo * 100).toFixed(1)}% sobre la venta neta. Probá con un precio mayor o un margen menor.` } };
+    }
+    while (hi < 1e7 && margenCon(hi) >= objetivo) hi *= 2;
+    for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (margenCon(mid) >= objetivo) lo = mid; else hi = mid; }
+    const fobMaximoUsd = Math.floor(lo * 100) / 100; // hacia abajo: nunca queda por debajo del margen pedido
+    const resultadoMax = calcularImportacion({ fobUsd: fobMaximoUsd, pvpMeliArsConIva, supuestos, producto: prod });
+    return { data: { productType: producto, supuestos, pvpFuente, envioFuente, resultado: resultadoMax, fobMaximo: { fobUsd: fobMaximoUsd, pvp: pvpMeliArsConIva, margenPct: margenFobMaximoPct } } };
   }
 
   const resultado = calcularImportacion({ fobUsd, pvpMeliArsConIva, supuestos, producto: productoParaCalculo(producto, envioArsNetoApi) });
