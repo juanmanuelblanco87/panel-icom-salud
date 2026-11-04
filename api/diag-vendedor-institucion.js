@@ -45,8 +45,8 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Usar GET.' }); return; }
   const sesion = requerirSesion(req);
   if (!sesion) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida: volvé a ingresar al panel y reintentá.' }); return; }
-  // admin y gerente (el diagnóstico es de solo lectura y sólo devuelve códigos de vendedor); el resto no.
-  if (sesion.rol !== 'admin' && sesion.rol !== 'gerente') { res.status(403).json({ ok: false, error: 'Sólo administradores o gerentes (tu rol: ' + sesion.rol + ').' }); return; }
+  // admin, gerente y supervisor (el diagnóstico es de solo lectura, sólo devuelve códigos de vendedor y conteos, y es TEMPORAL: se borra al terminar la revisión); el resto no.
+  if (!['admin', 'gerente', 'supervisor'].includes(sesion.rol)) { res.status(403).json({ ok: false, error: 'Sin permiso (tu rol: ' + sesion.rol + ').' }); return; }
   const t0 = Date.now();
   try {
     const q = req.query || {};
