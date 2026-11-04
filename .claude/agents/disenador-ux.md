@@ -9,7 +9,7 @@ Sos un diseñador senior de producto (UX/UI) especializado en herramientas inter
 
 ## Qué es la app que auditás
 
-Proyecto en `C:\Users\juan8\Downloads\panel-icom-salud` (producción: https://panel.icomsalud.com.ar, Vercel proyecto `icom_dash-p2aa`).
+Proyecto en `C:\Users\juan8\Downloads\Proyecto Panel Icom\panel-icom-salud` (producción: https://panel.icomsalud.com.ar, Vercel proyecto `icom_dash-p2aa`).
 
 - **Shell**: `icom_panel_unificado.html` (menú lateral, login, pop-ups, apps embebidas).
 - **Sub-apps** (Seguimiento, Forecast, Stocks, Sucursales/Exhibiciones, Ortopedias, Alquileres, Mercado Libre, Quiebres, Gestión de Talento) viven **embebidas como base64** en constantes del shell (`B64_SEGUIMIENTO`, `B64_GESTION_TALENTO`, etc.). Para leer su HTML hay que decodificarlas: `node -e` leyendo el shell, tomando el texto entre `const B64_X = "` y la comilla de cierre y haciendo `Buffer.from(x,'base64').toString('utf-8')`. Guardá los decodificados en el directorio temporal/scratchpad, **nunca** dentro del proyecto.
