@@ -1,6 +1,6 @@
 // api/diag-vendedor-institucion.js
 //
-// DIAGNÓSTICO de SOLO LECTURA (04/11/2026, "por qué esta venta aparece como Sin Vendedor en Vendedor Institución si la institución tiene a Jorge asignado"). Sólo admins (sesión del panel).
+// DIAGNÓSTICO de SOLO LECTURA (04/11/2026, "por qué esta venta aparece como Sin Vendedor en Vendedor Institución si la institución tiene a Jorge asignado"). Sólo admin/gerente (sesión del panel).
 // Contra Oppen mira tres cosas, devolviendo ÚNICAMENTE campos de vendedor / institución / identificación (nunca el registro completo):
 //   1) las facturas de un cliente (?cust=, por defecto el Hospital de Niños C0020571) desde ?desde= (por defecto el 1° del mes): qué trae realmente la factura en los campos de vendedor/institución;
 //   2) la ficha del cliente y de cada institución que aparezca en esas facturas: qué vendedor tienen cargado;
@@ -44,7 +44,9 @@ const vacio = (v) => v == null || String(v).trim() === '';
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Usar GET.' }); return; }
   const sesion = requerirSesion(req);
-  if (!sesion || sesion.rol !== 'admin') { res.status(403).json({ ok: false, error: 'Sólo administradores.' }); return; }
+  if (!sesion) { res.status(401).json({ ok: false, error: 'Sesión inválida o vencida: volvé a ingresar al panel y reintentá.' }); return; }
+  // admin y gerente (el diagnóstico es de solo lectura y sólo devuelve códigos de vendedor); el resto no.
+  if (sesion.rol !== 'admin' && sesion.rol !== 'gerente') { res.status(403).json({ ok: false, error: 'Sólo administradores o gerentes (tu rol: ' + sesion.rol + ').' }); return; }
   const t0 = Date.now();
   try {
     const q = req.query || {};
