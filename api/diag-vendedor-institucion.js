@@ -41,6 +41,51 @@ async function pedir(token, ruta, params) {
 const soloCampos = (obj, patron) => Object.fromEntries(Object.keys(obj || {}).filter((k) => patron.test(k) || CAMPOS_IDENT.test(k)).map((k) => [k, obj[k]]));
 const vacio = (v) => v == null || String(v).trim() === '';
 
+// Modo ?modo=alcance&desde=&hasta= -- cuántas facturas de Movilidad / Cirugía General vienen SIN vendedor de institución y cuántas de ésas se podrían completar con el SalesMan de la FICHA de la institución
+// (factura.Institution = código de cliente). Una consulta (hasta 2 páginas) por tipo de operación + una por institución distinta (las 30 de más volumen): ~50 pedidos, dentro del cupo de Oppen.
+const TIPOS_INSTITUCIONALES = { ETH: 'cirugia_general', ASP: 'cirugia_general', BW: 'cirugia_general', COLO: 'cirugia_general', DESC: 'cirugia_general', '3M': 'cirugia_general', ABBO: 'cirugia_general', MOVI: 'movilidad' };
+async function alcance(token, desde, hasta, t0) {
+  const porUnidad = {};
+  const instituciones = {}; // código -> { n, vendedoresFactura:{} , unidad }
+  let completo = true;
+  for (const [tipo, unidad] of Object.entries(TIPOS_INSTITUCIONALES)) {
+    const u = porUnidad[unidad] || (porUnidad[unidad] = { facturas: 0, siVacio: 0, siVacioConInstitucion: 0, siVacioSinInstitucion: 0, siConValor: 0 });
+    for (let p = 0; p < 2; p++) {
+      if (Date.now() - t0 > 40000) { completo = false; break; }
+      const params = { Status: '1', Invalid: '0', OperationType: tipo, TransDate__gte: desde, __limit__: '500', __offset__: String(p * 500) };
+      if (hasta) params.TransDate__lte = hasta;
+      const page = await pedir(token, 'Invoice', params);
+      const filas = page.data || [];
+      for (const x of filas) {
+        u.facturas++;
+        if (!vacio(x.SalesManInstitution)) { u.siConValor++; continue; }
+        u.siVacio++;
+        if (vacio(x.Institution)) { u.siVacioSinInstitucion++; continue; }
+        u.siVacioConInstitucion++;
+        const k = String(x.Institution).trim();
+        const e = instituciones[k] || (instituciones[k] = { n: 0, nombre: x.InstitutionName || null, unidad, vendedoresFactura: {} });
+        e.n++;
+        const sm = vacio(x.SalesMan) ? '(vacío)' : String(x.SalesMan).trim();
+        e.vendedoresFactura[sm] = (e.vendedoresFactura[sm] || 0) + 1;
+      }
+      if (filas.length < 500) break;
+      if (p === 1) completo = false; // hay más de 1000 de este tipo en el período
+    }
+  }
+  const top = Object.entries(instituciones).sort((a, b) => b[1].n - a[1].n).slice(0, 30);
+  const detalle = [];
+  let completables = 0, sinVendedorEnFicha = 0;
+  for (const [cod, e] of top) {
+    if (Date.now() - t0 > 52000) { completo = false; break; }
+    const r = await pedir(token, 'Customer', { Code: cod, __limit__: '1', __offset__: '0' });
+    const ficha = ((r.data || [])[0]) || {};
+    const vendFicha = vacio(ficha.SalesMan) ? null : String(ficha.SalesMan).trim();
+    if (vendFicha) completables += e.n; else sinVendedorEnFicha += e.n;
+    detalle.push({ institucion: cod, nombre: e.nombre, unidad: e.unidad, facturasSinVendInst: e.n, vendedorEnFacturas: e.vendedoresFactura, vendedorEnFichaInstitucion: vendFicha });
+  }
+  return { porUnidad, institucionesDistintas: Object.keys(instituciones).length, consultadas: detalle.length, facturasCompletablesConLaFicha: completables, facturasConFichaSinVendedor: sinVendedorEnFicha, detalle, completo };
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') { res.status(405).json({ ok: false, error: 'Usar GET.' }); return; }
   const sesion = requerirSesion(req);
@@ -54,6 +99,11 @@ module.exports = async function handler(req, res) {
     const desde = /^\d{4}-\d{2}-\d{2}$/.test(q.desde || '') ? q.desde : `${hoy.getUTCFullYear()}-${String(hoy.getUTCMonth() + 1).padStart(2, '0')}-01`;
     const cust = String(q.cust || 'C0020571').replace(/[^A-Za-z0-9]/g, '');
     const token = await getToken();
+    if (q.modo === 'alcance') {
+      const hasta = /^\d{4}-\d{2}-\d{2}$/.test(q.hasta || '') ? q.hasta : null;
+      res.status(200).json({ ok: true, desde, hasta, alcance: await alcance(token, desde, hasta, t0) });
+      return;
+    }
 
     // 1) Facturas del cliente
     const pc = await pedir(token, 'Invoice', { Status: '1', Invalid: '0', CustCode: cust, TransDate__gte: desde, __limit__: '10', __offset__: '0' });
