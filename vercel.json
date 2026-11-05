@@ -89,9 +89,6 @@
     "api/actualizar-institucion-vendedores.js": {
       "maxDuration": 150
     },
-    "api/diag-vendedor-institucion.js": {
-      "maxDuration": 150
-    },
     "api/google-*.js": {
       "maxDuration": 30
     },
