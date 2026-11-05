@@ -672,7 +672,12 @@ module.exports = async function handler(req, res) {
     // después de vencido, para no dejar a nadie esperando el escaneo completo.
     if (isFullyClosedPastMonth(toDate)) {
       // 04/11/2026: con el mapa de vendedores de institución incompleto el mes se guarda sólo 5 min (si no, quedaría un día entero con ventas sin completar).
-      res.setHeader('Cache-Control', institucionVendCompleto() ? 'public, s-maxage=86400, stale-while-revalidate=604800' : 'public, s-maxage=300, stale-while-revalidate=300');
+      // 05/11/2026: los 2 meses cerrados más recientes SÍ se corrigen hacia atrás en Oppen (vendedor, etc.) y el libro de facturas los refresca (cambios cada 15 min, reconciliación diaria y semanal): ahí el borde guarda sólo 10 min.
+      const mesesAtras = new Date(firstDayOfCurrentMonth() + 'T00:00:00Z'); mesesAtras.setUTCMonth(mesesAtras.getUTCMonth() - 2);
+      const esReciente = new Date(toDate + 'T00:00:00Z').getTime() >= mesesAtras.getTime();
+      res.setHeader('Cache-Control', !institucionVendCompleto() ? 'public, s-maxage=300, stale-while-revalidate=300'
+        : esReciente ? 'public, s-maxage=600, stale-while-revalidate=600'
+        : 'public, s-maxage=86400, stale-while-revalidate=604800');
     } else if (!url.searchParams.get('from') && !url.searchParams.get('to')) {
       // Juan Manuel, 05/08/2026 (análisis de performance -- "tarda mucho...
       // incluso en información que debería estar pre-cargada"): pedido SIN

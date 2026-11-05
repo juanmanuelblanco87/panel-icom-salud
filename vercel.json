@@ -223,6 +223,18 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/facturas-sincronizar?modo=reconciliar&tramo=1",
+      "schedule": "0 3 * * 0"
+    },
+    {
+      "path": "/api/facturas-sincronizar?modo=reconciliar&tramo=2",
+      "schedule": "6 3 * * 0"
+    },
+    {
+      "path": "/api/facturas-sincronizar?modo=reconciliar&tramo=3",
+      "schedule": "12 3 * * 0"
+    },
+    {
       "path": "/api/ov-sincronizar",
       "schedule": "7-59/15 * * * *"
     },

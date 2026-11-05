@@ -12,6 +12,9 @@ const { sincronizarEspejo } = require('./_nubi-espejo');
 const { requerirSesion } = require('./_talento-auth');
 
 const VENTANA_RECONCILIAR = 35;
+// 05/11/2026 ("los domingos a las 00:00 volver a correr y pisar los últimos 2 meses"): reconciliación semanal en 3 tramos de 21 días (63 días en total, cada tramo es una corrida
+// corta con ?modo=reconciliar&tramo=1|2|3; tramo 1 = los 21 días más recientes). Corrige en el libro lo que se haya retocado en Oppen hacia atrás (vendedor, etc.) y el delta no haya visto.
+const DIAS_POR_TRAMO = 21;
 // 04/11/2026: los días ya guardados antes de existir el campo `ic` (código de institución, ver aplanar en _facturas-ledger.js) se vuelven a bajar de a un mes, hacia atrás, hasta esta fecha. Los últimos 35 días los corrige
 // solo la reconciliación diaria; esto cubre lo anterior. Sólo se reescriben los días cuyas filas cambian (los que tienen facturas sin vendedor de institución).
 const IC_DESDE = '2026-01-01';
@@ -25,7 +28,7 @@ async function escribirDias(dias, porDia) {
   await L.enLotes(dias, 8, (d) => L.escribirDia(d, porDia[d] || []));
 }
 
-async function sincronizar({ modo = 'auto', presupuestoMs = 100000 } = {}) {
+async function sincronizar({ modo = 'auto', presupuestoMs = 100000, tramo = 0 } = {}) {
   const t0 = Date.now();
   const restante = () => presupuestoMs - (Date.now() - t0);
   let est = (await L.leerEstado()) || { desde: L.DESDE_DEFAULT, cobertura: null, backfill: { cursor: null, completo: false }, ultimaDelta: null, ultimaReconciliacion: null, lockHasta: 0 };
@@ -105,10 +108,13 @@ async function sincronizar({ modo = 'auto', presupuestoMs = 100000 } = {}) {
     // 4) reconciliación de los últimos días
     const hace = est.ultimaReconciliacion ? (Date.now() - Date.parse(est.ultimaReconciliacion)) / 3600000 : 999;
     if (est.cobertura && est.backfill.completo && (modo === 'reconciliar' || hace > 30) && restante() > 45000) {
-      const ini = L.sumarDias(cierre, -(VENTANA_RECONCILIAR - 1)) > est.cobertura.min ? L.sumarDias(cierre, -(VENTANA_RECONCILIAR - 1)) : est.cobertura.min;
-      const crudas = await L.pedirFacturas({ Status: '1', Invalid: '0', TransDate__gte: ini, TransDate__lte: cierre });
+      // sin tramo: los últimos VENTANA_RECONCILIAR días (diaria). Con tramo N: la franja [cierre-21N+1 .. cierre-21(N-1)] (semanal)
+      const fin = tramo ? L.sumarDias(cierre, -DIAS_POR_TRAMO * (tramo - 1)) : cierre;
+      const iniIdeal = tramo ? L.sumarDias(cierre, -(DIAS_POR_TRAMO * tramo - 1)) : L.sumarDias(cierre, -(VENTANA_RECONCILIAR - 1));
+      const ini = iniIdeal > est.cobertura.min ? iniIdeal : est.cobertura.min;
+      const crudas = await L.pedirFacturas({ Status: '1', Invalid: '0', TransDate__gte: ini, TransDate__lte: fin });
       const porDia = agrupar(crudas);
-      const dias = L.diasEntre(ini, cierre);
+      const dias = L.diasEntre(ini, fin);
       await L.enLotes(dias, 6, async (d) => {
         const nuevo = (porDia[d] || []).slice().sort((a, b) => a.k - b.k);
         const actual = await L.leerDia(d);
@@ -116,7 +122,8 @@ async function sincronizar({ modo = 'auto', presupuestoMs = 100000 } = {}) {
         reporte.reconciliados++;
         if (!viejo || JSON.stringify(viejo) !== JSON.stringify(nuevo)) { await L.escribirDia(d, porDia[d] || []); reporte.diasCorregidos++; }
       });
-      est.ultimaReconciliacion = new Date().toISOString();
+      if (!tramo) est.ultimaReconciliacion = new Date().toISOString(); // los tramos semanales no cuentan como la reconciliación diaria
+      reporte.tramo = tramo || null; reporte.reconciliadoDesde = ini; reporte.reconciliadoHasta = fin;
       await L.escribirEstado(est);
     }
 
@@ -170,7 +177,7 @@ module.exports = async function handler(req, res) {
     const ses = requerirSesion(req); // 04/11/2026: un admin con sesión del panel también puede dispararlo a mano (mismo efecto que el cron)
     const esAdmin = !!ses && ses.rol === 'admin';
     if (!esCron && !esSecret && !esAdmin) { res.status(403).json({ ok: false, error: 'secret inválido o no configurado' }); return; }
-    res.status(200).json(Object.assign({ ok: true }, await sincronizar({ modo: url.searchParams.get('modo') || 'auto' })));
+    res.status(200).json(Object.assign({ ok: true }, await sincronizar({ modo: url.searchParams.get('modo') || 'auto', tramo: Math.max(0, Math.min(3, parseInt(url.searchParams.get('tramo'), 10) || 0)) })));
   } catch (e) {
     console.error('facturas-sincronizar:', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });

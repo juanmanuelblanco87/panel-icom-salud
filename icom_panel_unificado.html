@@ -7560,12 +7560,18 @@ async function dashFetchMonthlyImpl(channel, prewarm){
     try{ return await pmIdbGet(dashMonthlyCacheKey(channel, year, m)); }catch(e){ return null; }
   }));
   const faltan = [];
+  // 05/11/2026 ("la gente de Cirugía General corrige datos para atrás... seguimos mostrando datos viejos"): los 2 meses cerrados más recientes de Cirugía General y Estética
+  // se vuelven a pedir si lo guardado en este navegador tiene más de DASH_REFRESCO_HS horas (o no tiene fecha). El resto de los meses cerrados sigue sin volver a pedirse.
+  const refrescable = (channel === 'cirugia_general' || channel === 'cirugia_estetica');
+  const DASH_REFRESCO_HS = 6;
   cerrados.forEach((m, i)=>{
     const c = cacheados[i], mm = String(m).padStart(2,'0');
+    const vencidoReciente = refrescable && m >= currentMonthNum - 2 && !(c && c.t && Date.now() - c.t < DASH_REFRESCO_HS * 3600000);
     if(c && c.totalsByLabel){
-      dashMonthlyData[channel][mm] = c.totalsByLabel;
+      dashMonthlyData[channel][mm] = c.totalsByLabel;   // se pinta ya lo guardado (aunque esté vencido) y, si venció, se refresca debajo
       if(c.gs && (!dashGsUsaProductos(channel) || c.gsV === 2)) dashGsSet(channel, mm, c.gs);
-      prog.loaded++; // sin desglose Grupo/Subgrupo NO se vuelve a pedir solo (pedir todos los meses juntos saturó a Oppen): ver dashGsLlenarDesdeBlob / dashGsCargarFaltantes
+      if(vencidoReciente) faltan.push(m);   // el tick lo cuenta fetchMes al terminar
+      else prog.loaded++; // sin desglose Grupo/Subgrupo NO se vuelve a pedir solo (pedir todos los meses juntos saturó a Oppen): ver dashGsLlenarDesdeBlob / dashGsCargarFaltantes
     }
     else faltan.push(m);
   });
@@ -7584,7 +7590,7 @@ async function dashFetchMonthlyImpl(channel, prewarm){
       dashMonthlyData[channel][mm] = totalsByLabel;
       if(gs) dashGsSet(channel, mm, gs);
       if(esActual) dashCurrentFreshAt[channel] = Date.now();
-      else { try{ await pmIdbSet(dashMonthlyCacheKey(channel, year, m), gs ? {totalsByLabel, gs, gsV: 2} : {totalsByLabel}); }catch(e){ /* no crítico */ } }
+      else { try{ await pmIdbSet(dashMonthlyCacheKey(channel, year, m), gs ? {totalsByLabel, gs, gsV: 2, t: Date.now()} : {totalsByLabel, t: Date.now()}); }catch(e){ /* no crítico */ } }
     }catch(e){
       console.error('dashFetchMonthly: no se pudo traer el mes '+mm+'/'+year+' de '+channel+':', e);
       // un mes que falla no tira abajo el gráfico
@@ -9054,7 +9060,7 @@ async function dashGsCargarFaltantes(channel){
       if(!dashMonthlyData[channel]) dashMonthlyData[channel] = {};
       if(!dashMonthlyData[channel][mm]) dashMonthlyData[channel][mm] = totals;
       dashGsSet(channel, mm, gs);
-      try{ await pmIdbSet(dashMonthlyCacheKey(channel, year, m), {totalsByLabel: dashMonthlyData[channel][mm], gs, gsV: 2}); }catch(e){}
+      try{ await pmIdbSet(dashMonthlyCacheKey(channel, year, m), {totalsByLabel: dashMonthlyData[channel][mm], gs, gsV: 2, t: Date.now()}); }catch(e){}
       fallos = 0;
       if(channel === currentChannel && dashGsFiltroActivo(channel)) dashGsAplicar();
     }catch(e){ fallos++; console.error('dashGsCargarFaltantes: falló '+mm+':', e); }
