@@ -86,6 +86,9 @@
     "api/ov-sincronizar.js": {
       "maxDuration": 180
     },
+    "api/actualizar-institucion-vendedores.js": {
+      "maxDuration": 150
+    },
     "api/diag-vendedor-institucion.js": {
       "maxDuration": 150
     },
@@ -137,6 +140,14 @@
     {
       "path": "/api/talento-recordatorio-pendientes",
       "schedule": "10 12 * * *"
+    },
+    {
+      "path": "/api/actualizar-institucion-vendedores",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/actualizar-institucion-vendedores?profundo=1",
+      "schedule": "20 8 * * *"
     },
     {
       "path": "/api/alquileres-snapshot",

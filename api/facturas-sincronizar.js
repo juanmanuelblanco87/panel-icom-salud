@@ -9,8 +9,12 @@
 // Acceso: cron nativo de Vercel (Bearer CRON_SECRET) o ?secret=MAINTENANCE_SECRET. Un candado en el estado evita corridas superpuestas.
 const L = require('./_facturas-ledger');
 const { sincronizarEspejo } = require('./_nubi-espejo');
+const { requerirSesion } = require('./_talento-auth');
 
 const VENTANA_RECONCILIAR = 35;
+// 04/11/2026: los días ya guardados antes de existir el campo `ic` (código de institución, ver aplanar en _facturas-ledger.js) se vuelven a bajar de a un mes, hacia atrás, hasta esta fecha. Los últimos 35 días los corrige
+// solo la reconciliación diaria; esto cubre lo anterior. Sólo se reescriben los días cuyas filas cambian (los que tienen facturas sin vendedor de institución).
+const IC_DESDE = '2026-01-01';
 
 function agrupar(facturasCrudas) {
   const porDia = {};
@@ -116,6 +120,33 @@ async function sincronizar({ modo = 'auto', presupuestoMs = 100000 } = {}) {
       await L.escribirEstado(est);
     }
 
+    // 4b) relleno del código de institución en los meses anteriores a la ventana de reconciliación (de a un mes por vuelta, hasta completar)
+    if (est.cobertura && est.backfill.completo && restante() > 45000) {
+      const tope = L.sumarDias(cierre, -VENTANA_RECONCILIAR); // lo de acá en adelante lo cubre la reconciliación
+      if (!est.icBackfill) est.icBackfill = { cursor: L.mesDe(tope), completo: false };
+      while (!est.icBackfill.completo && restante() > 45000) {
+        const mes = est.icBackfill.cursor;
+        const ini = mes + '-01' < IC_DESDE ? IC_DESDE : mes + '-01';
+        const finMes = L.ultimoDiaMes(mes);
+        const fin = finMes > tope ? tope : finMes;
+        if (ini <= fin && ini >= est.cobertura.min) {
+          const crudas = await L.pedirFacturas({ Status: '1', Invalid: '0', TransDate__gte: ini, TransDate__lte: fin });
+          const porDia = agrupar(crudas);
+          const dias = L.diasEntre(ini, fin);
+          await L.enLotes(dias, 6, async (d) => {
+            const nuevo = (porDia[d] || []).slice().sort((a, b) => a.k - b.k);
+            const actual = await L.leerDia(d);
+            if (!actual) return; // día sin archivo: lo resuelve la reconciliación / carga
+            const viejo = actual.f.slice().sort((a, b) => a.k - b.k);
+            if (JSON.stringify(viejo) !== JSON.stringify(nuevo)) { await L.escribirDia(d, porDia[d] || []); reporte.icDiasReescritos = (reporte.icDiasReescritos || 0) + 1; }
+          });
+        }
+        reporte.icMes = mes;
+        if (mes <= L.mesDe(IC_DESDE)) est.icBackfill.completo = true; else est.icBackfill.cursor = L.mesAnterior(mes);
+        await L.escribirEstado(est);
+      }
+    }
+
     // 5) espejo en Hostinger
     if (restante() > 15000) {
       try { reporte.espejo = await sincronizarEspejo({ presupuestoMs: Math.max(5000, restante() - 8000), prefijos: ['facturas/'] }); }
@@ -136,7 +167,9 @@ module.exports = async function handler(req, res) {
     const esCron = !!process.env.CRON_SECRET && authHeader === 'Bearer ' + process.env.CRON_SECRET;
     const secret = url.searchParams.get('secret');
     const esSecret = !!secret && (secret === process.env.MAINTENANCE_SECRET || secret === process.env.STOCK_SYNC_MANUAL_SECRET);
-    if (!esCron && !esSecret) { res.status(403).json({ ok: false, error: 'secret inválido o no configurado' }); return; }
+    const ses = requerirSesion(req); // 04/11/2026: un admin con sesión del panel también puede dispararlo a mano (mismo efecto que el cron)
+    const esAdmin = !!ses && ses.rol === 'admin';
+    if (!esCron && !esSecret && !esAdmin) { res.status(403).json({ ok: false, error: 'secret inválido o no configurado' }); return; }
     res.status(200).json(Object.assign({ ok: true }, await sincronizar({ modo: url.searchParams.get('modo') || 'auto' })));
   } catch (e) {
     console.error('facturas-sincronizar:', e);

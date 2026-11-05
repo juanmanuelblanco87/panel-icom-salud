@@ -87,12 +87,15 @@ function aplanar(inv) {
     mr: inv.MedicalSalesRepresentative || null, sm: inv.SalesMan || null, si: inv.SalesManInstitution || null,
     cn: inv.CustName || null, dn: inv.DoctorName ? String(inv.DoctorName).trim() : null, cc: inv.CustCode || null, of: inv.Office || null, cu: inv.Currency || null,
     it: (inv.Items || []).map((it) => [it.ArtCode, it.Name || '', Number(it.Qty) || 0, Number(it.RowNet) || 0, Number(it.OperativeCost) || 0]),
+    // 04/11/2026 ("Vendedor Institución en Sin Vendedor aunque la institución tiene a Jorge"): Oppen deja SalesManInstitution vacío en ~la mitad de las facturas de Movilidad y Cirugía General. Para completarlo desde la ficha de la
+    // institución (api/actualizar-institucion-vendedores.js) hace falta el código de la institución: se guarda SÓLO cuando la factura no trae su vendedor de institución (el resto no lo necesita; así los archivos casi no crecen).
+    ...(!inv.SalesManInstitution && inv.Institution ? { ic: String(inv.Institution).trim() } : {}),
   };
 }
 function expandir(c) {
   return {
     internalId: c.k, SerNr: c.s, TransDate: c.d, TransTime: c.h, OperationType: c.o, MedicalSalesRepresentative: c.mr, SalesMan: c.sm, SalesManInstitution: c.si,
-    CustName: c.cn, DoctorName: c.dn || null, CustCode: c.cc, Office: c.of, Currency: c.cu,
+    CustName: c.cn, DoctorName: c.dn || null, CustCode: c.cc, Office: c.of, Currency: c.cu, Institution: c.ic || null,
     Items: c.it.map((i) => ({ ArtCode: i[0], Name: i[1], Qty: i[2], RowNet: i[3], OperativeCost: i[4] })),
   };
 }
@@ -248,5 +251,5 @@ async function leerFacturasLedger(desde, hasta) {
 
 module.exports = {
   DESDE_DEFAULT, hoyISO, sumarDias, diasEntre, mesDe, ultimoDiaMes, mesAnterior, diaDe,
-  pedirFacturas, esValida, aplanar, expandir, listarDias, leerDia, escribirDia, leerEstado, escribirEstado, enLotes,
+  oppenGet, pedirFacturas, esValida, aplanar, expandir, listarDias, leerDia, escribirDia, leerEstado, escribirEstado, enLotes,
   planificarSegmentos, leerFacturasLedger, escribirReciente, leerFacturasReciente, motivoError: () => ultimoError, };

@@ -162,6 +162,30 @@ async function fetchCustomerGruposMap() { return (await leerCustomerGruposBlob()
 // 29/10/2026 ("Por Sub-Grupo de Clientes"): CustCode -> SubGroupCode de Oppen (lo arma el mismo cron, ver api/actualizar-customer-grupos.js). Sin dato = el cliente no tiene sub-grupo cargado.
 async function fetchCustomerSubGruposMap() { return (await leerCustomerGruposBlob()).mapaSub; }
 
+// 04/11/2026 ("completalo desde la ficha"): Oppen deja SalesManInstitution vacío en ~la mitad de las facturas de Movilidad y Cirugía General aunque la ficha de la institución (Customer.SalesMan del código Invoice.Institution) sí tiene
+// vendedor. api/actualizar-institucion-vendedores.js arma ese mapa { codigoInstitucion: vendedor } en un blob chico y acá se usa SÓLO cuando la factura no trae su propio vendedor de institución. Mismo cuidado que el mapa de grupos:
+// si el blob no existe o falla la lectura se sigue sin completar nada (queda "Sin Vendedor" como antes).
+const INSTITUCION_VEND_BLOB_PATHNAME = 'institucion_vendedores.json';
+let institucionVendCache = null; // { mapa: {codigo: vendedor}, completo, cachedAt }
+async function fetchInstitucionVendedoresMap() {
+  const now = Date.now();
+  if (institucionVendCache && now - institucionVendCache.cachedAt < CUSTOMER_GRUPOS_CACHE_MS) return institucionVendCache.mapa;
+  let mapa = {};
+  let completo = false;
+  try {
+    const info = await headBlob(INSTITUCION_VEND_BLOB_PATHNAME);
+    const r = await fetch(info.url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    Object.entries((data && data.v) || {}).forEach(([cod, e]) => { if (e && e.s) mapa[cod] = e.s; });
+    completo = Object.keys((data && data.v) || {}).length > 0 && !(Array.isArray(data && data.p) && data.p.length > 0); // sin fichas pendientes en la cola del cron
+  } catch (e) { mapa = {}; completo = false; }
+  institucionVendCache = { mapa, completo, cachedAt: now };
+  return mapa;
+}
+// Mientras el mapa está incompleto (vacío o con fichas por consultar) NO conviene que el borde de Vercel guarde un día entero un mes cerrado a medio completar: ver el Cache-Control de los meses cerrados más abajo.
+function institucionVendCompleto() { return !!(institucionVendCache && institucionVendCache.completo); }
+
 // Cache de token en memoria del proceso serverless. Sobrevive entre invocaciones
 // mientras la instancia esté "warm" (típico en polls frecuentes cada 5 min).
 let cachedToken = null;
@@ -631,6 +655,7 @@ module.exports = async function handler(req, res) {
     const tokenOppen = async () => _tokenOppen || (_tokenOppen = await getToken());
     const customerGruposMap = await fetchCustomerGruposMap();
     const customerSubGruposMap = await fetchCustomerSubGruposMap();
+    const institucionVendMap = await fetchInstitucionVendedoresMap();
     // Por defecto, mes en curso. Se puede pedir un rango puntual (para
     // recuperar un mes ya cerrado, ej. si se perdió el IndexedDB al mudar de
     // proyecto de Vercel) pasando ?from=YYYY-MM-DD&to=YYYY-MM-DD.
@@ -646,7 +671,8 @@ module.exports = async function handler(req, res) {
     // mientras se refresca en segundo plano si alguna vez se pide de nuevo
     // después de vencido, para no dejar a nadie esperando el escaneo completo.
     if (isFullyClosedPastMonth(toDate)) {
-      res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=604800');
+      // 04/11/2026: con el mapa de vendedores de institución incompleto el mes se guarda sólo 5 min (si no, quedaría un día entero con ventas sin completar).
+      res.setHeader('Cache-Control', institucionVendCompleto() ? 'public, s-maxage=86400, stale-while-revalidate=604800' : 'public, s-maxage=300, stale-while-revalidate=300');
     } else if (!url.searchParams.get('from') && !url.searchParams.get('to')) {
       // Juan Manuel, 05/08/2026 (análisis de performance -- "tarda mucho...
       // incluso en información que debería estar pre-cargada"): pedido SIN
@@ -779,9 +805,15 @@ module.exports = async function handler(req, res) {
         const vendedorCliente = unidadNegocio === 'cirugia_estetica'
           ? normalizeVendedor(inv.MedicalSalesRepresentative, unidadNegocio)
           : normalizeVendedor(inv.SalesMan, unidadNegocio);
-        const vendedorInstitucion = unidadNegocio === 'cirugia_estetica'
+        let vendedorInstitucion = unidadNegocio === 'cirugia_estetica'
           ? normalizeVendedor(inv.MedicalSalesRepresentative, unidadNegocio)
           : normalizeVendedor(inv.SalesManInstitution, unidadNegocio);
+        // 04/11/2026: si la factura NO trae vendedor de institución (campo vacío; si trae uno, aunque sea de los descartados, manda el de la factura) en Movilidad / Cirugía General, se usa el vendedor de la ficha de la institución.
+        if (vendedorInstitucion === 'Sin Vendedor' && (unidadNegocio === 'movilidad' || unidadNegocio === 'cirugia_general')
+            && !String(inv.SalesManInstitution || '').trim() && inv.Institution) {
+          const deFicha = institucionVendMap[String(inv.Institution).trim()];
+          if (deFicha) vendedorInstitucion = normalizeVendedor(deFicha, unidadNegocio);
+        }
         const cliente = inv.CustName ? String(inv.CustName).trim() : 'Sin Cliente';
         // 20/10/2026 ("agregale a Cirugía y a Cirugía Estética la facturación por Nombre de Médico"): la factura trae DoctorName (confirmado contra producción: ~44% de las de Ethicon y ~97% de las de
         // Cirugía Estética). Vacío = null, en el tablero se agrupa como "Sin médico".
