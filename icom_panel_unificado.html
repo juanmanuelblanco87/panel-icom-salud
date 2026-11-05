@@ -7465,8 +7465,12 @@ function pnlFmtM(v){
 // unidades, no sólo Cirugía General) -- barato de recalcular (unos pocos
 // fetches más, una sola vez) y mucho más simple/robusto que tratar de
 // invalidar sólo las entradas de una unidad puntual.
+// 05/11/2026 ("forzalo para todos"): Vendedor Institución ahora se completa desde la ficha de la institución (api/oppen-invoices.js), así que los meses
+// cerrados de Movilidad y Cirugía General que cada PC ya tenía cacheados quedaron con "Sin Vendedor" viejo. v3 SOLO para esas dos unidades (las otras no
+// cambian). Los meses cerrados de este año vienen del libro de facturas / caché del servidor (no de Oppen en vivo), así que re-pedirlos es barato.
 function dashMonthlyCacheKey(channel, year, monthNum){
-  return 'dash_mensual_v2_'+channel+'_'+year+'_'+String(monthNum).padStart(2,'0');
+  const ver = (channel === 'movilidad' || channel === 'cirugia_general') ? 'v3' : 'v2';
+  return 'dash_mensual_'+ver+'_'+channel+'_'+year+'_'+String(monthNum).padStart(2,'0');
 }
 
 // Mismo motivo que erpScheduleIcomMonthlyCharts (ver comentario grande ahí,
